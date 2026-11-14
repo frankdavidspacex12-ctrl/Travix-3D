@@ -537,10 +537,12 @@ async function saveEntry(e, data){
 function goEntry(id){ setTab('bitacora'); logFilter.q = ''; logFilter.status = ''; logFilter.person = ''; renderDoc('bitacora'); setTimeout(() => $('entry-' + id)?.scrollIntoView({ block: 'start' }), 50); }
 
 const logFilter = { q: '', status: '', person: '' };
+let newEntryAt = 'top';   // dónde se abre el formulario de nueva entrada: arriba o al final de la lista
+function newEntry(at){ newEntryAt = at; openEntryEditor(null); }
 function logBlock(){
   const card = el('section','doc-sec'); card.id = 'sec-log';
   const head = el('div','sec-head'); head.append(el('h3','','3. Cronología de actividades'));
-  const actions = el('div','sec-actions'); if (!editors.has('__new')) actions.append(btn('+ Nueva entrada', () => openEntryEditor(null), 'primary'));
+  const actions = el('div','sec-actions'); if (!editors.has('__new')) actions.append(btn('+ Nueva entrada', () => newEntry('top'), 'primary'));
   head.append(actions); card.append(head);
   card.append(el('p','hint','Una entrada por acción relevante, con el formato de la sección 5. Fecha y autor del registro los pone el servidor; editar una entrada guarda una versión nueva y conserva las anteriores.'));
   const tools = el('div','log-tools');
@@ -548,9 +550,12 @@ function logBlock(){
   const st = selector(['', ...ENTRY_STATUS.slice(1)], logFilter.status, v => { logFilter.status = v; refreshEntries(); }); st.options[0].textContent = 'Todos los estados';
   const pe = selector(['', ...PEOPLE, 'Equipo'], logFilter.person, v => { logFilter.person = v; refreshEntries(); }); pe.options[0].textContent = 'Todos los participantes';
   tools.append(q, st, pe); card.append(tools);
-  if (editors.has('__new')){ const n = el('article','entry'); n.id = 'entry-new'; n.append(el('h4','', 'Nueva entrada (' + nextEntryId() + ')'), editors.get('__new')); card.append(n); }
+  const newForm = () => { const n = el('article','entry'); n.id = 'entry-new'; n.append(el('h4','', 'Nueva entrada (' + nextEntryId() + ')'), editors.get('__new')); return n; };
+  if (editors.has('__new') && newEntryAt === 'top') card.append(newForm());
   const listBox = el('div'); listBox.id = 'entry-list'; card.append(listBox);
   refreshEntries(listBox);
+  if (editors.has('__new') && newEntryAt === 'bottom') card.append(newForm());
+  if (!editors.has('__new')) { const foot = el('div','sec-actions'); foot.style.marginTop = '12px'; foot.append(btn('+ Nueva entrada', () => newEntry('bottom'), 'primary')); card.append(foot); }
   return card;
 }
 function refreshEntries(box){
