@@ -306,6 +306,13 @@ function createRadialRingGeometry(
   return geo;
 }
 
+/**
+ * On-screen brightness of self-emissive effects, independent of the auto-exposure.
+ * Raise to make auroras / plumes stronger, lower to make them subtler (1 = shader's raw output).
+ */
+const AURORA_SCREEN_GAIN = 0.35;
+const PLUME_SCREEN_GAIN = 0.8;
+
 function createAtmosphereShaderMaterial(
   colorHex: string,
   intensity: number,
@@ -515,7 +522,14 @@ export class SolarSystemEngine {
   private sunFocusBoost = 0;
   private auroraMats: THREE.ShaderMaterial[] = [];
   private saturnIceRingPoints: THREE.Points | null = null;
-  private moonPlumes: Array<{ points: THREE.Points; radius: number; dir: THREE.Vector3; speed: number }> = [];
+  private moonPlumes: Array<{
+    points: THREE.Points;
+    radius: number;
+    dir: THREE.Vector3;
+    speed: number;
+    material: THREE.PointsMaterial;
+    baseColor: THREE.Color;
+  }> = [];
   private asteroidBelt: THREE.InstancedMesh | null = null;
   private kuiperBelt: THREE.InstancedMesh | null = null;
   private cometTailGroup: THREE.Group | null = null;
@@ -1908,6 +1922,8 @@ export class SolarSystemEngine {
             uniforms: {
               uTime: { value: 0 },
               uColor: { value: auroraColor },
+              // Cancels the Sun-distance auto-exposure (see updateSelfEmissiveExposure)
+              uExposureComp: { value: 1 },
             },
             vertexShader: `
               varying vec2 vUv;
@@ -1919,12 +1935,13 @@ export class SolarSystemEngine {
             fragmentShader: `
               uniform float uTime;
               uniform vec3 uColor;
+              uniform float uExposureComp;
               varying vec2 vUv;
               void main() {
                 float curtain = 0.5 + 0.5 * sin(vUv.x * 25.132 + uTime * 2.1) * cos(vUv.x * 12.566 - uTime * 1.4);
                 float vert = sin(vUv.y * 3.14159);
                 float alpha = vert * (0.18 + 0.52 * curtain);
-                gl_FragColor = vec4(uColor * (1.2 + curtain * 0.8), alpha);
+                gl_FragColor = vec4(uColor * (1.2 + curtain * 0.8) * uExposureComp, alpha);
               }
             `,
             transparent: true,
@@ -2078,6 +2095,8 @@ export class SolarSystemEngine {
             radius: mData.radius,
             dir: plumeDir,
             speed: isIo ? 0.35 : 0.28,
+            material: pMat,
+            baseColor: pMat.color.clone(),
           });
           this.disposables.push(pGeo, pMat);
         }
@@ -3434,6 +3453,25 @@ export class SolarSystemEngine {
     this.renderer.toneMappingExposure = this.currentExposure;
   }
 
+  /**
+   * Auroras and moon plumes emit their own light, but the auto-exposure scales every pixel by up to
+   * ~40x at Saturn to make up for the weak sunlight there. Applied to these effects, that gain blew
+   * them out into white "spotlights" on the poles. Dividing by the current exposure keeps their
+   * on-screen brightness constant at any distance; sunlit surfaces and atmospheres are untouched.
+   */
+  private updateSelfEmissiveExposure(): void {
+    // Exposure is only applied by the composer's OutputPass; the software-GL path renders raw values.
+    const inv = this.composer ? 1 / Math.max(this.currentExposure, 1e-3) : 1;
+    const auroraComp = AURORA_SCREEN_GAIN * inv;
+    for (const aMat of this.auroraMats) {
+      aMat.uniforms.uExposureComp.value = auroraComp;
+    }
+    const plumeComp = PLUME_SCREEN_GAIN * inv;
+    for (const plume of this.moonPlumes) {
+      plume.material.color.copy(plume.baseColor).multiplyScalar(plumeComp);
+    }
+  }
+
   private updateOrbitVisibility(dt: number): void {
     // Clean Travel: fade orbits completely to 0 during FlyTo or while focused on any planet/moon/mission
     const cleanTravelHidden =
@@ -3529,6 +3567,7 @@ export class SolarSystemEngine {
 
     this.updateFocusShadowRig();
     this.updateAstrophysicalExposure(dt);
+    this.updateSelfEmissiveExposure();
     this.updateSunVisualIntensity(dt);
 
     if (this.deepSpaceDiorama) {
