@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   ChevronLeft,
   ChevronRight,
@@ -6,7 +6,6 @@ import {
   Pause,
   Play,
   Search,
-  X,
 } from 'lucide-react';
 import {
   GuidedTour,
@@ -14,31 +13,54 @@ import {
   NASA_GUIDED_TOURS,
 } from '../data/guidedToursData';
 import type { SearchTab } from './MissionSearch';
+import { PANEL_ICON_BUTTON, PanelControls } from './PanelControls';
+import { useViewInset } from '../ui/viewInsets';
 
 interface GuidedTourBarProps {
   onSelectStep: (step: GuidedTourStep) => void;
   onOpenSearch?: (tab?: SearchTab) => void;
+  /** True while a guide's narration card is open and expanded */
+  onCardOpenChange?: (open: boolean) => void;
 }
 
 export const GuidedTourBar: React.FC<GuidedTourBarProps> = ({
   onSelectStep,
   onOpenSearch,
+  onCardOpenChange,
 }) => {
   const [menuOpen, setMenuOpen] = useState(false);
+  const [menuMinimized, setMenuMinimized] = useState(false);
   const [activeTour, setActiveTour] = useState<GuidedTour | null>(null);
+  const [cardMinimized, setCardMinimized] = useState(false);
   const [stepIdx, setStepIdx] = useState(0);
   const [autoPlay, setAutoPlay] = useState(false);
+  const cardRef = useRef<HTMLElement | null>(null);
 
   const currentStep = activeTour ? activeTour.steps[stepIdx] ?? null : null;
+
+  // Phones: the narration card sits under the header, so the 3D view keeps the target below it.
+  useViewInset('guided-tour-card', cardRef, 'top', Boolean(activeTour && currentStep));
+
+  const cardOpen = Boolean(activeTour && currentStep) && !cardMinimized;
+  useEffect(() => {
+    onCardOpenChange?.(cardOpen);
+  }, [cardOpen, onCardOpenChange]);
 
   const startTour = (tour: GuidedTour) => {
     setActiveTour(tour);
     setStepIdx(0);
     setAutoPlay(false);
+    setCardMinimized(false);
     setMenuOpen(false);
     if (tour.steps[0]) {
       onSelectStep(tour.steps[0]);
     }
+  };
+
+  const endTour = () => {
+    setAutoPlay(false);
+    setActiveTour(null);
+    setCardMinimized(false);
   };
 
   const goToStep = (nextIdx: number) => {
@@ -70,7 +92,10 @@ export const GuidedTourBar: React.FC<GuidedTourBarProps> = ({
       {/* Round Compass Trigger Button positioned cleanly next to header logo */}
       <button
         type="button"
-        onClick={() => setMenuOpen((prev) => !prev)}
+        onClick={() => {
+          setMenuMinimized(false);
+          setMenuOpen((prev) => !prev);
+        }}
         aria-expanded={menuOpen}
         aria-label="Guías interactivas NASA"
         className={`pointer-events-auto w-10 h-10 rounded-full flex items-center justify-center transition-colors cursor-pointer shrink-0 focus-visible:outline-2 focus-visible:outline-amber-400 ${
@@ -85,18 +110,24 @@ export const GuidedTourBar: React.FC<GuidedTourBarProps> = ({
 
       {/* Tour Catalog Selector Popover */}
       {menuOpen && (
-        <div className="fixed top-14 left-4 z-30 w-[min(340px,90vw)] rounded-xl travix-glass-panel overflow-hidden pointer-events-auto">
-          <div className="px-3.5 py-2.5 border-b border-white/12 flex items-center justify-between gap-2">
-            <div>
-              <div className="text-xs font-semibold text-white">
+        <div className="fixed top-14 left-2 sm:left-4 z-30 w-[min(340px,calc(100vw-1rem))] max-h-[calc(100dvh-5rem)] rounded-xl travix-glass-panel overflow-hidden pointer-events-auto flex flex-col">
+          <div
+            className={`px-3.5 py-2 flex items-center justify-between gap-2 ${
+              menuMinimized ? '' : 'border-b border-white/12'
+            }`}
+          >
+            <div className="min-w-0">
+              <div className="text-xs font-semibold text-white truncate">
                 Guías Interactivas NASA
               </div>
-              <div className="text-[10px] text-slate-300/80">
-                Recorridos científicos guiados 100% offline
-              </div>
+              {!menuMinimized && (
+                <div className="text-[11px] text-slate-200 truncate">
+                  Recorridos científicos guiados 100% offline
+                </div>
+              )}
             </div>
             <div className="flex items-center gap-1 shrink-0">
-              {onOpenSearch && (
+              {onOpenSearch && !menuMinimized && (
                 <button
                   type="button"
                   onClick={() => {
@@ -105,167 +136,205 @@ export const GuidedTourBar: React.FC<GuidedTourBarProps> = ({
                   }}
                   aria-label="Buscar planetas y misiones"
                   title="Buscar planetas, misiones o galaxia"
-                  className="p-1.5 rounded-md travix-glass-control text-amber-300 hover:text-amber-200 cursor-pointer"
+                  className={`${PANEL_ICON_BUTTON} travix-glass-control text-amber-300 hover:text-amber-200`}
                 >
                   <Search className="w-3.5 h-3.5" />
                 </button>
               )}
-              <button
-                type="button"
-                onClick={() => setMenuOpen(false)}
-                aria-label="Cerrar selector de guías"
-                className="p-1.5 rounded-md text-slate-300 hover:text-white hover:bg-white/12 cursor-pointer"
-              >
-                <X className="w-3.5 h-3.5" />
-              </button>
+              <PanelControls
+                label="selector de guías"
+                minimized={menuMinimized}
+                onToggleMinimize={() => setMenuMinimized((prev) => !prev)}
+                onClose={() => setMenuOpen(false)}
+              />
             </div>
           </div>
-          <div className="divide-y divide-white/10">
-            {NASA_GUIDED_TOURS.map((tour) => {
-              const isSelected = activeTour?.id === tour.id;
-              return (
-                <button
-                  key={tour.id}
-                  type="button"
-                  onClick={() => startTour(tour)}
-                  className={`w-full px-3.5 py-2.5 text-left transition-colors cursor-pointer flex items-center justify-between gap-2 ${
-                    isSelected ? 'bg-amber-500/16' : 'hover:bg-white/[0.07]'
-                  }`}
-                >
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2">
-                      <span
-                        className="w-2 h-2 rounded-full shrink-0"
-                        style={{ backgroundColor: tour.accentColor }}
-                        aria-hidden="true"
-                      />
-                      <span className="text-xs font-semibold text-white truncate">
-                        {tour.name}
-                      </span>
+          {!menuMinimized && (
+            <div className="divide-y divide-white/10 overflow-y-auto min-h-0">
+              {NASA_GUIDED_TOURS.map((tour) => {
+                const isSelected = activeTour?.id === tour.id;
+                return (
+                  <button
+                    key={tour.id}
+                    type="button"
+                    onClick={() => startTour(tour)}
+                    className={`w-full px-3.5 py-3 sm:py-2.5 text-left transition-colors cursor-pointer flex items-center justify-between gap-2 ${
+                      isSelected ? 'bg-amber-500/16' : 'hover:bg-white/[0.07]'
+                    }`}
+                  >
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span
+                          className="w-2 h-2 rounded-full shrink-0"
+                          style={{ backgroundColor: tour.accentColor }}
+                          aria-hidden="true"
+                        />
+                        <span className="text-xs font-semibold text-white truncate">
+                          {tour.name}
+                        </span>
+                      </div>
+                      <div className="mt-0.5 text-xs text-slate-200 truncate">
+                        {tour.subtitle}
+                      </div>
                     </div>
-                    <div className="mt-0.5 text-[11px] text-slate-300/80 truncate">
-                      {tour.subtitle}
-                    </div>
-                  </div>
-                  <span className="text-[10px] font-mono-tabular text-slate-300/85 shrink-0">
-                    {tour.steps.length} paradas
-                  </span>
-                </button>
-              );
-            })}
-          </div>
+                    <span className="text-[11px] font-mono-tabular text-slate-200 shrink-0">
+                      {tour.steps.length} paradas
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
         </div>
       )}
 
-      {/* Active Guided Tour Narration Card (Right-side, opposite left dossier) */}
+      {/* Active Guided Tour Narration Card (right side on desktop, under the header on phones) */}
       {activeTour && currentStep && (
         <aside
+          ref={cardRef}
           aria-label={`Guía NASA: ${activeTour.name}`}
-          className="fixed top-16 right-4 z-20 w-[min(340px,88vw)] rounded-xl travix-glass-panel overflow-hidden pointer-events-auto"
+          className="travix-mobile-top-sheet fixed top-16 right-4 z-20 w-[min(340px,88vw)] max-h-[calc(100dvh-9rem)] rounded-xl travix-glass-panel overflow-hidden pointer-events-auto flex flex-col"
         >
-          <div className="px-3.5 py-2 border-b border-white/12 flex items-center justify-between gap-2">
+          <div
+            className={`px-3.5 py-2 flex items-center justify-between gap-2 ${
+              cardMinimized ? '' : 'border-b border-white/12'
+            }`}
+          >
             <div className="min-w-0">
-              <div className="flex items-center gap-1.5 text-[10px] font-mono-tabular text-amber-300">
-                <span>
+              <div className="flex items-center gap-1.5 text-[11px] font-mono-tabular text-amber-300">
+                <span className="shrink-0">
                   Parada {stepIdx + 1}/{activeTour.steps.length}
                 </span>
                 <span aria-hidden="true">·</span>
                 <span className="truncate text-slate-200">
                   {activeTour.name}
                 </span>
+                {autoPlay && (
+                  <Play
+                    className="w-2.5 h-2.5 shrink-0 fill-current text-amber-300"
+                    aria-label="Reproducción automática activa"
+                  />
+                )}
               </div>
               <h3 className="mt-0.5 font-display text-xs sm:text-sm font-semibold text-white truncate">
                 {currentStep.title}
               </h3>
             </div>
             <div className="flex items-center gap-1 shrink-0">
-              {onOpenSearch && (
+              {cardMinimized ? (
+                <>
+                  {/* Keep navigating the tour while it stays out of the way */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAutoPlay(false);
+                      goToStep(stepIdx - 1);
+                    }}
+                    aria-label="Parada anterior"
+                    title="Anterior"
+                    className={PANEL_ICON_BUTTON}
+                  >
+                    <ChevronLeft className="w-4 h-4" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAutoPlay(false);
+                      goToStep(stepIdx + 1);
+                    }}
+                    aria-label="Parada siguiente"
+                    title="Siguiente"
+                    className={`${PANEL_ICON_BUTTON} text-amber-200`}
+                  >
+                    <ChevronRight className="w-4 h-4" />
+                  </button>
+                </>
+              ) : (
+                onOpenSearch && (
+                  <button
+                    type="button"
+                    onClick={() => onOpenSearch('planets')}
+                    aria-label="Buscar planetas o misiones"
+                    title="Buscar otro planeta, satélite o misión"
+                    className={`${PANEL_ICON_BUTTON} travix-glass-control text-amber-300 hover:text-amber-200`}
+                  >
+                    <Search className="w-3.5 h-3.5" />
+                  </button>
+                )
+              )}
+              <PanelControls
+                label="guía NASA"
+                minimized={cardMinimized}
+                onToggleMinimize={() => setCardMinimized((prev) => !prev)}
+                onClose={endTour}
+                closeTitle="Terminar guía NASA"
+              />
+            </div>
+          </div>
+
+          {!cardMinimized && (
+            <div className="p-3.5 space-y-2 text-xs overflow-y-auto min-h-0">
+              <div className="text-[11px] font-mono-tabular uppercase tracking-wider text-cyan-300/95">
+                {currentStep.nasaBadge}
+              </div>
+              <p className="text-slate-100 leading-relaxed">
+                {currentStep.narration}
+              </p>
+              <div className="p-2 rounded-lg travix-glass-subcard text-xs text-slate-200">
+                {currentStep.scienceFact}
+              </div>
+
+              <div className="pt-1 flex items-center justify-between gap-1.5">
                 <button
                   type="button"
-                  onClick={() => onOpenSearch('planets')}
-                  aria-label="Buscar planetas o misiones"
-                  title="Buscar otro planeta, satélite o misión"
-                  className="p-1.5 rounded-md travix-glass-control text-amber-300 hover:text-amber-200 cursor-pointer"
+                  onClick={() => {
+                    setAutoPlay(false);
+                    goToStep(stepIdx - 1);
+                  }}
+                  className="inline-flex items-center gap-1 px-2.5 py-2 sm:py-1 rounded-md travix-glass-control text-xs text-slate-100 cursor-pointer"
                 >
-                  <Search className="w-3.5 h-3.5" />
+                  <ChevronLeft className="w-3.5 h-3.5" />
+                  <span>Anterior</span>
                 </button>
-              )}
-              <button
-                type="button"
-                onClick={() => {
-                  setAutoPlay(false);
-                  setActiveTour(null);
-                }}
-                aria-label="Finalizar guía NASA"
-                className="p-1.5 rounded-md text-slate-300 hover:text-white hover:bg-white/12 cursor-pointer"
-              >
-                <X className="w-3.5 h-3.5" />
-              </button>
-            </div>
-          </div>
 
-          <div className="p-3.5 space-y-2 text-xs">
-            <div className="text-[10px] font-mono-tabular uppercase tracking-wider text-cyan-300/95">
-              {currentStep.nasaBadge}
-            </div>
-            <p className="text-slate-100 leading-relaxed">
-              {currentStep.narration}
-            </p>
-            <div className="p-2 rounded-lg travix-glass-subcard text-[11px] text-slate-200">
-              {currentStep.scienceFact}
-            </div>
+                <button
+                  type="button"
+                  onClick={() => setAutoPlay((p) => !p)}
+                  className={`inline-flex items-center gap-1 px-2.5 py-2 sm:py-1 rounded-md border text-xs cursor-pointer ${
+                    autoPlay
+                      ? 'travix-glass-control border-amber-400/55 text-amber-200'
+                      : 'travix-glass-control text-slate-100'
+                  }`}
+                >
+                  {autoPlay ? (
+                    <>
+                      <Pause className="w-3 h-3" />
+                      <span>Pausar</span>
+                    </>
+                  ) : (
+                    <>
+                      <Play className="w-3 h-3" />
+                      <span>Auto</span>
+                    </>
+                  )}
+                </button>
 
-            <div className="pt-1 flex items-center justify-between gap-1.5">
-              <button
-                type="button"
-                onClick={() => {
-                  setAutoPlay(false);
-                  goToStep(stepIdx - 1);
-                }}
-                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md travix-glass-control text-[11px] text-slate-100 cursor-pointer"
-              >
-                <ChevronLeft className="w-3.5 h-3.5" />
-                <span>Anterior</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setAutoPlay((p) => !p)}
-                className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-md border text-[11px] cursor-pointer ${
-                  autoPlay
-                    ? 'travix-glass-control border-amber-400/55 text-amber-200'
-                    : 'travix-glass-control text-slate-100'
-                }`}
-              >
-                {autoPlay ? (
-                  <>
-                    <Pause className="w-3 h-3" />
-                    <span>Pausar</span>
-                  </>
-                ) : (
-                  <>
-                    <Play className="w-3 h-3" />
-                    <span>Auto</span>
-                  </>
-                )}
-              </button>
-
-              <button
-                type="button"
-                onClick={() => {
-                  setAutoPlay(false);
-                  goToStep(stepIdx + 1);
-                }}
-                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md travix-glass-control border-amber-400/45 text-[11px] text-amber-100 cursor-pointer"
-              >
-                <span>Siguiente</span>
-                <ChevronRight className="w-3.5 h-3.5" />
-              </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAutoPlay(false);
+                    goToStep(stepIdx + 1);
+                  }}
+                  className="inline-flex items-center gap-1 px-2.5 py-2 sm:py-1 rounded-md travix-glass-control border-amber-400/45 text-xs text-amber-100 cursor-pointer"
+                >
+                  <span>Siguiente</span>
+                  <ChevronRight className="w-3.5 h-3.5" />
+                </button>
+              </div>
             </div>
-          </div>
+          )}
         </aside>
       )}
     </>
   );
 };
-

@@ -27,6 +27,7 @@ import {
   SearchTab,
 } from './components/MissionSearch';
 import { PWAControls } from './components/PWAControls';
+import { subscribeViewInsets, useViewInset } from './ui/viewInsets';
 
 // The engine pushes the simulation clock to React ~8×/s. Only ControlDock shows the clock, so
 // everything else is memoized and skips those re-renders (props below are kept referentially stable).
@@ -56,7 +57,7 @@ const PlanetLabels = memo(function PlanetLabels({
             type="button"
             ref={(el) => registerLabel(body.id, el)}
             onClick={() => onSelect(body.id)}
-            className={`fixed top-0 left-0 px-2.5 py-0.5 rounded-full text-[11px] font-medium tracking-wide transition-colors cursor-pointer focus-visible:outline-2 focus-visible:outline-amber-400 ${
+            className={`fixed top-0 left-0 px-2.5 py-0.5 rounded-full text-xs font-medium tracking-wide transition-colors cursor-pointer focus-visible:outline-2 focus-visible:outline-amber-400 ${
               isHovered
                 ? 'travix-glass-bar border-white/35 text-white'
                 : 'travix-glass-label text-slate-100/95 hover:text-white hover:border-white/30'
@@ -74,6 +75,8 @@ export default function App() {
   const canvasMountRef = useRef<HTMLDivElement | null>(null);
   const engineRef = useRef<SolarSystemEngine | null>(null);
   const labelElementsRef = useRef(new Map<CelestialBodyId, HTMLElement>());
+  const headerRef = useRef<HTMLElement | null>(null);
+  useViewInset('app-header', headerRef, 'top');
 
   const [selection, setSelection] = useState<FocusSelection | null>(null);
   const [activeDeepSpaceId, setActiveDeepSpaceId] =
@@ -98,6 +101,17 @@ export default function App() {
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [searchTab, setSearchTab] = useState<SearchTab>('surface');
   const [webglError, setWebglError] = useState(false);
+  const [isTourCardOpen, setIsTourCardOpen] = useState(false);
+  const [isPhone, setIsPhone] = useState(
+    () => window.matchMedia('(max-width: 639.98px)').matches,
+  );
+
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 639.98px)');
+    const onChange = () => setIsPhone(mq.matches);
+    mq.addEventListener('change', onChange);
+    return () => mq.removeEventListener('change', onChange);
+  }, []);
 
   const handleOpenSearch = useCallback((tab?: SearchTab) => {
     if (tab) setSearchTab(tab);
@@ -147,6 +161,31 @@ export default function App() {
     return () => {
       engine?.dispose();
       engineRef.current = null;
+    };
+  }, []);
+
+  // Phones only: tell the engine which screen bands the panels cover so the focused planet,
+  // moon or spacecraft stays fully visible in the free area. From `sm` up panels sit at the sides
+  // and the desktop framing stays exactly as before.
+  useEffect(() => {
+    const phone = window.matchMedia('(max-width: 639.98px)');
+    let latest = { top: 0, bottom: 0 };
+    const push = () => {
+      const engine = engineRef.current;
+      if (!engine) return;
+      if (phone.matches) engine.setViewInsets(latest.top, latest.bottom);
+      else engine.setViewInsets(0, 0);
+    };
+    const unsubscribe = subscribeViewInsets((insets) => {
+      latest = insets;
+      // Lets the phone bottom sheet cap its height below whatever covers the top (CSS guard)
+      document.documentElement.style.setProperty('--ui-top', `${insets.top}px`);
+      push();
+    });
+    phone.addEventListener('change', push);
+    return () => {
+      unsubscribe();
+      phone.removeEventListener('change', push);
     };
   }, []);
 
@@ -337,7 +376,7 @@ export default function App() {
   const hasActiveDossier = Boolean(selectedMission || selectedDeepSpace);
 
   return (
-    <main className="relative w-screen h-screen overflow-hidden bg-[#010204]">
+    <main className="relative w-full h-dvh overflow-hidden bg-[#010204]">
       {/* Dedicated isolated WebGL canvas mount */}
       <div
         ref={canvasMountRef}
@@ -367,7 +406,10 @@ export default function App() {
       />
 
       {/* Minimalist Top-Left Brand Logo + Guided NASA Tours Trigger */}
-      <header className="fixed top-2.5 left-4 z-20 flex items-center gap-3 pointer-events-none">
+      <header
+        ref={headerRef}
+        className="fixed top-2.5 left-2 sm:left-4 z-20 flex items-center gap-2 sm:gap-3 pointer-events-none"
+      >
         <h1 className="m-0 flex items-center shrink-0">
           <img
             src="/travix-logo.png"
@@ -379,6 +421,7 @@ export default function App() {
         <MemoGuidedTourBar
           onSelectStep={handleSelectTourStep}
           onOpenSearch={handleOpenSearch}
+          onCardOpenChange={setIsTourCardOpen}
         />
       </header>
 
@@ -402,11 +445,11 @@ export default function App() {
 
       {/* Restore Ficha / Search buttons when user closes X on Mission / Deep Space dossier */}
       {isInfoHidden && hasActiveDossier && (
-        <div className="fixed top-14 left-4 z-20 flex items-center gap-2">
+        <div className="travix-mobile-sheet fixed top-14 left-4 z-20 flex items-center gap-2">
           <button
             type="button"
             onClick={() => setIsInfoHidden(false)}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full travix-glass-bar text-xs text-slate-100 hover:text-white transition-colors cursor-pointer"
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 sm:px-3 sm:py-1.5 rounded-full travix-glass-bar text-xs text-slate-100 hover:text-white transition-colors cursor-pointer"
           >
             <FileText className="w-3.5 h-3.5 text-amber-400" />
             <span>Ver ficha</span>
@@ -424,7 +467,7 @@ export default function App() {
             }
             aria-label="Buscar otro destino"
             title="Buscar planetas, misiones o galaxia"
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full travix-glass-bar text-xs text-slate-100 hover:text-white transition-colors cursor-pointer"
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 sm:px-3 sm:py-1.5 rounded-full travix-glass-bar text-xs text-slate-100 hover:text-white transition-colors cursor-pointer"
           >
             <Search className="w-3.5 h-3.5 text-amber-400" />
             <span>Buscar</span>
@@ -446,6 +489,7 @@ export default function App() {
           onExitToOrbit={handleExitToOrbit}
           onOpenSearch={handleOpenSearch}
           onClose={handleHideInfoPanel}
+          startMinimized={isPhone && isTourCardOpen}
         />
       )}
 

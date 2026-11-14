@@ -1,17 +1,22 @@
 import React, { useState } from 'react';
-import { Download, Wifi, X } from 'lucide-react';
+import { Download, Wifi } from 'lucide-react';
 import { usePWAInstall } from '../hooks/usePWAInstall';
+import { PanelControls } from './PanelControls';
 
 export const PWAControls: React.FC = () => {
   const { canInstall, isOnline, install } = usePWAInstall();
   const [open, setOpen] = useState(false);
+  const [minimized, setMinimized] = useState(false);
 
   return (
-    <div className="fixed top-4 right-16 z-30 flex flex-col items-end gap-2 pointer-events-none">
+    <div className="fixed top-2.5 sm:top-4 right-14 sm:right-16 z-30 flex flex-col items-end gap-2 pointer-events-none">
       {/* Completely round Wi-Fi status & offline PWA button */}
       <button
         type="button"
-        onClick={() => setOpen((prev) => !prev)}
+        onClick={() => {
+          setMinimized(false);
+          setOpen((prev) => !prev);
+        }}
         aria-expanded={open}
         aria-label={
           isOnline
@@ -39,7 +44,7 @@ export const PWAControls: React.FC = () => {
       {open && (
         <div
           role="status"
-          className="pointer-events-auto w-[min(265px,82vw)] rounded-xl travix-glass-panel p-3 text-xs space-y-2"
+          className="pointer-events-auto w-[min(265px,calc(100vw-4.5rem))] rounded-xl travix-glass-panel px-3 py-2 text-xs space-y-2"
         >
           <div className="flex items-center justify-between gap-2">
             <div className="flex items-center gap-2 min-w-0">
@@ -52,34 +57,38 @@ export const PWAControls: React.FC = () => {
                 {isOnline ? 'Modo Offline Listo' : 'Modo sin internet'}
               </span>
             </div>
-            <button
-              type="button"
-              onClick={() => setOpen(false)}
-              aria-label="Cerrar estado sin internet"
-              className="p-1 rounded-md text-slate-300 hover:text-white hover:bg-white/10 cursor-pointer"
-            >
-              <X className="w-3.5 h-3.5" />
-            </button>
+            <div className="flex items-center gap-1 shrink-0">
+              <PanelControls
+                label="estado sin internet"
+                minimized={minimized}
+                onToggleMinimize={() => setMinimized((prev) => !prev)}
+                onClose={() => setOpen(false)}
+              />
+            </div>
           </div>
 
-          <p className="text-[11px] text-slate-200/90 leading-relaxed">
-            {isOnline
-              ? 'Todas las texturas 3D, modelos NASA, efemérides y fotos están guardadas localmente.'
-              : 'Operando 100% sin conexión usando modelos, texturas y archivos NASA locales.'}
-          </p>
+          {!minimized && (
+            <>
+              <p className="text-xs text-slate-100 leading-relaxed">
+                {isOnline
+                  ? 'Todas las texturas 3D, modelos NASA, efemérides y fotos están guardadas localmente.'
+                  : 'Operando 100% sin conexión usando modelos, texturas y archivos NASA locales.'}
+              </p>
 
-          {canInstall && (
-            <button
-              type="button"
-              onClick={() => {
-                void install();
-                setOpen(false);
-              }}
-              className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg travix-glass-control text-[11px] font-medium text-amber-200 hover:text-white cursor-pointer"
-            >
-              <Download className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-              <span>Instalar app offline</span>
-            </button>
+              {canInstall && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    void install();
+                    setOpen(false);
+                  }}
+                  className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-2 sm:py-1.5 rounded-lg travix-glass-control text-xs font-medium text-amber-200 hover:text-white cursor-pointer"
+                >
+                  <Download className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                  <span>Instalar app offline</span>
+                </button>
+              )}
+            </>
           )}
         </div>
       )}

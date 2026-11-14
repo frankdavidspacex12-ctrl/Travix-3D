@@ -582,6 +582,14 @@ export class SolarSystemEngine {
   private labelsAllHidden = false;
   private viewportW = 0;
   private viewportH = 0;
+  /** Screen area covered by UI panels (CSS px), reported by the React layer on phones */
+  private viewInsetTop = 0;
+  private viewInsetBottom = 0;
+  /** Current (damped) vertical shift of the projection centre, in CSS px */
+  private viewShiftPx = 0;
+  private appliedViewShift = { shift: 0, w: 0, h: 0 };
+  /** Fit factor the current tracked camera distance corresponds to (see updateFramingZoom) */
+  private appliedFitFactor = 1;
   private roomEnvTex: THREE.Texture | null = null;
   private showOrbits = false;
   private currentOrbitOpacity = 0;
@@ -644,7 +652,7 @@ export class SolarSystemEngine {
     pmremGenerator.dispose();
 
     this.camera = new THREE.PerspectiveCamera(45, width / height, 0.05, 190000);
-    this.camera.position.copy(OVERVIEW_CAM_POS);
+    this.camera.position.copy(this.getOverviewCamPos(_vec3A));
 
     this.controls = new OrbitControls(this.camera, this.renderer.domElement);
     this.controls.enableDamping = !this.isSoftwareGl;
@@ -3177,12 +3185,12 @@ export class SolarSystemEngine {
     this.clearActive8KUpgrade();
     if (this.deepSpaceDiorama) {
       this.exitDeepSpaceMode();
-      this.camera.position.copy(OVERVIEW_CAM_POS);
+      this.camera.position.copy(this.getOverviewCamPos(_vec3A));
       this.controls.target.copy(OVERVIEW_TARGET);
     }
     if (this.surfaceDiorama) {
       this.exitSurfaceMode();
-      this.camera.position.copy(OVERVIEW_CAM_POS);
+      this.camera.position.copy(this.getOverviewCamPos(_vec3A));
       this.controls.target.copy(OVERVIEW_TARGET);
     }
     this.focusedBodyId = null;
@@ -3190,7 +3198,7 @@ export class SolarSystemEngine {
     this.focusedMissionId = null;
     this.isFlying = true;
     this.isTracking = false;
-    this.flightTargetPos.copy(OVERVIEW_CAM_POS);
+    this.getOverviewCamPos(this.flightTargetPos);
     this.flightLookTarget.copy(OVERVIEW_TARGET);
     this.controls.minDistance = 16.0;
     this.updateBeaconVisibilities();
@@ -3225,6 +3233,110 @@ export class SolarSystemEngine {
     this.showOrbits = show;
   }
 
+  /**
+   * Tells the engine how much of the screen the UI covers at the top / bottom (CSS px). The
+   * projection centre then glides to the middle of the uncovered band, so the focused body stays
+   * fully visible next to open panels, and new fly-tos frame it to fit that band.
+   * Camera position, lighting and the simulation are unaffected.
+   */
+  public setViewInsets(top: number, bottom: number): void {
+    this.viewInsetTop = Math.max(0, top);
+    this.viewInsetBottom = Math.max(0, bottom);
+  }
+
+  /** Free (uncovered) viewport band, never smaller than 30% of the screen. */
+  private getFreeViewBand(): { top: number; height: number } {
+    const h = this.viewportH || window.innerHeight;
+    const minFree = h * 0.3;
+    let top = this.viewInsetTop;
+    let bottom = this.viewInsetBottom;
+    const covered = top + bottom;
+    if (h - covered < minFree && covered > 0) {
+      const scale = (h - minFree) / covered;
+      top *= scale;
+      bottom *= scale;
+    }
+    return { top, height: h - top - bottom };
+  }
+
+  private updateViewOffset(dt: number): void {
+    const w = this.viewportW || window.innerWidth;
+    const h = this.viewportH || window.innerHeight;
+    const band = this.getFreeViewBand();
+    // Positive = body drawn lower than the screen centre.
+    const targetShift = band.top + band.height / 2 - h / 2;
+    this.viewShiftPx = THREE.MathUtils.damp(this.viewShiftPx, targetShift, 6, dt);
+    if (Math.abs(this.viewShiftPx - targetShift) < 0.25) this.viewShiftPx = targetShift;
+
+    const applied = this.appliedViewShift;
+    if (
+      Math.abs(applied.shift - this.viewShiftPx) < 0.05 &&
+      applied.w === w &&
+      applied.h === h
+    ) {
+      return;
+    }
+    applied.shift = this.viewShiftPx;
+    applied.w = w;
+    applied.h = h;
+    if (Math.abs(this.viewShiftPx) < 0.05) {
+      this.camera.clearViewOffset();
+    } else {
+      // Rendering a window shifted up by `shift` inside a same-size virtual view moves content down.
+      this.camera.setViewOffset(w, h, 0, -this.viewShiftPx, w, h);
+    }
+  }
+
+  /**
+   * Extra camera distance so a framed body fits the shorter side of the visible band: 1 on a
+   * landscape screen with no panels (desktop framing unchanged), larger on portrait phones so
+   * wide bodies such as Saturn's rings are not cut at the sides.
+   */
+  private getFramingFitFactor(): number {
+    const w = this.viewportW || window.innerWidth;
+    const h = this.viewportH || window.innerHeight;
+    const band = this.getFreeViewBand();
+    const limiting = Math.min(w, band.height);
+    if (limiting <= 0) return 1;
+    const raw = h / limiting;
+    // Small breathing margin once we are fitting a narrower side, so ring tips don't touch edges.
+    return THREE.MathUtils.clamp(raw > 1.001 ? raw * 1.12 : 1, 1, 3.6);
+  }
+
+  /**
+   * While a body is tracked, follow changes of the free band (a panel opened, minimized or closed)
+   * by scaling the current camera distance by the change in fit factor, smoothly. The user's own
+   * pinch / wheel zoom is kept: only the panel-induced ratio is applied.
+   */
+  private updateFramingZoom(dt: number): void {
+    const fit = this.getFramingFitFactor();
+    const tracking =
+      this.isTracking &&
+      this.focusedBodyId !== null &&
+      !this.surfaceDiorama &&
+      !this.deepSpaceDiorama;
+    if (!tracking || this.isFlying) {
+      this.appliedFitFactor = fit;
+      return;
+    }
+    let next = THREE.MathUtils.damp(this.appliedFitFactor, fit, 5, dt);
+    if (Math.abs(next - fit) < 1e-4) next = fit;
+    if (next === this.appliedFitFactor) return;
+    const ratio = next / this.appliedFitFactor;
+    this.appliedFitFactor = next;
+    _vec3A
+      .subVectors(this.camera.position, this.controls.target)
+      .multiplyScalar(ratio);
+    this.camera.position.copy(this.controls.target).add(_vec3A);
+  }
+
+  /** Overview camera spot, pulled back on portrait screens (capped so planets don't become specks). */
+  private getOverviewCamPos(out: THREE.Vector3): THREE.Vector3 {
+    return out
+      .copy(OVERVIEW_CAM_POS)
+      .multiplyScalar(Math.min(this.getFramingFitFactor(), 1.9));
+  }
+
   public registerLabelElement(
     id: CelestialBodyId,
     element: HTMLElement | null,
@@ -3246,7 +3358,7 @@ export class SolarSystemEngine {
     isSaturn: boolean,
     out: THREE.Vector3,
   ): void {
-    const dist = radius * distanceFactor;
+    const dist = radius * distanceFactor * this.getFramingFitFactor();
     if (isSun) {
       out.set(dist * 0.45, dist * 0.32, dist * 0.85);
       return;
@@ -3499,6 +3611,8 @@ export class SolarSystemEngine {
   }
 
   private updateSimulation(dt: number): void {
+    this.updateViewOffset(dt);
+    this.updateFramingZoom(dt);
     if (!this.isPaused) {
       this.simEpochMs += dt * 1000 * this.timeMultiplier;
     }
@@ -3651,8 +3765,8 @@ export class SolarSystemEngine {
             _vec3B
               .set(-_vec3D.z, 0.25, _vec3D.x)
               .normalize()
-              .multiplyScalar(r * 0.55)
-              .addScaledVector(_vec3D, r * 1.45);
+              .multiplyScalar(r * 0.55 * this.getFramingFitFactor())
+              .addScaledVector(_vec3D, r * 1.45 * this.getFramingFitFactor());
 
             this.flightLookTarget.copy(targetMissionBeacon.currentWorldPos);
             this.flightTargetPos

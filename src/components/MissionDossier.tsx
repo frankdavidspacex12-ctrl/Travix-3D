@@ -1,10 +1,11 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Box,
   Camera,
   ExternalLink,
   Eye,
   HardDrive,
+  Minus,
   Moon,
   Orbit,
   Search,
@@ -22,6 +23,8 @@ import {
 import { DeepSpaceTarget } from '../data/solarSystemData';
 import type { SurfaceCameraMode } from '../three/surfaceDiorama';
 import type { SearchTab } from './MissionSearch';
+import { PANEL_ICON_BUTTON, PanelControls } from './PanelControls';
+import { useViewInset } from '../ui/viewInsets';
 
 interface MissionDossierProps {
   mission?: AbandonedMission | null;
@@ -35,6 +38,8 @@ interface MissionDossierProps {
   onExitToOrbit: () => void;
   onOpenSearch?: (tab?: SearchTab) => void;
   onClose: () => void;
+  /** Phones with the guide card open: the guide already narrates, so start as a slim bar */
+  startMinimized?: boolean;
 }
 
 export const MissionDossier: React.FC<MissionDossierProps> = ({
@@ -49,11 +54,25 @@ export const MissionDossier: React.FC<MissionDossierProps> = ({
   onExitToOrbit,
   onOpenSearch,
   onClose,
+  startMinimized = false,
 }) => {
   const [showGalleryModal, setShowGalleryModal] = useState(false);
+  /** Gallery kept alive (open photo included) but hidden; restored from the dossier */
+  const [isGalleryMinimized, setIsGalleryMinimized] = useState(false);
+  const [isMinimized, setIsMinimized] = useState(false);
   const [lightboxPhoto, setLightboxPhoto] = useState<OfflineNasaPhoto | null>(
     null,
   );
+  const asideRef = useRef<HTMLElement | null>(null);
+  const startMinimizedRef = useRef(startMinimized);
+  startMinimizedRef.current = startMinimized;
+  // The guide card opening (phones) makes room by folding the dossier into its header bar.
+  useEffect(() => {
+    if (startMinimized) setIsMinimized(true);
+  }, [startMinimized]);
+  const hasTarget = Boolean(mission || deepSpaceTarget);
+  // Phones: the dossier is a bottom sheet, so the 3D view keeps the target above it.
+  useViewInset('mission-dossier', asideRef, 'bottom', hasTarget);
 
   const activeKey = mission?.id ?? deepSpaceTarget?.id ?? '';
   const activeName = mission?.name ?? deepSpaceTarget?.name ?? '';
@@ -67,8 +86,23 @@ export const MissionDossier: React.FC<MissionDossierProps> = ({
 
   useEffect(() => {
     setShowGalleryModal(false);
+    setIsGalleryMinimized(false);
+    setIsMinimized(startMinimizedRef.current);
     setLightboxPhoto(null);
   }, [activeKey]);
+
+  const openGallery = () => {
+    setShowGalleryModal(true);
+    setIsGalleryMinimized(false);
+  };
+
+  const closeGallery = () => {
+    setShowGalleryModal(false);
+    setIsGalleryMinimized(false);
+    setLightboxPhoto(null);
+  };
+
+  const galleryParked = showGalleryModal && isGalleryMinimized;
 
   const photos = useMemo(() => {
     if (!showGalleryModal || !activeKey) return [];
@@ -87,12 +121,17 @@ export const MissionDossier: React.FC<MissionDossierProps> = ({
     <>
       {/* Compact Left-Side Historical / Astrophysical Text Card */}
       <aside
+        ref={asideRef}
         aria-label={`Información de ${activeName}`}
-        className="fixed top-14 left-4 z-20 w-[min(320px,86vw)] max-h-[calc(100vh-145px)] rounded-xl travix-glass-panel flex flex-col overflow-hidden"
+        className="travix-mobile-sheet fixed top-14 left-4 z-20 w-[min(320px,86vw)] max-h-[calc(100dvh-145px)] rounded-xl travix-glass-panel flex flex-col overflow-hidden"
       >
-        <div className="px-3.5 py-2.5 border-b border-white/12 flex items-start justify-between gap-2">
+        <div
+          className={`px-3.5 py-2 flex items-center justify-between gap-2 ${
+            isMinimized ? '' : 'border-b border-white/12'
+          }`}
+        >
           <div className="min-w-0">
-            <div className="flex items-center gap-1.5 text-[11px] text-slate-200/85">
+            <div className="flex items-center gap-1.5 text-xs text-slate-100">
               <span className="truncate">
                 {mission ? mission.destinationLabel : deepSpaceTarget?.distanceLabel}
               </span>
@@ -109,43 +148,54 @@ export const MissionDossier: React.FC<MissionDossierProps> = ({
           </div>
 
           <div className="flex items-center gap-1 shrink-0">
+            {galleryParked && (
+              <button
+                type="button"
+                onClick={openGallery}
+                aria-label="Volver a las fotos NASA"
+                title="Volver a las fotos NASA"
+                className={`${PANEL_ICON_BUTTON} travix-glass-control text-amber-300`}
+              >
+                <Camera className="w-4 h-4" />
+              </button>
+            )}
             {onOpenSearch && (
               <button
                 type="button"
                 onClick={() => onOpenSearch(preferredSearchTab)}
                 aria-label="Buscar misiones, planetas o galaxia"
                 title="Buscar otro destino o misión"
-                className="p-1.5 rounded-md travix-glass-control text-amber-300 hover:text-amber-200 cursor-pointer"
+                className={`${PANEL_ICON_BUTTON} travix-glass-control text-amber-300 hover:text-amber-200`}
               >
                 <Search className="w-3.5 h-3.5" />
               </button>
             )}
-            <button
-              type="button"
-              onClick={onClose}
-              aria-label="Ocultar ficha y seguir viendo en 3D"
-              title="Ocultar ficha (seguir viendo en 3D)"
-              className="p-1.5 rounded-md text-slate-300 hover:text-white hover:bg-white/12 transition-colors cursor-pointer"
-            >
-              <X className="w-4 h-4" />
-            </button>
+            <PanelControls
+              label={`ficha de ${activeName}`}
+              minimized={isMinimized}
+              onToggleMinimize={() => setIsMinimized((prev) => !prev)}
+              onClose={onClose}
+              closeTitle="Cerrar ficha (seguir viendo en 3D)"
+              expandDirection="responsive"
+            />
           </div>
         </div>
 
-        <div className="p-3.5 overflow-y-auto space-y-2.5 text-xs">
+        {!isMinimized && (
+        <div className="p-3.5 overflow-y-auto min-h-0 space-y-2.5 text-xs">
           {searchContext && (
             <div className="p-2.5 rounded-lg travix-glass-subcard border-amber-400/35">
-              <div className="text-[10px] font-semibold uppercase tracking-wider text-amber-300">
+              <div className="text-[11px] font-semibold uppercase tracking-wider text-amber-300">
                 Respuesta · {searchContext.headline}
               </div>
-              <p className="mt-0.5 text-[11px] text-slate-100 leading-relaxed">
+              <p className="mt-0.5 text-xs text-slate-100 leading-relaxed">
                 {searchContext.answer}
               </p>
             </div>
           )}
 
           <div>
-            <div className="text-[11px] font-medium text-amber-300/95">
+            <div className="text-xs font-medium text-amber-300/95">
               {mission ? 'Qué misiones hizo' : 'Qué es y estructura'}
             </div>
             <p className="mt-0.5 text-slate-100 leading-relaxed">
@@ -154,7 +204,7 @@ export const MissionDossier: React.FC<MissionDossierProps> = ({
           </div>
 
           <div>
-            <div className="text-[11px] font-medium text-amber-300/95">
+            <div className="text-xs font-medium text-amber-300/95">
               Por qué es tan importante
             </div>
             <p className="mt-0.5 text-slate-100 leading-relaxed">
@@ -164,7 +214,7 @@ export const MissionDossier: React.FC<MissionDossierProps> = ({
 
           {mission && (
             <div>
-              <div className="text-[11px] font-medium text-amber-300/95">
+              <div className="text-xs font-medium text-amber-300/95">
                 Estado hoy
               </div>
               <p className="mt-0.5 text-slate-100 leading-relaxed">
@@ -175,7 +225,7 @@ export const MissionDossier: React.FC<MissionDossierProps> = ({
 
           {leftBehindNote && (
             <div>
-              <div className="text-[11px] font-medium text-amber-300/95">
+              <div className="text-xs font-medium text-amber-300/95">
                 {mission?.id === 'perseverance'
                   ? 'Qué pasó con Ingenuity'
                   : 'Por qué se quedó allí'}
@@ -188,14 +238,14 @@ export const MissionDossier: React.FC<MissionDossierProps> = ({
 
           {mission?.farewellMessage && (
             <div className="p-2.5 rounded-lg travix-glass-subcard">
-              <div className="text-[11px] font-medium text-amber-300/95">
+              <div className="text-xs font-medium text-amber-300/95">
                 {leftBehindNote?.farewellNote ? 'Frase que se le atribuye' : 'Su historia en una frase'}
               </div>
               <p className="mt-0.5 text-slate-100 leading-relaxed italic">
                 {mission.farewellMessage}
               </p>
               {leftBehindNote?.farewellNote && (
-                <p className="mt-1 text-[10.5px] text-amber-100/90 leading-relaxed">
+                <p className="mt-1 text-[11px] text-amber-100/90 leading-relaxed">
                   ⚠ {leftBehindNote.farewellNote}
                 </p>
               )}
@@ -204,8 +254,8 @@ export const MissionDossier: React.FC<MissionDossierProps> = ({
 
           {leftBehindNote && leftBehindNote.sources.length > 0 && (
             <div>
-              <div className="text-[11px] font-medium text-amber-300/95">
-                Fuentes NASA <span className="text-slate-300/75 font-normal">(requieren internet)</span>
+              <div className="text-xs font-medium text-amber-300/95">
+                Fuentes NASA <span className="text-slate-200 font-normal">(requieren internet)</span>
               </div>
               <ul className="mt-0.5 space-y-0.5">
                 {leftBehindNote.sources.map((source) => (
@@ -226,11 +276,11 @@ export const MissionDossier: React.FC<MissionDossierProps> = ({
           )}
 
           {deepSpaceTarget && (
-            <div className="pt-2 border-t border-white/12 space-y-1 text-[11px]">
+            <div className="pt-2 border-t border-white/12 space-y-1 text-xs">
               <div className="font-mono-tabular text-slate-200">
                 {deepSpaceTarget.physicalScaleLabel}
               </div>
-              <div className="text-slate-300/85">
+              <div className="text-slate-200">
                 Observatorios: {deepSpaceTarget.nasaObservatories}
               </div>
             </div>
@@ -238,7 +288,7 @@ export const MissionDossier: React.FC<MissionDossierProps> = ({
 
           {mission && (
             <>
-              <div className="pt-2 border-t border-white/12 flex items-center justify-between gap-2 text-[11px] text-slate-300/85">
+              <div className="pt-2 border-t border-white/12 flex items-center justify-between gap-2 text-xs text-slate-200">
                 <span className="font-mono-tabular truncate">
                   {mission.launchDate} — {mission.lastContactDate}
                 </span>
@@ -259,8 +309,10 @@ export const MissionDossier: React.FC<MissionDossierProps> = ({
                 )}
               </div>
 
-              <div className="font-mono-tabular text-[10px] text-slate-300/80">
-                {mission.region} · {formatCoordinates(mission.latDeg, mission.lonDeg)}
+              <div className="font-mono-tabular text-[11px] text-slate-200">
+                {mission.missionRole === 'surface'
+                  ? `${mission.region} · ${formatCoordinates(mission.latDeg, mission.lonDeg)}`
+                  : mission.region}
               </div>
             </>
           )}
@@ -272,7 +324,7 @@ export const MissionDossier: React.FC<MissionDossierProps> = ({
                 <button
                   type="button"
                   onClick={() => onChangeSurfaceView('rover')}
-                  className={`inline-flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-lg text-[11px] font-medium border transition-colors cursor-pointer ${
+                  className={`inline-flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-lg text-xs font-medium border transition-colors cursor-pointer ${
                     surfaceViewMode === 'rover'
                       ? 'bg-amber-500/24 border-amber-400/55 text-amber-100'
                       : 'travix-glass-control text-slate-200 hover:text-white'
@@ -284,7 +336,7 @@ export const MissionDossier: React.FC<MissionDossierProps> = ({
                 <button
                   type="button"
                   onClick={() => onChangeSurfaceView('pov')}
-                  className={`inline-flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-lg text-[11px] font-medium border transition-colors cursor-pointer ${
+                  className={`inline-flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-lg text-xs font-medium border transition-colors cursor-pointer ${
                     surfaceViewMode === 'pov'
                       ? 'bg-amber-500/24 border-amber-400/55 text-amber-100'
                       : 'travix-glass-control text-slate-200 hover:text-white'
@@ -299,16 +351,18 @@ export const MissionDossier: React.FC<MissionDossierProps> = ({
             <div className="grid grid-cols-2 gap-1.5">
               <button
                 type="button"
-                onClick={() => setShowGalleryModal(true)}
-                className="inline-flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-lg travix-glass-control text-[11px] text-slate-100 cursor-pointer"
+                onClick={openGallery}
+                className={`inline-flex items-center justify-center gap-1.5 px-2 py-2 sm:py-1.5 rounded-lg travix-glass-control text-xs cursor-pointer ${
+                  galleryParked ? 'border-amber-400/55 text-amber-100' : 'text-slate-100'
+                }`}
               >
                 <Camera className="w-3.5 h-3.5 text-amber-400" />
-                <span>Fotos NASA</span>
+                <span>{galleryParked ? 'Volver a fotos' : 'Fotos NASA'}</span>
               </button>
               <button
                 type="button"
                 onClick={onExitToOrbit}
-                className="inline-flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-lg travix-glass-control text-[11px] text-slate-100 cursor-pointer"
+                className="inline-flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-lg travix-glass-control text-xs text-slate-100 cursor-pointer"
               >
                 <Orbit className="w-3.5 h-3.5 text-cyan-400" />
                 <span>{mission ? 'Ver planeta' : 'Sistema'}</span>
@@ -319,7 +373,7 @@ export const MissionDossier: React.FC<MissionDossierProps> = ({
               <button
                 type="button"
                 onClick={onViewMilkyWay}
-                className="inline-flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-lg travix-glass-control text-[11px] text-slate-100 cursor-pointer"
+                className="inline-flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-lg travix-glass-control text-xs text-slate-100 cursor-pointer"
               >
                 <Sparkles className="w-3.5 h-3.5 text-indigo-300" />
                 <span>Mapa Vía Láctea</span>
@@ -327,23 +381,21 @@ export const MissionDossier: React.FC<MissionDossierProps> = ({
             )}
           </div>
         </div>
+        )}
       </aside>
 
       {/* 100% Offline NASA Archival Photo Gallery Modal */}
-      {showGalleryModal && (
+      {showGalleryModal && !isGalleryMinimized && (
         <div
           role="dialog"
           aria-modal="true"
           aria-label={`Archivo fotográfico NASA de ${activeName}`}
-          onClick={() => {
-            setShowGalleryModal(false);
-            setLightboxPhoto(null);
-          }}
-          className="fixed inset-0 z-40 bg-black/72 backdrop-blur-sm flex items-center justify-center p-4"
+          onClick={closeGallery}
+          className="fixed inset-0 z-40 bg-black/72 backdrop-blur-sm flex items-center justify-center p-2 sm:p-4"
         >
           <div
             onClick={(e) => e.stopPropagation()}
-            className="w-[min(700px,95vw)] max-h-[88vh] rounded-xl travix-glass-panel overflow-hidden flex flex-col"
+            className="w-[min(700px,96vw)] max-h-[92dvh] sm:max-h-[88dvh] rounded-xl travix-glass-panel overflow-hidden flex flex-col"
           >
             <div className="px-4 py-3 border-b border-white/12 flex items-center justify-between gap-3">
               <div className="min-w-0">
@@ -351,26 +403,38 @@ export const MissionDossier: React.FC<MissionDossierProps> = ({
                   <h3 className="font-display text-sm font-semibold text-white truncate">
                     Archivo Fotográfico NASA · {activeName}
                   </h3>
-                  <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-emerald-500/18 border border-emerald-400/35 text-[10px] font-medium text-emerald-200 shrink-0">
+                  <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-emerald-500/18 border border-emerald-400/35 text-[11px] font-medium text-emerald-200 shrink-0">
                     <HardDrive className="w-2.5 h-2.5" />
                     <span>Sin internet</span>
                   </span>
                 </div>
-                <div className="text-[11px] text-slate-300/80 truncate">
+                <div className="text-xs text-slate-200 truncate">
                   {activeQuote}
                 </div>
               </div>
-              <button
-                type="button"
-                onClick={() => {
-                  setShowGalleryModal(false);
-                  setLightboxPhoto(null);
-                }}
-                aria-label="Cerrar galería"
-                className="p-1.5 rounded text-slate-300 hover:text-white hover:bg-white/12 cursor-pointer shrink-0"
-              >
-                <X className="w-4 h-4" />
-              </button>
+              <div className="flex items-center gap-1 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsGalleryMinimized(true);
+                    setIsMinimized(false);
+                  }}
+                  aria-label="Minimizar galería (se guarda en la ficha)"
+                  title="Minimizar (vuelve desde la ficha)"
+                  className={PANEL_ICON_BUTTON}
+                >
+                  <Minus className="w-4 h-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={closeGallery}
+                  aria-label="Cerrar galería"
+                  title="Cerrar"
+                  className={PANEL_ICON_BUTTON}
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
             </div>
 
             <div className="p-4 overflow-y-auto">
@@ -384,16 +448,16 @@ export const MissionDossier: React.FC<MissionDossierProps> = ({
                     >
                       Volver a galería
                     </button>
-                    <div className="text-[11px] font-mono-tabular text-amber-300/90">
+                    <div className="text-xs font-mono-tabular text-amber-300/90">
                       {lightboxPhoto.nasaId} · {lightboxPhoto.instrument} ·{' '}
                       {lightboxPhoto.dateCreated}
                     </div>
                   </div>
-                  <div className="bg-black rounded-lg border border-white/10 flex items-center justify-center max-h-[54vh] overflow-hidden">
+                  <div className="bg-black rounded-lg border border-white/10 flex items-center justify-center max-h-[50dvh] sm:max-h-[54vh] overflow-hidden">
                     <img
                       src={lightboxPhoto.url}
                       alt={lightboxPhoto.title}
-                      className="max-w-full max-h-[54vh] object-contain"
+                      className="max-w-full max-h-[50dvh] sm:max-h-[54vh] object-contain"
                     />
                   </div>
                   <div className="text-xs font-semibold text-white">
@@ -418,7 +482,7 @@ export const MissionDossier: React.FC<MissionDossierProps> = ({
                         className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
                       />
                       <div className="absolute inset-x-0 bottom-0 p-2.5 bg-gradient-to-t from-black/92 via-black/60 to-transparent">
-                        <div className="text-[10px] font-mono-tabular text-amber-300">
+                        <div className="text-[11px] font-mono-tabular text-amber-300">
                           {photo.nasaId} · {photo.instrument}
                         </div>
                         <div className="text-xs text-slate-100 truncate font-medium">

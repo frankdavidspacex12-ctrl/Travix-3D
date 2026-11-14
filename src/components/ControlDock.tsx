@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   Activity,
   BookOpen,
@@ -12,7 +12,6 @@ import {
   Play,
   RotateCcw,
   Search,
-  X,
 } from 'lucide-react';
 import {
   computeBodyTelemetry,
@@ -25,6 +24,8 @@ import {
   MoonData,
 } from '../data/solarSystemData';
 import type { SearchTab } from './MissionSearch';
+import { PanelControls } from './PanelControls';
+import { setViewInsetSource } from '../ui/viewInsets';
 
 interface ControlDockProps {
   selectedBody: CelestialBodyData | null;
@@ -84,6 +85,44 @@ export const ControlDock: React.FC<ControlDockProps> = ({
   onToggleOrbits,
 }) => {
   const orbitsDisabledInCloseUp = selectedBody !== null;
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  const [isInfoMinimized, setIsInfoMinimized] = useState(false);
+
+  // A new body / moon, or reopening the panel, always shows the full info again.
+  useEffect(() => {
+    setIsInfoMinimized(false);
+  }, [selectedBody?.id, selectedMoon?.id, isPlanetInfoOpen]);
+
+  // Publish how much of the screen bottom the dock covers: phone bottom sheets sit on top of it
+  // (--dock-offset) and the 3D camera keeps the focused body above it (view insets).
+  useLayoutEffect(() => {
+    const el = rootRef.current;
+    if (!el) return;
+    const measure = () => {
+      const bottomGap = window.innerWidth < 640 ? 8 : 16;
+      // offsetHeight ignores the collapse transform; when collapsed only the handle peeks out.
+      return isCollapsed ? 40 : el.offsetHeight + bottomGap;
+    };
+    const publish = () => {
+      document.documentElement.style.setProperty(
+        '--dock-offset',
+        `${Math.round(measure() + 8)}px`,
+      );
+    };
+    setViewInsetSource('control-dock', () => ({ bottom: measure() }));
+    publish();
+    const ro = new ResizeObserver(() => {
+      publish();
+      setViewInsetSource('control-dock', () => ({ bottom: measure() }));
+    });
+    ro.observe(el);
+    window.addEventListener('resize', publish);
+    return () => {
+      ro.disconnect();
+      window.removeEventListener('resize', publish);
+      setViewInsetSource('control-dock', null);
+    };
+  }, [isCollapsed]);
 
   const telemetry = useMemo(() => {
     if (!selectedBody) return null;
@@ -92,7 +131,8 @@ export const ControlDock: React.FC<ControlDockProps> = ({
 
   return (
     <div
-      className="fixed bottom-4 left-1/2 z-20 max-w-[94vw] -translate-x-1/2 pointer-events-none transition-transform duration-300 ease-out flex flex-col items-center"
+      ref={rootRef}
+      className="fixed bottom-2 sm:bottom-4 left-1/2 z-20 w-[calc(100vw-1rem)] sm:w-auto sm:max-w-[94vw] pointer-events-none transition-transform duration-300 ease-out flex flex-col items-center"
       style={{
         transform: isCollapsed
           ? 'translate(-50%, calc(100% + 16px))'
@@ -101,48 +141,37 @@ export const ControlDock: React.FC<ControlDockProps> = ({
     >
       {/* Pure Planet / Moon Telemetry & Info Panel (toggled by the round Open Book button) */}
       {selectedBody && !selectedMission && isPlanetInfoOpen && !isCollapsed && (
-        <div className="pointer-events-auto mb-2 w-[min(700px,92vw)] rounded-xl travix-glass-panel px-4 py-3">
-          {searchContext && (
-            <div className="mb-2.5 p-2 rounded-lg travix-glass-subcard border-amber-400/35">
-              <div className="text-[10px] font-semibold uppercase tracking-wider text-amber-300">
-                Respuesta · {searchContext.headline}
-              </div>
-              <p className="mt-0.5 text-[11px] text-slate-100 leading-relaxed">
-                {searchContext.answer}
-              </p>
-            </div>
-          )}
-
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-2 flex-wrap">
-                <span
-                  className="w-2 h-2 rounded-full shrink-0"
-                  style={{ backgroundColor: selectedBody.accentColor }}
-                  aria-hidden="true"
-                />
-                <h2 className="font-display text-sm sm:text-base font-semibold text-white tracking-tight">
-                  {selectedMoon
-                    ? `${selectedMoon.name} · Luna de ${selectedBody.name}`
-                    : selectedBody.name}
-                </h2>
-                <span className="text-[11px] text-slate-300/85">
-                  {selectedBody.classification}
-                </span>
-              </div>
-              <p className="mt-1 text-xs text-slate-200/95 leading-relaxed">
-                {selectedBody.description}
-              </p>
+        <div className="pointer-events-auto mb-2 w-full sm:w-[min(700px,92vw)] max-h-[min(50dvh,calc(100dvh-13rem))] sm:max-h-[calc(100dvh-9rem)] rounded-xl travix-glass-panel flex flex-col overflow-hidden">
+          <div
+            className={`px-3 sm:px-4 py-2 flex items-center justify-between gap-2 ${
+              isInfoMinimized ? '' : 'border-b border-white/12'
+            }`}
+          >
+            <div className="min-w-0 flex items-center gap-2">
+              <span
+                className="w-2 h-2 rounded-full shrink-0"
+                style={{ backgroundColor: selectedBody.accentColor }}
+                aria-hidden="true"
+              />
+              <h2 className="font-display text-sm sm:text-base font-semibold text-white tracking-tight truncate">
+                {selectedMoon
+                  ? `${selectedMoon.name} · Luna de ${selectedBody.name}`
+                  : selectedBody.name}
+              </h2>
+              <span className="hidden sm:inline text-xs text-slate-200 truncate">
+                {selectedBody.classification}
+              </span>
             </div>
 
-            <div className="flex items-center gap-1.5 shrink-0">
-              {selectedMoon && (
+            <div className="flex items-center gap-1 shrink-0">
+              {selectedMoon && !isInfoMinimized && (
                 <button
                   type="button"
                   onClick={() => onSelectBody(selectedBody.id)}
-                  className="px-2.5 py-1 rounded-md travix-glass-control text-[11px] text-slate-100 whitespace-nowrap shrink-0 cursor-pointer"
+                  className="px-2.5 py-1.5 sm:py-1 rounded-md travix-glass-control text-xs text-slate-100 whitespace-nowrap shrink-0 cursor-pointer"
                 >
-                  Volver a {selectedBody.name}
+                  <span className="sm:hidden">{selectedBody.name}</span>
+                  <span className="hidden sm:inline">Volver a {selectedBody.name}</span>
                 </button>
               )}
               <button
@@ -150,57 +179,76 @@ export const ControlDock: React.FC<ControlDockProps> = ({
                 onClick={() => onOpenSearch('planets')}
                 aria-label="Buscar otro planeta o luna"
                 title="Buscar otro planeta, luna o misión"
-                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md travix-glass-control text-[11px] text-slate-100 hover:text-white whitespace-nowrap shrink-0 cursor-pointer focus-visible:outline-2 focus-visible:outline-amber-400"
+                className="inline-flex items-center gap-1 p-2 sm:px-2.5 sm:py-1 rounded-md travix-glass-control text-xs text-slate-100 hover:text-white whitespace-nowrap shrink-0 cursor-pointer focus-visible:outline-2 focus-visible:outline-amber-400"
               >
                 <Search className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-                <span>Otro planeta</span>
+                <span className="hidden sm:inline">Otro planeta</span>
               </button>
-              <button
-                type="button"
-                onClick={onHidePanel}
-                aria-label="Ocultar ficha y seguir viendo en 3D"
-                title="Ocultar ficha (seguir viendo en 3D)"
-                className="p-1.5 rounded-md text-slate-300 hover:text-white hover:bg-white/12 transition-colors cursor-pointer"
-              >
-                <X className="w-4 h-4" />
-              </button>
+              <PanelControls
+                label={`ficha de ${selectedMoon ? selectedMoon.name : selectedBody.name}`}
+                minimized={isInfoMinimized}
+                onToggleMinimize={() => setIsInfoMinimized((prev) => !prev)}
+                onClose={onHidePanel}
+                closeTitle="Cerrar ficha (seguir viendo en 3D)"
+                expandDirection="up"
+              />
             </div>
           </div>
+
+          {!isInfoMinimized && (
+        <div className="px-3 sm:px-4 py-3 overflow-y-auto min-h-0">
+          {searchContext && (
+            <div className="mb-2.5 p-2 rounded-lg travix-glass-subcard border-amber-400/35">
+              <div className="text-[11px] font-semibold uppercase tracking-wider text-amber-300">
+                Respuesta · {searchContext.headline}
+              </div>
+              <p className="mt-0.5 text-xs text-slate-100 leading-relaxed">
+                {searchContext.answer}
+              </p>
+            </div>
+          )}
+
+          <div className="sm:hidden text-xs text-slate-200">
+            {selectedBody.classification}
+          </div>
+          <p className="mt-1 sm:mt-0 text-xs text-slate-100 leading-relaxed">
+            {selectedBody.description}
+          </p>
 
           {/* Core Physical NASA Parameters */}
           <div className="mt-2.5 pt-2 border-t border-white/12 grid grid-cols-3 sm:grid-cols-6 gap-x-3 gap-y-1.5">
             <div>
-              <div className="text-[10px] text-slate-300/80">Distancia media</div>
+              <div className="text-[11px] text-slate-200">Distancia media</div>
               <div className="text-xs font-mono-tabular text-white">
                 {selectedBody.stats.distanceAu}
               </div>
             </div>
             <div>
-              <div className="text-[10px] text-slate-300/80">Diámetro</div>
+              <div className="text-[11px] text-slate-200">Diámetro</div>
               <div className="text-xs font-mono-tabular text-white">
                 {selectedBody.stats.diameterKm}
               </div>
             </div>
             <div>
-              <div className="text-[10px] text-slate-300/80">Año orbital</div>
+              <div className="text-[11px] text-slate-200">Año orbital</div>
               <div className="text-xs font-mono-tabular text-white">
                 {selectedBody.stats.orbitalPeriod}
               </div>
             </div>
             <div>
-              <div className="text-[10px] text-slate-300/80">Rotación</div>
+              <div className="text-[11px] text-slate-200">Rotación</div>
               <div className="text-xs font-mono-tabular text-white">
                 {selectedBody.stats.dayLength}
               </div>
             </div>
             <div>
-              <div className="text-[10px] text-slate-300/80">Temperatura</div>
+              <div className="text-[11px] text-slate-200">Temperatura</div>
               <div className="text-xs font-mono-tabular text-white">
                 {selectedBody.stats.temperature}
               </div>
             </div>
             <div>
-              <div className="text-[10px] text-slate-300/80">Gravedad</div>
+              <div className="text-[11px] text-slate-200">Gravedad</div>
               <div className="text-xs font-mono-tabular text-white">
                 {selectedBody.stats.gravity}
               </div>
@@ -211,36 +259,36 @@ export const ControlDock: React.FC<ControlDockProps> = ({
           {telemetry && (
             <div className="mt-2 pt-2 border-t border-white/12">
               <div className="flex items-center justify-between gap-2 mb-1">
-                <span className="inline-flex items-center gap-1.5 text-[10px] font-medium uppercase tracking-wider text-cyan-300/95">
+                <span className="inline-flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wider text-cyan-300/95">
                   <Activity className="w-3 h-3" />
                   <span>Telemetría orbital J2000 en tiempo real</span>
                 </span>
-                <span className="text-[10px] text-slate-300/80 truncate max-w-[55%]">
+                <span className="text-[11px] text-slate-200 truncate max-w-[55%]">
                   Atmósfera: {selectedBody.stats.atmosphere}
                 </span>
               </div>
 
               {selectedBody.id === 'sun' ? (
-                <div className="grid grid-cols-3 gap-3 text-[11px] font-mono-tabular text-slate-100">
+                <div className="grid grid-cols-3 gap-3 text-xs font-mono-tabular text-slate-100">
                   <div>
-                    <span className="text-slate-300/80">Vel. galáctica: </span>
+                    <span className="text-slate-200">Vel. galáctica: </span>
                     <span className="text-amber-200">
                       {telemetry.orbitalSpeedKmS.toFixed(1)} km/s
                     </span>
                   </div>
                   <div>
-                    <span className="text-slate-300/80">Vel. escape: </span>
+                    <span className="text-slate-200">Vel. escape: </span>
                     <span>{selectedBody.stats.escapeVelocity}</span>
                   </div>
                   <div>
-                    <span className="text-slate-300/80">Sistemas: </span>
+                    <span className="text-slate-200">Sistemas: </span>
                     <span>{selectedBody.stats.moonsCount}</span>
                   </div>
                 </div>
               ) : (
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px] font-mono-tabular text-slate-100">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs font-mono-tabular text-slate-100">
                   <div>
-                    <span className="text-slate-300/80">Heliocéntrica: </span>
+                    <span className="text-slate-200">Heliocéntrica: </span>
                     <span className="text-cyan-200">
                       {telemetry.distanceAu.toFixed(3)} UA
                     </span>
@@ -249,13 +297,13 @@ export const ControlDock: React.FC<ControlDockProps> = ({
                     </span>
                   </div>
                   <div>
-                    <span className="text-slate-300/80">Vel. orbital: </span>
+                    <span className="text-slate-200">Vel. orbital: </span>
                     <span className="text-amber-200">
                       {telemetry.orbitalSpeedKmS.toFixed(2)} km/s
                     </span>
                   </div>
                   <div>
-                    <span className="text-slate-300/80">Luz solar: </span>
+                    <span className="text-slate-200">Luz solar: </span>
                     <span>
                       {telemetry.lightTimeMinutes < 1
                         ? `${Math.round(telemetry.lightTimeMinutes * 60)} s`
@@ -263,7 +311,7 @@ export const ControlDock: React.FC<ControlDockProps> = ({
                     </span>
                   </div>
                   <div>
-                    <span className="text-slate-300/80">Escape · Lon.: </span>
+                    <span className="text-slate-200">Escape · Lon.: </span>
                     <span>
                       {selectedBody.stats.escapeVelocity} · {telemetry.heliocentricLonDeg.toFixed(1)}°
                     </span>
@@ -276,7 +324,7 @@ export const ControlDock: React.FC<ControlDockProps> = ({
           {/* Natural Moons Selector */}
           {selectedBody.moons.length > 0 && (
             <div className="mt-2 pt-2 border-t border-white/12 flex items-center gap-1.5 flex-wrap">
-              <span className="text-[11px] text-slate-300/85 mr-1">
+              <span className="text-xs text-slate-200 mr-1">
                 Lunas ({selectedBody.stats.moonsCount}):
               </span>
               {selectedBody.moons.map((moon) => {
@@ -286,7 +334,7 @@ export const ControlDock: React.FC<ControlDockProps> = ({
                     key={moon.id}
                     type="button"
                     onClick={() => onSelectMoon(selectedBody.id, moon.id)}
-                    className={`px-2 py-0.5 rounded-md text-[11px] transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+                    className={`px-2 py-0.5 rounded-md text-xs transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
                       active
                         ? 'travix-glass-control border-amber-400/55 text-amber-200'
                         : 'travix-glass-control text-slate-200 hover:text-white'
@@ -297,6 +345,8 @@ export const ControlDock: React.FC<ControlDockProps> = ({
                 );
               })}
             </div>
+          )}
+        </div>
           )}
         </div>
       )}
@@ -324,7 +374,7 @@ export const ControlDock: React.FC<ControlDockProps> = ({
           type="button"
           onClick={onToggleCollapse}
           aria-label={isCollapsed ? 'Mostrar controles' : 'Ocultar controles'}
-          className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full travix-glass-bar text-[11px] text-slate-200 hover:text-white hover:border-white/25 transition-colors whitespace-nowrap shrink-0 cursor-pointer focus-visible:outline-2 focus-visible:outline-amber-400"
+          className="inline-flex items-center gap-1 px-3.5 sm:px-2.5 py-1.5 sm:py-0.5 rounded-full travix-glass-bar text-xs text-slate-200 hover:text-white hover:border-white/25 transition-colors whitespace-nowrap shrink-0 cursor-pointer focus-visible:outline-2 focus-visible:outline-amber-400"
           style={{
             transform: isCollapsed ? 'translateY(-44px)' : 'translateY(0)',
             transition: 'transform 300ms cubic-bezier(0.16, 1, 0.3, 1)',
@@ -338,21 +388,21 @@ export const ControlDock: React.FC<ControlDockProps> = ({
         </button>
       </div>
 
-      {/* Minimalist 98% Glassmorphism Control Bar */}
-      <div className="pointer-events-auto rounded-full travix-glass-bar px-3.5 py-1.5 flex items-center gap-1.5 sm:gap-2 flex-wrap justify-center">
-        <div className="inline-flex items-center gap-1.5 text-[11px] font-mono-tabular text-slate-100 whitespace-nowrap shrink-0 px-1">
+      {/* Minimalist 98% Glassmorphism Control Bar (phones: clock row + icon-only buttons row) */}
+      <div className="pointer-events-auto rounded-2xl sm:rounded-full travix-glass-bar px-2 sm:px-3.5 py-1.5 flex items-center gap-1 sm:gap-2 flex-wrap justify-center">
+        <div className="basis-full sm:basis-auto inline-flex items-center justify-center gap-1.5 text-xs font-mono-tabular text-slate-100 whitespace-nowrap shrink-0 px-1 py-0.5 sm:py-0">
           <Clock className="w-3.5 h-3.5 text-amber-400/95 shrink-0" />
           <span>{formatUtcTimestamp(simEpochMs)}</span>
         </div>
 
-        <span className="h-3.5 w-px bg-white/18" aria-hidden="true" />
+        <span className="hidden sm:block h-3.5 w-px bg-white/18" aria-hidden="true" />
 
         <button
           type="button"
           onClick={onTogglePause}
           aria-label={isPaused ? 'Reanudar simulación' : 'Pausar simulación'}
           title={isPaused ? 'Reanudar (Espacio)' : 'Pausar (Espacio)'}
-          className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] transition-colors whitespace-nowrap shrink-0 cursor-pointer focus-visible:outline-2 focus-visible:outline-amber-400 ${
+          className={`inline-flex items-center gap-1.5 p-2.5 sm:px-2.5 sm:py-1 rounded-full text-xs transition-colors whitespace-nowrap shrink-0 cursor-pointer focus-visible:outline-2 focus-visible:outline-amber-400 ${
             isPaused
               ? 'bg-amber-500/22 border border-amber-400/45 text-amber-100'
               : 'text-slate-100 hover:text-white hover:bg-white/12 border border-transparent'
@@ -360,13 +410,13 @@ export const ControlDock: React.FC<ControlDockProps> = ({
         >
           {isPaused ? (
             <>
-              <Play className="w-3 h-3 fill-current text-amber-400" />
-              <span>Reanudar</span>
+              <Play className="w-3.5 h-3.5 sm:w-3 sm:h-3 fill-current text-amber-400" />
+              <span className="hidden sm:inline">Reanudar</span>
             </>
           ) : (
             <>
-              <Pause className="w-3 h-3 fill-current text-slate-200" />
-              <span>Pausar</span>
+              <Pause className="w-3.5 h-3.5 sm:w-3 sm:h-3 fill-current text-slate-200" />
+              <span className="hidden sm:inline">Pausar</span>
             </>
           )}
         </button>
@@ -375,37 +425,40 @@ export const ControlDock: React.FC<ControlDockProps> = ({
           <button
             type="button"
             onClick={onReleaseCamera}
-            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full hover:bg-white/12 text-slate-100 hover:text-white text-[11px] transition-colors whitespace-nowrap shrink-0 cursor-pointer focus-visible:outline-2 focus-visible:outline-amber-400"
+            aria-label="Cámara libre"
+            className="inline-flex items-center gap-1.5 p-2.5 sm:px-2.5 sm:py-1 rounded-full hover:bg-white/12 text-slate-100 hover:text-white text-xs transition-colors whitespace-nowrap shrink-0 cursor-pointer focus-visible:outline-2 focus-visible:outline-amber-400"
             title="Desacoplar seguimiento orbital (WASD / ratón)"
           >
             <Compass className="w-3.5 h-3.5 text-cyan-400" />
-            <span>Libre</span>
+            <span className="hidden sm:inline">Libre</span>
           </button>
         )}
 
         <button
           type="button"
           onClick={onToggleOrbits}
+          aria-label="Órbitas"
           aria-pressed={showOrbits && !orbitsDisabledInCloseUp}
           title={
             orbitsDisabledInCloseUp
               ? 'Órbitas ocultas al acercarse'
               : 'Alternar órbitas en vista general'
           }
-          className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] transition-colors whitespace-nowrap shrink-0 cursor-pointer focus-visible:outline-2 focus-visible:outline-amber-400 ${
+          className={`inline-flex items-center gap-1.5 p-2.5 sm:px-2.5 sm:py-1 rounded-full text-xs transition-colors whitespace-nowrap shrink-0 cursor-pointer focus-visible:outline-2 focus-visible:outline-amber-400 ${
             showOrbits && !orbitsDisabledInCloseUp
               ? 'bg-white/18 text-white border border-white/25'
               : 'text-slate-200 hover:text-white hover:bg-white/12 border border-transparent'
           }`}
         >
           <Orbit className="w-3.5 h-3.5" />
-          <span>Órbitas</span>
+          <span className="hidden sm:inline">Órbitas</span>
         </button>
 
         <button
           type="button"
           onClick={onResetOverview}
-          className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full hover:bg-white/12 text-slate-100 hover:text-white text-[11px] transition-colors whitespace-nowrap shrink-0 cursor-pointer focus-visible:outline-2 focus-visible:outline-amber-400"
+          aria-label="Vista general del sistema"
+          className="inline-flex items-center gap-1.5 p-2.5 sm:px-2.5 sm:py-1 rounded-full hover:bg-white/12 text-slate-100 hover:text-white text-xs transition-colors whitespace-nowrap shrink-0 cursor-pointer focus-visible:outline-2 focus-visible:outline-amber-400"
           title="Volver a la vista general (Esc)"
         >
           {selectedBody ? (
@@ -413,7 +466,7 @@ export const ControlDock: React.FC<ControlDockProps> = ({
           ) : (
             <Globe className="w-3.5 h-3.5 text-amber-400" />
           )}
-          <span>Sistema</span>
+          <span className="hidden sm:inline">Sistema</span>
         </button>
 
         <button
@@ -421,13 +474,12 @@ export const ControlDock: React.FC<ControlDockProps> = ({
           onClick={() => onOpenSearch(selectedBody ? 'planets' : 'surface')}
           aria-label="Abrir buscador espacial"
           title="Buscar planetas, lunas, misiones, satélites y Vía Láctea"
-          className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full travix-glass-control text-slate-100 hover:text-white text-[11px] whitespace-nowrap shrink-0 cursor-pointer focus-visible:outline-2 focus-visible:outline-amber-400"
+          className="inline-flex items-center gap-1.5 p-2.5 sm:px-2.5 sm:py-1 rounded-full travix-glass-control text-slate-100 hover:text-white text-xs whitespace-nowrap shrink-0 cursor-pointer focus-visible:outline-2 focus-visible:outline-amber-400"
         >
           <Search className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-          <span>Buscar</span>
+          <span className="hidden sm:inline">Buscar</span>
         </button>
       </div>
     </div>
   );
 };
-

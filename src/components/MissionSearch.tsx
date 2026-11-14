@@ -1,7 +1,8 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   ArrowRight,
   ChevronRight,
+  Delete,
   Globe,
   MapPin,
   Orbit,
@@ -29,6 +30,7 @@ import {
   normalizeSearchText,
   resolveSpaceQuery,
 } from '../data/spaceKnowledgeSearch';
+import { PanelControls } from './PanelControls';
 
 export type SearchTab = 'surface' | 'orbitals' | 'planets' | 'galaxy';
 
@@ -99,6 +101,20 @@ export const MissionSearch: React.FC<MissionSearchProps> = ({
   const [destination, setDestination] = useState<
     'Todos' | MissionDestinationGroup
   >('Todos');
+
+  const [isMinimized, setIsMinimized] = useState(false);
+
+  // Reopening the search always shows it expanded.
+  useEffect(() => {
+    if (isOpen) setIsMinimized(false);
+  }, [isOpen]);
+
+  // Only grab focus with a mouse / trackpad: on phones it would pop the keyboard over the 3D view.
+  const [autoFocusInput] = useState(
+    () =>
+      typeof window !== 'undefined' &&
+      window.matchMedia?.('(pointer: fine)').matches === true,
+  );
 
   const smartAnswer = useMemo(() => resolveSpaceQuery(query), [query]);
 
@@ -210,7 +226,7 @@ export const MissionSearch: React.FC<MissionSearchProps> = ({
   };
 
   return (
-    <div className="fixed top-4 right-4 z-30 pointer-events-none flex flex-col items-end gap-2 max-w-[calc(100vw-2rem)]">
+    <div className="fixed top-2.5 sm:top-4 right-2 sm:right-4 z-30 pointer-events-none flex flex-col items-end gap-2 max-w-[calc(100vw-1rem)] sm:max-w-[calc(100vw-2rem)]">
       {/* Top-Right Round Magnifying Glass Button */}
       <button
         type="button"
@@ -232,33 +248,53 @@ export const MissionSearch: React.FC<MissionSearchProps> = ({
       </button>
 
       {isOpen && (
-        <div className="pointer-events-auto w-[min(420px,92vw)] rounded-xl travix-glass-panel overflow-hidden flex flex-col max-h-[calc(100vh-140px)]">
+        <div className="pointer-events-auto w-[min(420px,calc(100vw-1rem))] rounded-xl travix-glass-panel overflow-hidden flex flex-col max-h-[calc(100dvh-7rem)] sm:max-h-[calc(100dvh-140px)]">
           {/* Search Input ("Google del Espacio" 100% local & offline) */}
-          <div className="p-3 border-b border-white/15 flex items-center gap-2 travix-glass-subcard border-x-0 border-t-0">
+          <div
+            className={`pl-3 pr-2 py-2 flex items-center gap-2 travix-glass-subcard border-x-0 border-t-0 ${
+              isMinimized ? 'border-b-0' : 'border-b border-white/15'
+            }`}
+          >
             <Search className="w-4 h-4 text-amber-400/90 shrink-0" />
+            {/* 16px on phones: iOS Safari zooms the whole page into smaller inputs */}
             <input
               type="text"
               value={query}
-              onChange={(e) => setQuery(e.target.value)}
+              onChange={(e) => {
+                setQuery(e.target.value);
+                if (isMinimized) setIsMinimized(false);
+              }}
               onKeyDown={handleInputKeyDown}
               placeholder="Busca planeta, misión o pregunta (ej. primera misión a la Luna, Marte...)"
-              autoFocus
-              className="w-full bg-transparent text-xs text-white placeholder-slate-300/75 focus:outline-none"
+              autoFocus={autoFocusInput}
+              enterKeyHint="search"
+              className="w-full min-w-0 bg-transparent text-base sm:text-xs text-white placeholder-slate-300 placeholder:text-xs focus:outline-none"
             />
             {query && (
               <button
                 type="button"
                 onClick={() => setQuery('')}
-                aria-label="Limpiar búsqueda"
-                className="p-1 rounded text-slate-300 hover:text-white hover:bg-white/10 cursor-pointer"
+                aria-label="Borrar texto de búsqueda"
+                title="Borrar texto"
+                className="p-1.5 rounded text-slate-300 hover:text-white hover:bg-white/10 cursor-pointer shrink-0"
               >
-                <X className="w-3.5 h-3.5" />
+                <Delete className="w-4 h-4" />
               </button>
             )}
+            <span className="h-4 w-px bg-white/15 shrink-0" aria-hidden="true" />
+            <PanelControls
+              label="buscador"
+              minimized={isMinimized}
+              onToggleMinimize={() => setIsMinimized((prev) => !prev)}
+              onClose={() => onOpenChange(false)}
+            />
           </div>
 
+          {!isMinimized && (
+          <>
+
           {/* 4 Clean Navigation Tabs with Icons */}
-          <div className="px-3 pt-2.5 pb-2 border-b border-white/12 flex flex-col gap-2">
+          <div className="px-3 pt-2.5 pb-2 border-b border-white/12 flex flex-col gap-2 shrink-0">
             <div className="flex items-center gap-1 overflow-x-auto no-scrollbar">
               <button
                 type="button"
@@ -266,7 +302,7 @@ export const MissionSearch: React.FC<MissionSearchProps> = ({
                   onTabChange('surface');
                   setDestination('Todos');
                 }}
-                className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-medium transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+                className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
                   activeTab === 'surface'
                     ? 'bg-amber-500/12 text-amber-200 border border-amber-400/45'
                     : 'text-slate-200 hover:text-white hover:bg-white/[0.06] border border-transparent'
@@ -281,7 +317,7 @@ export const MissionSearch: React.FC<MissionSearchProps> = ({
                   onTabChange('orbitals');
                   setDestination('Todos');
                 }}
-                className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-medium transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+                className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
                   activeTab === 'orbitals'
                     ? 'bg-amber-500/12 text-amber-200 border border-amber-400/45'
                     : 'text-slate-200 hover:text-white hover:bg-white/[0.06] border border-transparent'
@@ -293,7 +329,7 @@ export const MissionSearch: React.FC<MissionSearchProps> = ({
               <button
                 type="button"
                 onClick={() => onTabChange('planets')}
-                className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-medium transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+                className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
                   activeTab === 'planets'
                     ? 'bg-amber-500/12 text-amber-200 border border-amber-400/45'
                     : 'text-slate-200 hover:text-white hover:bg-white/[0.06] border border-transparent'
@@ -305,7 +341,7 @@ export const MissionSearch: React.FC<MissionSearchProps> = ({
               <button
                 type="button"
                 onClick={() => onTabChange('galaxy')}
-                className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-medium transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+                className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
                   activeTab === 'galaxy'
                     ? 'bg-amber-500/12 text-amber-200 border border-amber-400/45'
                     : 'text-slate-200 hover:text-white hover:bg-white/[0.06] border border-transparent'
@@ -325,7 +361,7 @@ export const MissionSearch: React.FC<MissionSearchProps> = ({
                         key={c.id}
                         type="button"
                         onClick={() => setCategory(c.id)}
-                        className={`px-2 py-0.5 rounded text-[11px] font-medium transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+                        className={`px-2 py-0.5 rounded text-xs font-medium transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
                           category === c.id
                             ? 'bg-white/10 text-white border border-white/25'
                             : 'text-slate-200 hover:text-white hover:bg-white/[0.06] border border-transparent'
@@ -343,7 +379,7 @@ export const MissionSearch: React.FC<MissionSearchProps> = ({
                       key={dest}
                       type="button"
                       onClick={() => setDestination(dest)}
-                      className={`px-2 py-0.5 rounded text-[11px] transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+                      className={`px-2 py-0.5 rounded text-xs transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
                         destination === dest
                           ? 'bg-white/10 text-amber-200 border border-white/25'
                           : 'text-slate-200 hover:text-white hover:bg-white/[0.06] border border-transparent'
@@ -363,7 +399,7 @@ export const MissionSearch: React.FC<MissionSearchProps> = ({
                     key={mc.id}
                     type="button"
                     onClick={() => setMwCategory(mc.id)}
-                    className={`px-2 py-0.5 rounded-md text-[11px] font-medium transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+                    className={`px-2 py-0.5 rounded-md text-xs font-medium transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
                       mwCategory === mc.id
                         ? 'bg-white/10 text-amber-200 border border-white/25'
                         : 'text-slate-200 hover:text-white hover:bg-white/[0.06] border border-transparent'
@@ -383,7 +419,7 @@ export const MissionSearch: React.FC<MissionSearchProps> = ({
               onClick={() => navigateToAnswer(smartAnswer)}
               className="p-3 border-b border-amber-400/25 bg-amber-500/[0.05] hover:bg-amber-500/[0.1] text-left transition-colors cursor-pointer shrink-0"
             >
-              <div className="flex items-center justify-between gap-2 text-[10px] font-medium text-amber-300/95 uppercase tracking-wider">
+              <div className="flex items-center justify-between gap-2 text-[11px] font-medium text-amber-300/95 uppercase tracking-wider">
                 <span className="inline-flex items-center gap-1">
                   <Sparkles className="w-3 h-3" />
                   <span>Respuesta directa · {smartAnswer.destinationLabel}</span>
@@ -396,17 +432,17 @@ export const MissionSearch: React.FC<MissionSearchProps> = ({
               <div className="mt-1 text-xs font-semibold text-white">
                 {smartAnswer.headline}
               </div>
-              <p className="mt-0.5 text-[11px] text-slate-100 leading-relaxed line-clamp-3">
+              <p className="mt-0.5 text-xs text-slate-100 leading-relaxed line-clamp-3">
                 {smartAnswer.answer}
               </p>
             </button>
           )}
 
           {/* Results List */}
-          <div className="overflow-y-auto divide-y divide-white/10">
+          <div className="overflow-y-auto min-h-0 divide-y divide-white/10">
             {activeTab === 'surface' || activeTab === 'orbitals' ? (
               filteredMissions.length === 0 ? (
-                <div className="p-5 text-center text-xs text-slate-300/85">
+                <div className="p-5 text-center text-xs text-slate-200">
                   {smartAnswer
                     ? 'Haz clic en la respuesta directa de arriba o pulsa Enter para viajar en 3D.'
                     : 'No se encontraron misiones con esos filtros.'}
@@ -437,7 +473,7 @@ export const MissionSearch: React.FC<MissionSearchProps> = ({
                             {mission.name}
                           </span>
                         </div>
-                        <div className="mt-0.5 flex items-center gap-1.5 text-[11px] text-slate-300/85 truncate">
+                        <div className="mt-0.5 flex items-center gap-1.5 text-xs text-slate-200 truncate">
                           <span>{mission.categoryLabel}</span>
                           <span aria-hidden="true">·</span>
                           <span className="text-slate-200">
@@ -446,19 +482,19 @@ export const MissionSearch: React.FC<MissionSearchProps> = ({
                           <span aria-hidden="true">·</span>
                           <span className="truncate">{mission.launchYear}</span>
                         </div>
-                        <div className="mt-0.5 flex items-center gap-1 text-[11px] text-slate-300/70 truncate">
+                        <div className="mt-0.5 flex items-center gap-1 text-xs text-slate-200 truncate">
                           <MapPin className="w-3 h-3 shrink-0" />
                           <span className="truncate">{mission.region}</span>
                         </div>
                       </div>
-                      <ChevronRight className="w-4 h-4 text-slate-300/75 shrink-0" />
+                      <ChevronRight className="w-4 h-4 text-slate-200 shrink-0" />
                     </button>
                   );
                 })
               )
             ) : activeTab === 'planets' ? (
               filteredBodies.length === 0 ? (
-                <div className="p-5 text-center text-xs text-slate-300/85">
+                <div className="p-5 text-center text-xs text-slate-200">
                   {smartAnswer
                     ? 'Haz clic en la respuesta directa de arriba o pulsa Enter para viajar en 3D.'
                     : 'No se encontraron cuerpos celestes.'}
@@ -489,7 +525,7 @@ export const MissionSearch: React.FC<MissionSearchProps> = ({
                             {body.name}
                           </span>
                         </div>
-                        <div className="mt-0.5 flex items-center gap-1.5 text-[11px] text-slate-300/85 truncate">
+                        <div className="mt-0.5 flex items-center gap-1.5 text-xs text-slate-200 truncate">
                           <Globe className="w-3 h-3 shrink-0" />
                           <span>{body.stats.distanceAu}</span>
                           <span aria-hidden="true">·</span>
@@ -500,13 +536,13 @@ export const MissionSearch: React.FC<MissionSearchProps> = ({
                           </span>
                         </div>
                       </div>
-                      <ChevronRight className="w-4 h-4 text-slate-300/75 shrink-0" />
+                      <ChevronRight className="w-4 h-4 text-slate-200 shrink-0" />
                     </button>
                   );
                 })
               )
             ) : filteredDeepSpace.length === 0 ? (
-              <div className="p-5 text-center text-xs text-slate-300/85">
+              <div className="p-5 text-center text-xs text-slate-200">
                 {smartAnswer
                   ? 'Haz clic en la respuesta directa de arriba o pulsa Enter para viajar en 3D.'
                   : 'No se encontraron objetos en la Vía Láctea.'}
@@ -537,7 +573,7 @@ export const MissionSearch: React.FC<MissionSearchProps> = ({
                           {target.name}
                         </span>
                       </div>
-                      <div className="mt-0.5 flex items-center gap-1.5 text-[11px] text-slate-300/85 truncate">
+                      <div className="mt-0.5 flex items-center gap-1.5 text-xs text-slate-200 truncate">
                         <Orbit className="w-3 h-3 shrink-0" />
                         <span className="text-slate-200 shrink-0">
                           {target.categoryLabel}
@@ -545,16 +581,18 @@ export const MissionSearch: React.FC<MissionSearchProps> = ({
                         <span aria-hidden="true">·</span>
                         <span className="truncate">{target.classification}</span>
                       </div>
-                      <div className="mt-0.5 text-[10px] text-slate-300/70 truncate">
+                      <div className="mt-0.5 text-[11px] text-slate-200 truncate">
                         {target.distanceLabel} · {target.nasaObservatories}
                       </div>
                     </div>
-                    <ChevronRight className="w-4 h-4 text-slate-300/75 shrink-0" />
+                    <ChevronRight className="w-4 h-4 text-slate-200 shrink-0" />
                   </button>
                 );
               })
             )}
           </div>
+          </>
+          )}
         </div>
       )}
     </div>
