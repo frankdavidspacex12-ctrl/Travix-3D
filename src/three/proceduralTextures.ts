@@ -1,5 +1,7 @@
 import * as THREE from 'three';
 import { CelestialBodyId, MoonTextureStyle } from '../data/solarSystemData';
+import { ReliefKernelResult, computeReliefPixels } from './reliefKernel';
+import type { ReliefJobRequest, ReliefJobResponse } from './relief.worker';
 
 function hash2(x: number, y: number): number {
   const s = Math.sin(x * 127.1 + y * 311.7) * 43758.5453123;
@@ -1015,6 +1017,26 @@ export function deriveSurfaceReliefMaps(
     maxWidth = 2048,
   } = options;
 
+  const { w, h } = resolveReliefSize(sourceImage, maxWidth);
+  const pixels = readSourcePixels(sourceImage, w, h);
+  const res = computeReliefPixels(pixels, w, h, {
+    normalStrength,
+    isGasGiant,
+    isIcy,
+    tileVertical,
+  });
+  return buildReliefTextures(res, w, h, {
+    anisotropy,
+    tileVertical,
+    repeatX,
+    repeatY,
+  });
+}
+
+function resolveReliefSize(
+  sourceImage: HTMLImageElement | HTMLCanvasElement,
+  maxWidth: number,
+): { w: number; h: number } {
   const srcW =
     sourceImage instanceof HTMLImageElement
       ? sourceImage.naturalWidth || sourceImage.width || 512
@@ -1023,107 +1045,60 @@ export function deriveSurfaceReliefMaps(
     sourceImage instanceof HTMLImageElement
       ? sourceImage.naturalHeight || sourceImage.height || 256
       : sourceImage.height || 256;
-
   const scale = Math.min(1, maxWidth / Math.max(1, srcW));
-  const w = Math.max(64, Math.round(srcW * scale));
-  const h = Math.max(64, Math.round(srcH * scale));
+  return {
+    w: Math.max(64, Math.round(srcW * scale)),
+    h: Math.max(64, Math.round(srcH * scale)),
+  };
+}
 
+function readSourcePixels(
+  sourceImage: HTMLImageElement | HTMLCanvasElement,
+  w: number,
+  h: number,
+): Uint8ClampedArray {
   const srcCanvas = document.createElement('canvas');
   srcCanvas.width = w;
   srcCanvas.height = h;
   const srcCtx = srcCanvas.getContext('2d')!;
   srcCtx.drawImage(sourceImage, 0, 0, w, h);
-  const pixels = srcCtx.getImageData(0, 0, w, h).data;
+  return srcCtx.getImageData(0, 0, w, h).data;
+}
 
-  const lum = new Float32Array(w * h);
-  const roughCanvas = document.createElement('canvas');
-  roughCanvas.width = w;
-  roughCanvas.height = h;
-  const rCtx = roughCanvas.getContext('2d')!;
-  const rImg = rCtx.createImageData(w, h);
-  const rData = rImg.data;
+function pixelsToCanvas(
+  data: Uint8ClampedArray,
+  w: number,
+  h: number,
+): HTMLCanvasElement {
+  const canvas = document.createElement('canvas');
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext('2d')!;
+  const img = ctx.createImageData(w, h);
+  img.data.set(data);
+  ctx.putImageData(img, 0, 0);
+  return canvas;
+}
 
-  const metalCanvas = document.createElement('canvas');
-  metalCanvas.width = w;
-  metalCanvas.height = h;
-  const mCtx = metalCanvas.getContext('2d')!;
-  const mImg = mCtx.createImageData(w, h);
-  const mData = mImg.data;
-
-  for (let i = 0; i < w * h; i++) {
-    const p = i * 4;
-    const r = pixels[p] / 255;
-    const g = pixels[p + 1] / 255;
-    const b = pixels[p + 2] / 255;
-    const l = 0.299 * r + 0.587 * g + 0.114 * b;
-    lum[i] = l;
-
-    let rough = 0.92;
-    let metal = 0.0;
-    if (isGasGiant) {
-      rough = 0.9 - l * 0.14;
-    } else if (isIcy) {
-      rough = 0.88 - l * 0.34;
-    } else {
-      rough = 0.84 + l * 0.13;
-      if (l < 0.34) {
-        metal = ((0.34 - l) / 0.34) * 0.11;
-      }
-    }
-    const rb = Math.round(THREE.MathUtils.clamp(rough, 0.32, 0.98) * 255);
-    rData[p] = rb;
-    rData[p + 1] = rb;
-    rData[p + 2] = rb;
-    rData[p + 3] = 255;
-
-    const mb = Math.round(THREE.MathUtils.clamp(metal, 0, 1) * 255);
-    mData[p] = mb;
-    mData[p + 1] = mb;
-    mData[p + 2] = mb;
-    mData[p + 3] = 255;
-  }
-  rCtx.putImageData(rImg, 0, 0);
-  mCtx.putImageData(mImg, 0, 0);
-
-  const normCanvas = document.createElement('canvas');
-  normCanvas.width = w;
-  normCanvas.height = h;
-  const nCtx = normCanvas.getContext('2d')!;
-  const nImg = nCtx.createImageData(w, h);
-  const nData = nImg.data;
-
-  for (let y = 0; y < h; y++) {
-    const ym = tileVertical ? (y - 1 + h) % h : Math.max(0, y - 1);
-    const yp = tileVertical ? (y + 1) % h : Math.min(h - 1, y + 1);
-    for (let x = 0; x < w; x++) {
-      const xm = (x - 1 + w) % w;
-      const xp = (x + 1) % w;
-
-      const tl = lum[ym * w + xm];
-      const tc = lum[ym * w + x];
-      const tr = lum[ym * w + xp];
-      const ml = lum[y * w + xm];
-      const mr = lum[y * w + xp];
-      const bl = lum[yp * w + xm];
-      const bc = lum[yp * w + x];
-      const br = lum[yp * w + xp];
-
-      const gx = (tr + 2 * mr + br - (tl + 2 * ml + bl)) * 0.25 * normalStrength;
-      const gy = (bl + 2 * bc + br - (tl + 2 * tc + tr)) * 0.25 * normalStrength;
-
-      const nx = -gx;
-      const ny = -gy;
-      const nz = 1.0;
-      const inv = 1 / Math.hypot(nx, ny, nz);
-
-      const idx = (y * w + x) * 4;
-      nData[idx] = Math.round((nx * inv * 0.5 + 0.5) * 255);
-      nData[idx + 1] = Math.round((ny * inv * 0.5 + 0.5) * 255);
-      nData[idx + 2] = Math.round((nz * inv * 0.5 + 0.5) * 255);
-      nData[idx + 3] = 255;
-    }
-  }
-  nCtx.putImageData(nImg, 0, 0);
+function buildReliefTextures(
+  res: ReliefKernelResult,
+  w: number,
+  h: number,
+  opts: {
+    anisotropy: number;
+    tileVertical: boolean;
+    repeatX: number;
+    repeatY: number;
+  },
+): {
+  normalMap: THREE.CanvasTexture;
+  roughnessMap: THREE.CanvasTexture;
+  metalnessMap: THREE.CanvasTexture;
+} {
+  const { anisotropy, tileVertical, repeatX, repeatY } = opts;
+  const roughCanvas = pixelsToCanvas(res.rough, w, h);
+  const metalCanvas = pixelsToCanvas(res.metal, w, h);
+  const normCanvas = pixelsToCanvas(res.normal, w, h);
 
   const normalMap = new THREE.CanvasTexture(normCanvas);
   normalMap.colorSpace = THREE.NoColorSpace;
@@ -1152,3 +1127,104 @@ export function deriveSurfaceReliefMaps(
   return { normalMap, roughnessMap, metalnessMap };
 }
 
+
+/* ---------------------------------------------------------------------------
+ * Off-main-thread relief derivation (same kernel → identical pixels)
+ * ------------------------------------------------------------------------- */
+
+let reliefWorker: Worker | null = null;
+let reliefWorkerFailed = false;
+let reliefNextJobId = 1;
+const reliefPending = new Map<
+  number,
+  { resolve: (res: ReliefJobResponse | null) => void }
+>();
+
+function getReliefWorker(): Worker | null {
+  if (reliefWorkerFailed || typeof Worker === 'undefined') return null;
+  if (reliefWorker) return reliefWorker;
+  try {
+    const worker = new Worker(new URL('./relief.worker.ts', import.meta.url), {
+      type: 'module',
+    });
+    worker.onmessage = (e: MessageEvent<ReliefJobResponse>) => {
+      const job = reliefPending.get(e.data.jobId);
+      if (!job) return;
+      reliefPending.delete(e.data.jobId);
+      job.resolve(e.data);
+    };
+    worker.onerror = () => {
+      // Worker crashed or could not load: resolve everything with null so callers fall back to sync.
+      reliefWorkerFailed = true;
+      reliefWorker = null;
+      for (const job of reliefPending.values()) job.resolve(null);
+      reliefPending.clear();
+      worker.terminate();
+    };
+    reliefWorker = worker;
+    return worker;
+  } catch {
+    reliefWorkerFailed = true;
+    return null;
+  }
+}
+
+/**
+ * Async twin of deriveSurfaceReliefMaps: the Sobel / roughness / metalness pixel loops run
+ * in relief.worker.ts so texture loads never block the render loop. Output is identical.
+ */
+export async function deriveSurfaceReliefMapsAsync(
+  sourceImage: HTMLImageElement | HTMLCanvasElement,
+  options: DerivedReliefOptions = {},
+): Promise<{
+  normalMap: THREE.CanvasTexture;
+  roughnessMap: THREE.CanvasTexture;
+  metalnessMap: THREE.CanvasTexture;
+}> {
+  const {
+    normalStrength = 3.2,
+    anisotropy = 4,
+    isGasGiant = false,
+    isIcy = false,
+    tileVertical = false,
+    repeatX = 1,
+    repeatY = 1,
+    maxWidth = 2048,
+  } = options;
+
+  const worker = getReliefWorker();
+  if (!worker) return deriveSurfaceReliefMaps(sourceImage, options);
+
+  const { w, h } = resolveReliefSize(sourceImage, maxWidth);
+  const pixels = readSourcePixels(sourceImage, w, h);
+  const kernelOpts = { normalStrength, isGasGiant, isIcy, tileVertical };
+  const buffer = pixels.slice().buffer as ArrayBuffer;
+
+  const response = await new Promise<ReliefJobResponse | null>((resolve) => {
+    const jobId = reliefNextJobId++;
+    reliefPending.set(jobId, { resolve });
+    const req: ReliefJobRequest = {
+      jobId,
+      width: w,
+      height: h,
+      pixels: buffer,
+      options: kernelOpts,
+    };
+    worker.postMessage(req, [buffer]);
+  });
+
+  const res: ReliefKernelResult = response
+    ? {
+        normal: new Uint8ClampedArray(response.normal),
+        rough: new Uint8ClampedArray(response.rough),
+        metal: new Uint8ClampedArray(response.metal),
+      }
+    : computeReliefPixels(pixels, w, h, kernelOpts);
+
+  return buildReliefTextures(res, w, h, {
+    anisotropy,
+    tileVertical,
+    repeatX,
+    repeatY,
+  });
+}

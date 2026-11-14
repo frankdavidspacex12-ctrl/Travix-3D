@@ -18,7 +18,7 @@ import {
   getOfflineNasaPhotos,
 } from '../data/offlineNasaArchive';
 import { DeepSpaceTarget } from '../data/solarSystemData';
-import { SurfaceCameraMode } from '../three/surfaceDiorama';
+import type { SurfaceCameraMode } from '../three/surfaceDiorama';
 import type { SearchTab } from './MissionSearch';
 
 interface MissionDossierProps {

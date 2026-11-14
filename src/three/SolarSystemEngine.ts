@@ -25,10 +25,7 @@ import {
   DeepSpaceTargetId,
   MoonData,
 } from '../data/solarSystemData';
-import {
-  DeepSpaceDioramaRuntime,
-  createDeepSpaceDiorama,
-} from './blackHole';
+import type { DeepSpaceDioramaRuntime } from './blackHole';
 import {
   createDetailedSaturnRingTexture,
   createNebulaPuffTexture,
@@ -39,8 +36,9 @@ import {
   createProceduralPlanetTextureSet,
   createSunGlowTexture,
   createUranusRingTexture,
-  deriveSurfaceReliefMaps,
+  deriveSurfaceReliefMapsAsync,
 } from './proceduralTextures';
+import type { MoonTextureSet, PlanetTextureSet } from './proceduralTextures';
 import {
   FullPbrTextureSet,
   Pbr8KCapabilities,
@@ -48,11 +46,53 @@ import {
   processSurface8KPBR,
 } from './highResPbrProcessor';
 import type { SurfacePbrProfile } from './pbr8k.worker';
-import {
+import type {
   SurfaceCameraMode,
   SurfaceDioramaRuntime,
-  createSurfaceDiorama,
 } from './surfaceDiorama';
+
+// surfaceDiorama.ts used to enable this as an import side effect at startup; keep it identical now
+// that the module is code-split.
+THREE.Cache.enabled = true;
+
+/* ---------------------------------------------------------------------------
+ * Code-split dioramas: the surface (rovers/landers/GLB) and deep-space (black holes,
+ * pulsars, nebulae) scenes are separate chunks, preloaded in the background once the
+ * Solar System is running so a click never waits on them in practice.
+ * ------------------------------------------------------------------------- */
+type SurfaceDioramaModule = typeof import('./surfaceDiorama');
+type DeepSpaceDioramaModule = typeof import('./blackHole');
+
+let surfaceModule: SurfaceDioramaModule | null = null;
+let surfaceModulePromise: Promise<SurfaceDioramaModule> | null = null;
+let deepSpaceModule: DeepSpaceDioramaModule | null = null;
+let deepSpaceModulePromise: Promise<DeepSpaceDioramaModule> | null = null;
+
+function loadSurfaceModule(): Promise<SurfaceDioramaModule> {
+  if (!surfaceModulePromise) {
+    surfaceModulePromise = import('./surfaceDiorama').then(
+      (m) => (surfaceModule = m),
+      (err) => {
+        surfaceModulePromise = null; // allow retry
+        throw err;
+      },
+    );
+  }
+  return surfaceModulePromise;
+}
+
+function loadDeepSpaceModule(): Promise<DeepSpaceDioramaModule> {
+  if (!deepSpaceModulePromise) {
+    deepSpaceModulePromise = import('./blackHole').then(
+      (m) => (deepSpaceModule = m),
+      (err) => {
+        deepSpaceModulePromise = null;
+        throw err;
+      },
+    );
+  }
+  return deepSpaceModulePromise;
+}
 
 const _vec3A = new THREE.Vector3();
 const _vec3B = new THREE.Vector3();
@@ -311,6 +351,32 @@ function createAtmosphereShaderMaterial(
   });
 }
 
+/**
+ * 1×1 stand-in texture used while the real NASA texture streams in. Keeps every
+ * material's shader variant identical (map/normalMap/roughnessMap/metalnessMap all
+ * bound) so swapping in the real texture never triggers a program recompile.
+ */
+function createSolidTexture(
+  rgb: [number, number, number],
+  isColor: boolean,
+): THREE.DataTexture {
+  const tex = new THREE.DataTexture(
+    new Uint8Array([rgb[0], rgb[1], rgb[2], 255]),
+    1,
+    1,
+    THREE.RGBAFormat,
+  );
+  tex.colorSpace = isColor ? THREE.SRGBColorSpace : THREE.NoColorSpace;
+  tex.needsUpdate = true;
+  return tex;
+}
+
+function hexToRgb(hex: string): [number, number, number] {
+  // getHex() returns sRGB bytes (Color stores linear internally under ColorManagement)
+  const v = new THREE.Color(hex).getHex();
+  return [(v >> 16) & 255, (v >> 8) & 255, v & 255];
+}
+
 function createSunSurfaceMaterial(initialTexture: THREE.Texture): THREE.ShaderMaterial {
   return new THREE.ShaderMaterial({
     uniforms: {
@@ -493,8 +559,16 @@ export class SolarSystemEngine {
   private surfaceViewMode: SurfaceCameraMode = 'rover';
   private deepSpaceDiorama: DeepSpaceDioramaRuntime | null = null;
   private activeDeepSpaceId: DeepSpaceTargetId | null = null;
+  /** Bumped by every navigation call so a late-arriving diorama chunk never hijacks a newer choice */
+  private navRequestToken = 0;
 
   private labelElements = new Map<CelestialBodyId, HTMLElement>();
+  /** Last style written per label, so the per-frame projection only touches the DOM on change */
+  private labelStyleCache = new WeakMap<HTMLElement, { shown: boolean | null; transform: string }>();
+  private labelsAllHidden = false;
+  private viewportW = 0;
+  private viewportH = 0;
+  private roomEnvTex: THREE.Texture | null = null;
   private showOrbits = false;
   private currentOrbitOpacity = 0;
   private showLabels = true;
@@ -528,6 +602,8 @@ export class SolarSystemEngine {
       this.isSoftwareGl ? 1 : Math.min(window.devicePixelRatio, 2),
     );
     this.renderer.setSize(width, height);
+    this.viewportW = width;
+    this.viewportH = height;
     this.renderer.shadowMap.enabled = !this.isSoftwareGl;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.pbrCaps = getPbr8KCapabilities(this.renderer, this.isSoftwareGl);
@@ -544,7 +620,11 @@ export class SolarSystemEngine {
     // Initialize RoomEnvironment per spec but keep intensity strictly 0.0 so night hemispheres stay pitch-black
     const pmremGenerator = new THREE.PMREMGenerator(this.renderer);
     const envTex = pmremGenerator.fromScene(new RoomEnvironment(), 0.04).texture;
-    this.scene.environment = envTex;
+    // Space mode runs at environmentIntensity 0, so the IBL term is exactly zero there; leaving the
+    // environment unbound in that mode skips its per-pixel cube-UV fetches on every planet without
+    // changing a single lit pixel. The surface / deep-space dioramas bind it (they use 0.68 / 0.28).
+    this.roomEnvTex = envTex;
+    this.scene.environment = null;
     this.scene.environmentIntensity = 0.0;
     this.disposables.push(envTex);
     pmremGenerator.dispose();
@@ -593,11 +673,75 @@ export class SolarSystemEngine {
     this.applyJ2000State(daysSinceJ2000(this.simEpochMs), true);
     this.bindEvents();
 
-    if (!this.isSoftwareGl) {
-      this.renderer.compile(this.scene, this.camera);
+    if (this.isSoftwareGl) {
+      this.startLoop();
+    } else {
+      this.warmUpShadersThenStart();
     }
+    this.scheduleDioramaPreload();
+  }
 
-    this.startLoop();
+  private scheduleIdle(cb: () => void, fallbackDelayMs: number, timeoutMs = 4000): void {
+    const w = window as Window & {
+      requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number;
+    };
+    if (typeof w.requestIdleCallback === 'function') {
+      w.requestIdleCallback(cb, { timeout: timeoutMs });
+    } else {
+      window.setTimeout(cb, fallbackDelayMs);
+    }
+  }
+
+  /**
+   * Compiles every space-mode shader through KHR_parallel_shader_compile (off the main thread where
+   * the driver supports it) before the first frame, instead of one long blocking compile() call.
+   * Then, in idle time, also compiles the variant used while a body is focused (Sun-aligned shadow
+   * light switched on); without that, the first planet click recompiles every PBR material at once
+   * and the fly-to stutters. Programs are identical either way, so the rendered image is unchanged.
+   */
+  private warmUpShadersThenStart(): void {
+    let started = false;
+    const start = () => {
+      if (started || this.disposed) return;
+      started = true;
+      this.startLoop();
+      this.scheduleIdle(() => this.prewarmFocusShadowVariant(), 1500);
+    };
+    // Safety net: never hold the first frame back longer than this (render would just finish linking).
+    window.setTimeout(start, 2500);
+    try {
+      this.renderer.compileAsync(this.scene, this.camera).then(start, start);
+    } catch {
+      start();
+    }
+  }
+
+  private prewarmFocusShadowVariant(): void {
+    const dir = this.focusShadowLight;
+    if (this.disposed || !dir || dir.visible) return; // already focused: compiled by the real render
+    if (!this.spaceRoot.visible) {
+      // A diorama is open (space lights hidden); try again once back in space mode.
+      this.scheduleIdle(() => this.prewarmFocusShadowVariant(), 3000);
+      return;
+    }
+    // compile() only reads the visible lights, synchronously, so the light can be switched straight back.
+    dir.visible = true;
+    try {
+      void this.renderer.compileAsync(this.scene, this.camera).catch(() => {});
+    } catch {
+      // Not fatal: the variant then compiles on first focus, as before.
+    } finally {
+      dir.visible = false;
+    }
+  }
+
+  /** Fetch + parse the diorama chunks during idle time after the first frames are on screen. */
+  private scheduleDioramaPreload(): void {
+    this.scheduleIdle(() => {
+      if (this.disposed) return;
+      void loadSurfaceModule().catch(() => {});
+      void loadDeepSpaceModule().catch(() => {});
+    }, 2000);
   }
 
   private buildLighting(): void {
@@ -855,6 +999,14 @@ export class SolarSystemEngine {
     const loader = new THREE.TextureLoader();
     loader.setCrossOrigin('anonymous');
 
+    // Shared neutral PBR placeholders (flat normal, fully rough, non-metal)
+    const flatNormal = createSolidTexture([128, 128, 255], false);
+    const fullRough = createSolidTexture([255, 255, 255], false);
+    const zeroMetal = createSolidTexture([0, 0, 0], false);
+    const blackColor = createSolidTexture([0, 0, 0], true);
+    const whiteColor = createSolidTexture([255, 255, 255], true);
+    this.disposables.push(flatNormal, fullRough, zeroMetal, blackColor, whiteColor);
+
     for (const data of CELESTIAL_BODIES) {
       const inclinationGroup = new THREE.Group();
       this.spaceRoot.add(inclinationGroup);
@@ -891,13 +1043,29 @@ export class SolarSystemEngine {
           : new THREE.SphereGeometry(data.visualRadius, 72, 54);
       this.disposables.push(sphereGeo);
 
-      const texSet = createProceduralPlanetTextureSet(data.id, maxAnisotropy);
-      this.disposables.push(
-        texSet.map,
-        texSet.normalMap,
-        texSet.roughnessMap,
-        texSet.metalnessMap,
-      );
+      // Real NASA textures replace these 1×1 placeholders as soon as they load. The costly
+      // per-pixel procedural set is only generated if a real texture fails to load.
+      const placeholderMap = createSolidTexture(hexToRgb(data.accentColor), true);
+      this.disposables.push(placeholderMap);
+      const texSet = {
+        map: placeholderMap as THREE.Texture,
+        normalMap: flatNormal as THREE.Texture,
+        roughnessMap: fullRough as THREE.Texture,
+        metalnessMap: zeroMetal as THREE.Texture,
+      };
+      let proceduralSet: PlanetTextureSet | null = null;
+      const getProceduralSet = (): PlanetTextureSet => {
+        if (!proceduralSet) {
+          proceduralSet = createProceduralPlanetTextureSet(data.id, maxAnisotropy);
+          this.disposables.push(
+            proceduralSet.map,
+            proceduralSet.normalMap,
+            proceduralSet.roughnessMap,
+            proceduralSet.metalnessMap,
+          );
+        }
+        return proceduralSet;
+      };
 
       let mesh: THREE.Mesh;
       let planetMat: THREE.MeshPhysicalMaterial | undefined;
@@ -1068,7 +1236,12 @@ export class SolarSystemEngine {
             this.disposables.push(tex);
           },
           undefined,
-          () => {},
+          () => {
+            if (this.disposed) return;
+            if (sunMat.uniforms.uTexture.value === placeholderMap) {
+              sunMat.uniforms.uTexture.value = getProceduralSet().map;
+            }
+          },
         );
       } else {
         const isGasGiant =
@@ -1189,6 +1362,25 @@ export class SolarSystemEngine {
 
         const activePlanetMat = planetMat;
         const activeBasePbr = basePbr;
+
+        // Only reached if a real texture fails: fill any slot still on its placeholder with the
+        // procedural set (exactly what the material held before when a load failed).
+        const fillPlaceholdersWithProcedural = () => {
+          if (this.disposed) return;
+          const p = getProceduralSet();
+          const slots = [
+            ['map', placeholderMap, p.map],
+            ['normalMap', flatNormal, p.normalMap],
+            ['roughnessMap', fullRough, p.roughnessMap],
+            ['metalnessMap', zeroMetal, p.metalnessMap],
+          ] as const;
+          for (const [key, placeholder, procedural] of slots) {
+            if (activePlanetMat[key] === placeholder) activePlanetMat[key] = procedural;
+            if (activeBasePbr[key] === placeholder) activeBasePbr[key] = procedural;
+          }
+          activePlanetMat.needsUpdate = true;
+        };
+
         loader.load(
           data.textures.map,
           (tex) => {
@@ -1206,43 +1398,53 @@ export class SolarSystemEngine {
               const rt = this.bodies.get(data.id);
               if (rt) rt.albedoImage = tex.image;
             }
+            activePlanetMat.needsUpdate = true;
+            this.disposables.push(tex);
 
-            // Replace initial procedural normal/roughness/metalness with Sobel relief derived directly from the real NASA photo
+            // Sobel relief derived directly from the real NASA photo (computed in a Web Worker)
             if (!data.textures.normalMap && !data.textures.bumpMap && tex.image) {
-              const relief = deriveSurfaceReliefMaps(tex.image as HTMLImageElement, {
+              void deriveSurfaceReliefMapsAsync(tex.image as HTMLImageElement, {
                 normalStrength: isGasGiant ? 1.15 : data.id === 'comet67p' ? 5.2 : 3.6,
                 anisotropy: maxAnisotropy,
                 isGasGiant,
                 isIcy: isIcyWorld,
+              }).then((relief) => {
+                if (this.disposed) {
+                  relief.normalMap.dispose();
+                  relief.roughnessMap.dispose();
+                  relief.metalnessMap.dispose();
+                  return;
+                }
+                activePlanetMat.normalMap = relief.normalMap;
+                activeBasePbr.normalMap = relief.normalMap;
+                if (!data.textures.specularMap) {
+                  activePlanetMat.roughnessMap = relief.roughnessMap;
+                  activeBasePbr.roughnessMap = relief.roughnessMap;
+                } else {
+                  relief.roughnessMap.dispose();
+                }
+                activePlanetMat.metalnessMap = relief.metalnessMap;
+                activeBasePbr.metalnessMap = relief.metalnessMap;
+                activePlanetMat.normalScale.set(
+                  isGasGiant ? 0.28 : data.id === 'comet67p' ? 1.25 : 0.85,
+                  isGasGiant ? 0.28 : data.id === 'comet67p' ? 1.25 : 0.85,
+                );
+                this.disposables.push(
+                  relief.normalMap,
+                  relief.roughnessMap,
+                  relief.metalnessMap,
+                );
+                activePlanetMat.needsUpdate = true;
+                if (this.focusedBodyId === data.id && !this.focusedMoonId) {
+                  this.schedule8KUpgrade(data.id, null);
+                }
               });
-              activePlanetMat.normalMap = relief.normalMap;
-              activeBasePbr.normalMap = relief.normalMap;
-              if (!data.textures.specularMap) {
-                activePlanetMat.roughnessMap = relief.roughnessMap;
-                activeBasePbr.roughnessMap = relief.roughnessMap;
-              } else {
-                relief.roughnessMap.dispose();
-              }
-              activePlanetMat.metalnessMap = relief.metalnessMap;
-              activeBasePbr.metalnessMap = relief.metalnessMap;
-              activePlanetMat.normalScale.set(
-                isGasGiant ? 0.28 : data.id === 'comet67p' ? 1.25 : 0.85,
-                isGasGiant ? 0.28 : data.id === 'comet67p' ? 1.25 : 0.85,
-              );
-              this.disposables.push(
-                relief.normalMap,
-                relief.roughnessMap,
-                relief.metalnessMap,
-              );
-            }
-            activePlanetMat.needsUpdate = true;
-            this.disposables.push(tex);
-            if (this.focusedBodyId === data.id && !this.focusedMoonId) {
+            } else if (this.focusedBodyId === data.id && !this.focusedMoonId) {
               this.schedule8KUpgrade(data.id, null);
             }
           },
           undefined,
-          () => {},
+          fillPlaceholdersWithProcedural,
         );
 
         if (data.textures.bumpMap) {
@@ -1258,34 +1460,48 @@ export class SolarSystemEngine {
                 if (rt) rt.bumpImage = tex.image;
               }
               if (!data.textures.normalMap && tex.image) {
-                // Convert NASA elevation/bump heightmap into a true tangent-space normalMap instead of keeping old procedural noise!
-                const relief = deriveSurfaceReliefMaps(tex.image as HTMLImageElement, {
+                // Convert NASA elevation/bump heightmap into a true tangent-space normalMap (computed in a Web Worker)
+                const reliefPromise = deriveSurfaceReliefMapsAsync(tex.image as HTMLImageElement, {
                   normalStrength: data.id === 'mercury' || data.id === 'mars' ? 4.4 : 2.2,
                   anisotropy: maxAnisotropy,
                   isGasGiant,
                   isIcy: isIcyWorld,
                 });
-                activePlanetMat.normalMap = relief.normalMap;
-                activeBasePbr.normalMap = relief.normalMap;
-                activePlanetMat.normalScale.set(
-                  data.id === 'venus' ? 0.42 : 0.92,
-                  data.id === 'venus' ? 0.42 : 0.92,
-                );
-                if (!data.textures.specularMap) {
-                  activePlanetMat.roughnessMap = relief.roughnessMap;
-                  activeBasePbr.roughnessMap = relief.roughnessMap;
-                } else {
-                  relief.roughnessMap.dispose();
-                }
-                activePlanetMat.metalnessMap = relief.metalnessMap;
-                activeBasePbr.metalnessMap = relief.metalnessMap;
-                activePlanetMat.bumpMap = null;
-                this.disposables.push(
-                  relief.normalMap,
-                  relief.roughnessMap,
-                  relief.metalnessMap,
-                );
+                // Pixels were already read synchronously inside the call above
                 tex.dispose();
+                void reliefPromise.then((relief) => {
+                  if (this.disposed) {
+                    relief.normalMap.dispose();
+                    relief.roughnessMap.dispose();
+                    relief.metalnessMap.dispose();
+                    return;
+                  }
+                  activePlanetMat.normalMap = relief.normalMap;
+                  activeBasePbr.normalMap = relief.normalMap;
+                  activePlanetMat.normalScale.set(
+                    data.id === 'venus' ? 0.42 : 0.92,
+                    data.id === 'venus' ? 0.42 : 0.92,
+                  );
+                  if (!data.textures.specularMap) {
+                    activePlanetMat.roughnessMap = relief.roughnessMap;
+                    activeBasePbr.roughnessMap = relief.roughnessMap;
+                  } else {
+                    relief.roughnessMap.dispose();
+                  }
+                  activePlanetMat.metalnessMap = relief.metalnessMap;
+                  activeBasePbr.metalnessMap = relief.metalnessMap;
+                  activePlanetMat.bumpMap = null;
+                  this.disposables.push(
+                    relief.normalMap,
+                    relief.roughnessMap,
+                    relief.metalnessMap,
+                  );
+                  activePlanetMat.needsUpdate = true;
+                  if (this.focusedBodyId === data.id && !this.focusedMoonId) {
+                    this.schedule8KUpgrade(data.id, null);
+                  }
+                });
+                return;
               } else {
                 tex.wrapS = THREE.RepeatWrapping;
                 tex.anisotropy = maxAnisotropy;
@@ -1299,7 +1515,7 @@ export class SolarSystemEngine {
               }
             },
             undefined,
-            () => {},
+            fillPlaceholdersWithProcedural,
           );
         }
 
@@ -1325,7 +1541,7 @@ export class SolarSystemEngine {
               this.disposables.push(tex);
             },
             undefined,
-            () => {},
+            fillPlaceholdersWithProcedural,
           );
         }
 
@@ -1374,7 +1590,7 @@ export class SolarSystemEngine {
               }
             },
             undefined,
-            () => {},
+            fillPlaceholdersWithProcedural,
           );
         }
       }
@@ -1404,18 +1620,30 @@ export class SolarSystemEngine {
           48,
           36,
         );
-        const fallbackClouds = createProceduralEarthClouds(maxAnisotropy);
+        // Cloud deck stays hidden until the real NASA cloud texture arrives; the procedural
+        // cloud texture is generated only if that load fails.
         const cloudMat = new THREE.MeshStandardMaterial({
-          map: fallbackClouds,
+          map: whiteColor,
           transparent: true,
           opacity: 0.88,
           depthWrite: false,
           roughness: 0.92,
         });
-        cloudMesh = new THREE.Mesh(cloudGeo, cloudMat);
-        if (!this.isSoftwareGl) cloudMesh.receiveShadow = true;
-        tiltGroup.add(cloudMesh);
-        this.disposables.push(cloudGeo, fallbackClouds, cloudMat);
+        const earthCloudMesh = new THREE.Mesh(cloudGeo, cloudMat);
+        cloudMesh = earthCloudMesh;
+        earthCloudMesh.visible = false;
+        if (!this.isSoftwareGl) earthCloudMesh.receiveShadow = true;
+        tiltGroup.add(earthCloudMesh);
+        this.disposables.push(cloudGeo, cloudMat);
+
+        const useProceduralClouds = () => {
+          if (this.disposed) return;
+          const fallbackClouds = createProceduralEarthClouds(maxAnisotropy);
+          this.disposables.push(fallbackClouds);
+          cloudMat.map = fallbackClouds;
+          cloudMat.needsUpdate = true;
+          earthCloudMesh.visible = true;
+        };
 
         if (data.textures.cloudsMap) {
           loader.load(
@@ -1430,15 +1658,17 @@ export class SolarSystemEngine {
               tex.anisotropy = maxAnisotropy;
               cloudMat.map = tex;
               cloudMat.needsUpdate = true;
+              earthCloudMesh.visible = true;
               this.disposables.push(tex);
             },
             undefined,
-            () => {},
+            useProceduralClouds,
           );
+        } else {
+          useProceduralClouds();
         }
 
         // Earth Night City Lights on Dark Hemisphere (immediate offline lights + optional HD upgrade)
-        const offlineLightsTex = createProceduralEarthNightLights(maxAnisotropy);
         const lightsGeo = new THREE.SphereGeometry(
           data.visualRadius * 1.003,
           48,
@@ -1446,7 +1676,8 @@ export class SolarSystemEngine {
         );
         const lightsMat = new THREE.ShaderMaterial({
           uniforms: {
-            uLightsMap: { value: offlineLightsTex },
+            // Black = no city lights until the real NASA night-lights texture loads
+            uLightsMap: { value: blackColor as THREE.Texture },
           },
           vertexShader: `
             varying vec2 vUv;
@@ -1480,7 +1711,7 @@ export class SolarSystemEngine {
         });
         const lightsMesh = new THREE.Mesh(lightsGeo, lightsMat);
         mesh.add(lightsMesh);
-        this.disposables.push(offlineLightsTex, lightsGeo, lightsMat);
+        this.disposables.push(lightsGeo, lightsMat);
 
         loader.load(
           '/textures/planets/earth_lights_2048.png',
@@ -1496,7 +1727,12 @@ export class SolarSystemEngine {
             this.disposables.push(lightsTex);
           },
           undefined,
-          () => {},
+          () => {
+            if (this.disposed) return;
+            const offlineLightsTex = createProceduralEarthNightLights(maxAnisotropy);
+            this.disposables.push(offlineLightsTex);
+            lightsMat.uniforms.uLightsMap.value = offlineLightsTex;
+          },
         );
       } else if (data.id === 'jupiter') {
         const jupCloudGeo = new THREE.SphereGeometry(
@@ -1717,7 +1953,38 @@ export class SolarSystemEngine {
         const moonGeo = mData.irregular
           ? createIrregularMoonGeometry(mData.radius)
           : new THREE.SphereGeometry(mData.radius, 36, 28);
-        const moonSet = createProceduralMoonTextureSet(mData.style, maxAnisotropy);
+        // Moons with a real NASA texture start on 1×1 placeholders; the procedural set is built
+        // up-front only for moons without one (e.g. Proteus) or lazily if a real load fails.
+        let moonProceduralSet: MoonTextureSet | null = null;
+        const getMoonProceduralSet = (): MoonTextureSet => {
+          if (!moonProceduralSet) {
+            moonProceduralSet = createProceduralMoonTextureSet(mData.style, maxAnisotropy);
+            this.disposables.push(
+              moonProceduralSet.map,
+              moonProceduralSet.normalMap,
+              moonProceduralSet.roughnessMap,
+              moonProceduralSet.metalnessMap,
+            );
+          }
+          return moonProceduralSet;
+        };
+        const moonPlaceholderMap = mData.textureUrl
+          ? createSolidTexture([140, 140, 140], true)
+          : null;
+        if (moonPlaceholderMap) this.disposables.push(moonPlaceholderMap);
+        const moonSet: {
+          map: THREE.Texture;
+          normalMap: THREE.Texture;
+          roughnessMap: THREE.Texture;
+          metalnessMap: THREE.Texture;
+        } = moonPlaceholderMap
+          ? {
+              map: moonPlaceholderMap,
+              normalMap: flatNormal,
+              roughnessMap: fullRough,
+              metalnessMap: zeroMetal,
+            }
+          : getMoonProceduralSet();
         const isIcyMoon =
           mData.style === 'enceladus' ||
           mData.style === 'europa' ||
@@ -1749,14 +2016,23 @@ export class SolarSystemEngine {
           moonMesh.receiveShadow = true;
         }
         pivotGroup.add(moonMesh);
-        this.disposables.push(
-          moonGeo,
-          moonSet.map,
-          moonSet.normalMap,
-          moonSet.roughnessMap,
-          moonSet.metalnessMap,
-          moonMat,
-        );
+        this.disposables.push(moonGeo, moonMat);
+
+        const fillMoonPlaceholders = () => {
+          if (this.disposed || !moonPlaceholderMap) return;
+          const p = getMoonProceduralSet();
+          const slots = [
+            ['map', moonPlaceholderMap, p.map],
+            ['normalMap', flatNormal, p.normalMap],
+            ['roughnessMap', fullRough, p.roughnessMap],
+            ['metalnessMap', zeroMetal, p.metalnessMap],
+          ] as const;
+          for (const [key, placeholder, procedural] of slots) {
+            if (moonMat[key] === placeholder) moonMat[key] = procedural;
+            if (moonBasePbr[key] === placeholder) moonBasePbr[key] = procedural;
+          }
+          moonMat.needsUpdate = true;
+        };
 
         if (mData.atmosphereColor) {
           const mAtmoGeo = new THREE.SphereGeometry(mData.radius * 1.07, 24, 18);
@@ -1823,34 +2099,44 @@ export class SolarSystemEngine {
                 const mrt = this.moonsById.get(mData.id);
                 if (mrt) mrt.albedoImage = tex.image;
               }
+              moonMat.needsUpdate = true;
+              this.disposables.push(tex);
               if (!mData.bumpUrl && tex.image) {
-                const relief = deriveSurfaceReliefMaps(tex.image as HTMLImageElement, {
+                void deriveSurfaceReliefMapsAsync(tex.image as HTMLImageElement, {
                   normalStrength: 3.4,
                   anisotropy: maxAnisotropy,
                   isIcy: isIcyMoon,
                   maxWidth: 1024,
+                }).then((relief) => {
+                  if (this.disposed) {
+                    relief.normalMap.dispose();
+                    relief.roughnessMap.dispose();
+                    relief.metalnessMap.dispose();
+                    return;
+                  }
+                  moonMat.normalMap = relief.normalMap;
+                  moonMat.roughnessMap = relief.roughnessMap;
+                  moonMat.metalnessMap = relief.metalnessMap;
+                  moonBasePbr.normalMap = relief.normalMap;
+                  moonBasePbr.roughnessMap = relief.roughnessMap;
+                  moonBasePbr.metalnessMap = relief.metalnessMap;
+                  moonMat.normalScale.set(0.86, 0.86);
+                  this.disposables.push(
+                    relief.normalMap,
+                    relief.roughnessMap,
+                    relief.metalnessMap,
+                  );
+                  moonMat.needsUpdate = true;
+                  if (this.focusedMoonId === mData.id) {
+                    this.schedule8KUpgrade(data.id, mData.id);
+                  }
                 });
-                moonMat.normalMap = relief.normalMap;
-                moonMat.roughnessMap = relief.roughnessMap;
-                moonMat.metalnessMap = relief.metalnessMap;
-                moonBasePbr.normalMap = relief.normalMap;
-                moonBasePbr.roughnessMap = relief.roughnessMap;
-                moonBasePbr.metalnessMap = relief.metalnessMap;
-                moonMat.normalScale.set(0.86, 0.86);
-                this.disposables.push(
-                  relief.normalMap,
-                  relief.roughnessMap,
-                  relief.metalnessMap,
-                );
-              }
-              moonMat.needsUpdate = true;
-              this.disposables.push(tex);
-              if (this.focusedMoonId === mData.id) {
+              } else if (this.focusedMoonId === mData.id) {
                 this.schedule8KUpgrade(data.id, mData.id);
               }
             },
             undefined,
-            () => {},
+            fillMoonPlaceholders,
           );
         }
 
@@ -1865,26 +2151,40 @@ export class SolarSystemEngine {
               if (tex.image instanceof HTMLImageElement) {
                 const mrt = this.moonsById.get(mData.id);
                 if (mrt) mrt.bumpImage = tex.image;
-                const relief = deriveSurfaceReliefMaps(tex.image as HTMLImageElement, {
+                const reliefPromise = deriveSurfaceReliefMapsAsync(tex.image as HTMLImageElement, {
                   normalStrength: 4.2,
                   anisotropy: maxAnisotropy,
                   isIcy: isIcyMoon,
                   maxWidth: 1024,
                 });
-                moonMat.normalMap = relief.normalMap;
-                moonMat.roughnessMap = relief.roughnessMap;
-                moonMat.metalnessMap = relief.metalnessMap;
-                moonBasePbr.normalMap = relief.normalMap;
-                moonBasePbr.roughnessMap = relief.roughnessMap;
-                moonBasePbr.metalnessMap = relief.metalnessMap;
-                moonMat.normalScale.set(0.95, 0.95);
-                moonMat.bumpMap = null;
-                this.disposables.push(
-                  relief.normalMap,
-                  relief.roughnessMap,
-                  relief.metalnessMap,
-                );
+                // Pixels were already read synchronously inside the call above
                 tex.dispose();
+                void reliefPromise.then((relief) => {
+                  if (this.disposed) {
+                    relief.normalMap.dispose();
+                    relief.roughnessMap.dispose();
+                    relief.metalnessMap.dispose();
+                    return;
+                  }
+                  moonMat.normalMap = relief.normalMap;
+                  moonMat.roughnessMap = relief.roughnessMap;
+                  moonMat.metalnessMap = relief.metalnessMap;
+                  moonBasePbr.normalMap = relief.normalMap;
+                  moonBasePbr.roughnessMap = relief.roughnessMap;
+                  moonBasePbr.metalnessMap = relief.metalnessMap;
+                  moonMat.normalScale.set(0.95, 0.95);
+                  moonMat.bumpMap = null;
+                  this.disposables.push(
+                    relief.normalMap,
+                    relief.roughnessMap,
+                    relief.metalnessMap,
+                  );
+                  moonMat.needsUpdate = true;
+                  if (this.focusedMoonId === mData.id) {
+                    this.schedule8KUpgrade(data.id, mData.id);
+                  }
+                });
+                return;
               } else {
                 tex.wrapS = THREE.RepeatWrapping;
                 tex.anisotropy = maxAnisotropy;
@@ -1898,7 +2198,7 @@ export class SolarSystemEngine {
               }
             },
             undefined,
-            () => {},
+            fillMoonPlaceholders,
           );
         }
 
@@ -2340,6 +2640,8 @@ export class SolarSystemEngine {
       if (this.disposed) return;
       const w = this.container.clientWidth || window.innerWidth;
       const h = this.container.clientHeight || window.innerHeight;
+      this.viewportW = w;
+      this.viewportH = h;
       this.camera.aspect = w / h;
       this.camera.updateProjectionMatrix();
       this.renderer.setSize(w, h);
@@ -2385,6 +2687,7 @@ export class SolarSystemEngine {
   }
 
   public flyToBody(id: CelestialBodyId): void {
+    this.navRequestToken++;
     const runtime = this.bodies.get(id);
     if (!runtime) return;
 
@@ -2430,6 +2733,7 @@ export class SolarSystemEngine {
   }
 
   public flyToMoon(bodyId: CelestialBodyId, moonId: string): void {
+    this.navRequestToken++;
     const moon = this.moonsById.get(moonId);
     if (!moon || moon.parentId !== bodyId) return;
 
@@ -2474,6 +2778,21 @@ export class SolarSystemEngine {
   }
 
   public flyToMission(mission: AbandonedMission): void {
+    const token = ++this.navRequestToken;
+    const needsDioramaNow =
+      (this.surfaceDiorama && this.surfaceMission?.id !== mission.id) ||
+      (!this.surfaceDiorama && mission.missionRole === 'deepspace');
+    if (needsDioramaNow && !surfaceModule) {
+      void loadSurfaceModule()
+        .then(() => {
+          if (!this.disposed && token === this.navRequestToken) {
+            this.flyToMission(mission);
+          }
+        })
+        .catch(() => {});
+      return;
+    }
+
     if (this.deepSpaceDiorama) {
       this.exitDeepSpaceMode();
     }
@@ -2521,11 +2840,24 @@ export class SolarSystemEngine {
   }
 
   public flyToDeepSpace(id: DeepSpaceTargetId): void {
+    const token = ++this.navRequestToken;
+    const mod = deepSpaceModule;
+    if (!mod) {
+      void loadDeepSpaceModule()
+        .then(() => {
+          if (!this.disposed && token === this.navRequestToken) {
+            this.flyToDeepSpace(id);
+          }
+        })
+        .catch(() => {});
+      return;
+    }
+
     this.pendingSurfaceMission = null;
     this.exitSurfaceMode();
     this.exitDeepSpaceMode();
 
-    const diorama = createDeepSpaceDiorama(id);
+    const diorama = mod.createDeepSpaceDiorama(id);
     this.deepSpaceDiorama = diorama;
     this.activeDeepSpaceId = id;
 
@@ -2536,6 +2868,7 @@ export class SolarSystemEngine {
     this.isTracking = false;
 
     this.spaceRoot.visible = false;
+    this.scene.environment = this.roomEnvTex;
     this.scene.environmentIntensity = 0.28;
     this.scene.fog = null;
     this.scene.add(diorama.root);
@@ -2565,6 +2898,7 @@ export class SolarSystemEngine {
       this.callbacks.onDeepSpaceChange?.(null);
     }
     if (!this.surfaceDiorama) {
+      this.scene.environment = null;
       this.scene.environmentIntensity = 0.0;
       this.spaceRoot.visible = true;
       this.controls.minDistance = 0.35;
@@ -2616,10 +2950,13 @@ export class SolarSystemEngine {
   }
 
   private enterSurfaceMode(mission: AbandonedMission): void {
+    const mod = surfaceModule;
+    // Callers guarantee the chunk is loaded; this guard only protects against misuse.
+    if (!mod) return;
     this.exitSurfaceMode();
     this.clearActive8KUpgrade();
     const maxAnisotropy = this.renderer.capabilities.getMaxAnisotropy();
-    const diorama = createSurfaceDiorama(mission, maxAnisotropy, this.pbrCaps);
+    const diorama = mod.createSurfaceDiorama(mission, maxAnisotropy, this.pbrCaps);
     this.surfaceDiorama = diorama;
     this.surfaceMission = mission;
     this.pendingSurfaceMission = null;
@@ -2627,6 +2964,7 @@ export class SolarSystemEngine {
     this.isTracking = false;
 
     this.spaceRoot.visible = false;
+    this.scene.environment = this.roomEnvTex;
     this.scene.environmentIntensity = 0.68;
     this.scene.add(diorama.root);
 
@@ -2653,6 +2991,7 @@ export class SolarSystemEngine {
     this.surfaceMission = null;
     this.scene.fog = null;
     if (!this.deepSpaceDiorama) {
+      this.scene.environment = null;
       this.scene.environmentIntensity = 0.0;
     }
     this.spaceRoot.visible = true;
@@ -2814,6 +3153,7 @@ export class SolarSystemEngine {
   }
 
   public resetToOverview(): void {
+    this.navRequestToken++;
     this.pendingSurfaceMission = null;
     this.clearActive8KUpgrade();
     if (this.deepSpaceDiorama) {
@@ -2875,6 +3215,8 @@ export class SolarSystemEngine {
     } else {
       this.labelElements.delete(id);
     }
+    // A fresh element has no cached style yet; make the next frame write every label.
+    this.labelsAllHidden = false;
   }
 
   private computeIdealCameraOffset(
@@ -3289,7 +3631,12 @@ export class SolarSystemEngine {
               distToSite < targetMissionBeacon.hostRadius * 3.8 ||
               this.surfaceApproachElapsed > 1.25
             ) {
-              this.enterSurfaceMode(this.pendingSurfaceMission);
+              if (surfaceModule) {
+                this.enterSurfaceMode(this.pendingSurfaceMission);
+              } else {
+                // Keep tracking the landing site until the chunk arrives (normally already preloaded)
+                void loadSurfaceModule().catch(() => {});
+              }
             }
           }
         } else if (targetMoon) {
@@ -3418,15 +3765,16 @@ export class SolarSystemEngine {
       this.deepSpaceDiorama !== null;
 
     if (hideForCleanTravel) {
-      this.labelElements.forEach((el) => {
-        el.style.opacity = '0';
-        el.style.pointerEvents = 'none';
-      });
+      if (!this.labelsAllHidden) {
+        this.labelElements.forEach((el) => this.setLabelShown(el, false));
+        this.labelsAllHidden = true;
+      }
       return;
     }
+    this.labelsAllHidden = false;
 
-    const width = this.container.clientWidth || window.innerWidth;
-    const height = this.container.clientHeight || window.innerHeight;
+    const width = this.viewportW || window.innerWidth;
+    const height = this.viewportH || window.innerHeight;
 
     this.bodies.forEach((runtime, id) => {
       const el = this.labelElements.get(id);
@@ -3443,14 +3791,33 @@ export class SolarSystemEngine {
         sx < -40 || sx > width + 40 || sy < -30 || sy > height + 30;
 
       if (isBehind || outOfBounds) {
-        el.style.opacity = '0';
-        el.style.pointerEvents = 'none';
+        this.setLabelShown(el, false);
       } else {
-        el.style.opacity = '0.9';
-        el.style.pointerEvents = 'auto';
-        el.style.transform = `translate3d(${sx.toFixed(1)}px, ${sy.toFixed(1)}px, 0) translate(-50%, -100%)`;
+        const cache = this.setLabelShown(el, true);
+        const transform = `translate3d(${sx.toFixed(1)}px, ${sy.toFixed(1)}px, 0) translate(-50%, -100%)`;
+        if (cache.transform !== transform) {
+          cache.transform = transform;
+          el.style.transform = transform;
+        }
       }
     });
+  }
+
+  private setLabelShown(
+    el: HTMLElement,
+    shown: boolean,
+  ): { shown: boolean | null; transform: string } {
+    let cache = this.labelStyleCache.get(el);
+    if (!cache) {
+      cache = { shown: null, transform: '' };
+      this.labelStyleCache.set(el, cache);
+    }
+    if (cache.shown !== shown) {
+      cache.shown = shown;
+      el.style.opacity = shown ? '0.9' : '0';
+      el.style.pointerEvents = shown ? 'auto' : 'none';
+    }
+    return cache;
   }
 
   private afterDraw(cb: () => void): void {

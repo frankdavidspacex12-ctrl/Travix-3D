@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { FileText, Search } from 'lucide-react';
 import {
   ABANDONED_MISSIONS,
@@ -17,7 +17,7 @@ import {
 } from './data/solarSystemData';
 import { GuidedTourStep } from './data/guidedToursData';
 import { FocusSelection, SolarSystemEngine } from './three/SolarSystemEngine';
-import { SurfaceCameraMode } from './three/surfaceDiorama';
+import type { SurfaceCameraMode } from './three/surfaceDiorama';
 import { ControlDock } from './components/ControlDock';
 import { GuidedTourBar } from './components/GuidedTourBar';
 import { MissionDossier } from './components/MissionDossier';
@@ -28,9 +28,52 @@ import {
 } from './components/MissionSearch';
 import { PWAControls } from './components/PWAControls';
 
+// The engine pushes the simulation clock to React ~8×/s. Only ControlDock shows the clock, so
+// everything else is memoized and skips those re-renders (props below are kept referentially stable).
+const MemoGuidedTourBar = memo(GuidedTourBar);
+const MemoMissionDossier = memo(MissionDossier);
+const MemoMissionSearch = memo(MissionSearch);
+const MemoPWAControls = memo(PWAControls);
+
+interface PlanetLabelsProps {
+  hoveredId: CelestialBodyId | null;
+  onSelect: (id: CelestialBodyId) => void;
+  registerLabel: (id: CelestialBodyId, el: HTMLElement | null) => void;
+}
+
+const PlanetLabels = memo(function PlanetLabels({
+  hoveredId,
+  onSelect,
+  registerLabel,
+}: PlanetLabelsProps) {
+  return (
+    <div className="fixed inset-0 z-10 pointer-events-none overflow-hidden">
+      {CELESTIAL_BODIES.map((body) => {
+        const isHovered = hoveredId === body.id;
+        return (
+          <button
+            key={body.id}
+            type="button"
+            ref={(el) => registerLabel(body.id, el)}
+            onClick={() => onSelect(body.id)}
+            className={`fixed top-0 left-0 px-2.5 py-0.5 rounded-full text-[11px] font-medium tracking-wide transition-colors cursor-pointer focus-visible:outline-2 focus-visible:outline-amber-400 ${
+              isHovered
+                ? 'travix-glass-bar border-white/35 text-white'
+                : 'travix-glass-label text-slate-100/95 hover:text-white hover:border-white/30'
+            }`}
+          >
+            {body.name}
+          </button>
+        );
+      })}
+    </div>
+  );
+});
+
 export default function App() {
   const canvasMountRef = useRef<HTMLDivElement | null>(null);
   const engineRef = useRef<SolarSystemEngine | null>(null);
+  const labelElementsRef = useRef(new Map<CelestialBodyId, HTMLElement>());
 
   const [selection, setSelection] = useState<FocusSelection | null>(null);
   const [activeDeepSpaceId, setActiveDeepSpaceId] =
@@ -92,6 +135,11 @@ export default function App() {
         },
       });
       engineRef.current = engine;
+      // Label refs mount before the engine exists (it is created in this effect), so hand
+      // over every label already in the DOM now.
+      labelElementsRef.current.forEach((el, id) =>
+        engine?.registerLabelElement(id, el),
+      );
     } catch {
       setWebglError(true);
     }
@@ -161,6 +209,19 @@ export default function App() {
       handleSelectDeepSpace,
     ],
   );
+
+  const registerLabel = useCallback(
+    (id: CelestialBodyId, el: HTMLElement | null) => {
+      if (el) labelElementsRef.current.set(id, el);
+      else labelElementsRef.current.delete(id);
+      engineRef.current?.registerLabelElement(id, el);
+    },
+    [],
+  );
+
+  const handleViewMilkyWay = useCallback(() => {
+    handleSelectDeepSpace('milkyway');
+  }, [handleSelectDeepSpace]);
 
   const handleChangeSurfaceView = useCallback((mode: SurfaceCameraMode) => {
     engineRef.current?.setSurfaceCameraMode(mode);
@@ -299,26 +360,11 @@ export default function App() {
       )}
 
       {/* Clean Travel: projected planet labels appear strictly in Overview mode */}
-      <div className="fixed inset-0 z-10 pointer-events-none overflow-hidden">
-        {CELESTIAL_BODIES.map((body) => {
-          const isHovered = hoveredId === body.id;
-          return (
-            <button
-              key={body.id}
-              type="button"
-              ref={(el) => engineRef.current?.registerLabelElement(body.id, el)}
-              onClick={() => handleSelectBody(body.id)}
-              className={`fixed top-0 left-0 px-2.5 py-0.5 rounded-full text-[11px] font-medium tracking-wide transition-colors cursor-pointer focus-visible:outline-2 focus-visible:outline-amber-400 ${
-                isHovered
-                  ? 'travix-glass-bar border-white/35 text-white'
-                  : 'travix-glass-label text-slate-100/95 hover:text-white hover:border-white/30'
-              }`}
-            >
-              {body.name}
-            </button>
-          );
-        })}
-      </div>
+      <PlanetLabels
+        hoveredId={hoveredId}
+        onSelect={handleSelectBody}
+        registerLabel={registerLabel}
+      />
 
       {/* Minimalist Top-Left Brand Logo + Guided NASA Tours Trigger */}
       <header className="fixed top-2.5 left-4 z-20 flex items-center gap-3 pointer-events-none">
@@ -330,17 +376,17 @@ export default function App() {
             draggable={false}
           />
         </h1>
-        <GuidedTourBar
+        <MemoGuidedTourBar
           onSelectStep={handleSelectTourStep}
           onOpenSearch={handleOpenSearch}
         />
       </header>
 
       {/* PWA Offline Status & Install Controls */}
-      <PWAControls />
+      <MemoPWAControls />
 
       {/* Top-Right Round Search Trigger & Space Explorer */}
-      <MissionSearch
+      <MemoMissionSearch
         isOpen={isSearchOpen}
         activeTab={searchTab}
         onOpenChange={setIsSearchOpen}
@@ -388,7 +434,7 @@ export default function App() {
 
       {/* Left-Side Compact Mission / Deep Space Dossier & 3D Rover/POV Switcher */}
       {(selectedMission || selectedDeepSpace) && !isInfoHidden && (
-        <MissionDossier
+        <MemoMissionDossier
           mission={selectedMission}
           deepSpaceTarget={selectedDeepSpace}
           searchContext={activeSearchContext}
@@ -396,7 +442,7 @@ export default function App() {
           isSurfaceActive={isSurfaceActive}
           surfaceViewMode={surfaceViewMode}
           onChangeSurfaceView={handleChangeSurfaceView}
-          onViewMilkyWay={() => handleSelectDeepSpace('milkyway')}
+          onViewMilkyWay={handleViewMilkyWay}
           onExitToOrbit={handleExitToOrbit}
           onOpenSearch={handleOpenSearch}
           onClose={handleHideInfoPanel}
