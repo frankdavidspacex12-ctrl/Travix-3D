@@ -1159,6 +1159,53 @@ function buildSpacecraftModel(
     addWheel(0.08, 0.05, 0, 0.08, 0.94, lk); // 9th trailing odometer wheel
     povOrigin = new THREE.Vector3(0, 0.72, -0.72);
   }
+  // ---------------- 3b. Apollo Lunar Roving Vehicle (LRV-1/2/3) as its own artifact ----------------
+  else if (craftType === 'rover_lrv') {
+    const lv = craftFallbackGroup;
+    // Same proportions as the LRV parked next to the Apollo 15–17 lunar modules, at the origin
+    addBox(0.75, 0.08, 1.28, silverMetal, 0, 0.26, 0, 0, 0, 0, lv); // chassis
+    addBox(0.32, 0.32, 0.22, silverMetal, -0.18, 0.44, 0.1, 0, 0, 0, lv); // seats
+    addBox(0.32, 0.32, 0.22, silverMetal, 0.18, 0.44, 0.1, 0, 0, 0, lv);
+    addCyl(0.34, 0.05, 0.08, goldFoil, -0.16, 0.76, -0.45, 0.35, 0, 0, 20, lv); // high-gain antenna dish
+    addBox(0.1, 0.1, 0.16, lensGlassMat, 0.22, 0.64, -0.58, 0, 0, 0, lv); // TV camera that filmed the LM liftoff
+    addStrut(new THREE.Vector3(0.22, 0.3, -0.5), new THREE.Vector3(0.22, 0.6, -0.58), 0.012, silverMetal, lv, 8);
+    addBox(0.2, 0.18, 0.12, darkTitanium, 0, 0.42, -0.52, 0, 0, 0, lv); // control console
+    addBox(0.62, 0.04, 0.3, silverMetal, 0, 0.36, 0.56, 0, 0, 0, lv); // rear cargo pallet
+    for (const lx of [-0.46, 0.46]) {
+      for (const lz of [-0.52, 0.52]) {
+        addWheel(0.19, 0.12, lx, 0.19, lz, lv);
+        addBox(0.26, 0.02, 0.36, darkTitanium, lx, 0.4, lz, 0, 0, 0, lv); // fenders
+      }
+    }
+    povOrigin = new THREE.Vector3(0.22, 0.66, -0.6);
+    povLook = new THREE.Vector3(0.22, 0.5, -10.0);
+  }
+  // ---------------- 3c. Mars Pathfinder lander (Sagan Memorial Station) ----------------
+  else if (craftType === 'lander_pathfinder') {
+    const pf = craftFallbackGroup;
+    // Tetrahedral base with three solar-cell petals opened flat on the ground
+    addCyl(0.42, 0.42, 0.3, goldFoil, 0, 0.2, 0, 0, Math.PI / 6, 0, 3, pf);
+    for (let i = 0; i < 3; i++) {
+      const a = (i * Math.PI * 2) / 3;
+      const px = Math.cos(a) * 0.62;
+      const pz = Math.sin(a) * 0.62;
+      addCyl(0.5, 0.5, 0.03, solarArrayMat, px, 0.06, pz, 0, -a + Math.PI / 6, 0, 3, pf);
+      addCyl(0.52, 0.52, 0.02, silverMetal, px, 0.04, pz, 0, -a + Math.PI / 6, 0, 3, pf);
+      // Deflated airbag remnants bunched under each petal
+      addCyl(0.16, 0.2, 0.08, whitePanelMat, Math.cos(a) * 1.0, 0.04, Math.sin(a) * 1.0, 0, 0, 0, 10, pf);
+    }
+    // Rover egress ramp that Sojourner drove down
+    addBox(0.22, 0.02, 0.6, silverMetal, 0.75, 0.08, -0.62, 0.12, 0.6, 0, pf);
+    // IMP stereo camera on its 0.8 m pop-up mast + low-gain antenna + meteorology mast
+    addCyl(0.02, 0.02, 0.8, silverMetal, 0, 0.75, 0, 0, 0, 0, 10, pf);
+    addBox(0.16, 0.1, 0.1, darkTitanium, 0, 1.18, 0, 0, 0, 0, pf);
+    addCyl(0.025, 0.025, 0.04, lensGlassMat, -0.05, 1.18, -0.06, Math.PI / 2, 0, 0, 10, pf);
+    addCyl(0.025, 0.025, 0.04, lensGlassMat, 0.05, 1.18, -0.06, Math.PI / 2, 0, 0, 10, pf);
+    addCyl(0.12, 0.02, 0.06, goldFoil, 0.22, 0.46, 0.1, 0.4, 0, 0, 16, pf);
+    addCyl(0.01, 0.01, 0.9, silverMetal, -0.85, 0.45, 0.4, 0, 0, 0, 8, pf);
+    povOrigin = new THREE.Vector3(0, 1.18, -0.08);
+    povLook = new THREE.Vector3(0, 0.9, -10.0);
+  }
   // ---------------- 4. Apollo Lunar Modules (Eagle..Challenger + LRV) ----------------
   else if (craftType === 'lander_apollo' || craftType === 'lander_apollo_lrv') {
     const lm = craftFallbackGroup;

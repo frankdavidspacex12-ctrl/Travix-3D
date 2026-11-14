@@ -26,6 +26,13 @@ const ALSEP =
 const LRV =
   'El rover lunar eléctrico (LRV) se quedó aparcado cerca del módulo: pesaba unos 210 kg y no había espacio ni combustible para traerlo de vuelta.';
 
+const LRV_LEFT =
+  'El rover lunar eléctrico pesaba unos 210 kg y en el módulo de ascenso no había espacio ni combustible para traerlo de vuelta. Antes de despegar, los astronautas lo aparcaron a cierta distancia y orientaron su cámara para que filmara el despegue del módulo lunar; después quedó para siempre en ese lugar.';
+const ALSEP_LEFT =
+  'La estación se dejó a propósito: su trabajo era seguir midiendo la Luna cuando los astronautas se fueran. Funcionó con un generador nuclear (RTG) y envió datos a la Tierra durante años, hasta que el 30 de septiembre de 1977 la NASA apagó toda la red ALSEP por falta de presupuesto. Sus equipos siguen extendidos sobre el suelo lunar.';
+const SURVEYOR_LEFT =
+  'Las sondas Surveyor eran de un solo viaje: no tenían cómo volver a la Tierra. Su misión era comprobar que se podía aterrizar suave en la Luna y estudiar el suelo antes de enviar astronautas. Funcionaban con paneles solares, así que las frías noches lunares terminaron por apagarlas, y quedaron en su sitio de aterrizaje.';
+
 export const LEFT_BEHIND_NOTES: Record<string, LeftBehindNote> = {
   apollo11: {
     leftBehind:
@@ -169,6 +176,57 @@ export const LEFT_BEHIND_NOTES: Record<string, LeftBehindNote> = {
     sources: [
       { label: 'NSSDCA · Pioneer 11', url: NSSDC + '1973-019A' },
       { label: 'NASA · Pioneer 11', url: SCI + 'pioneer-11/' },
+    ],
+  },
+  // ---------- Fichas que completan los recursos «a medias» del reto ----------
+  lrv1: {
+    leftBehind: LRV_LEFT,
+    sources: [{ label: 'NSSDCA · Apollo 15 (Lunar Module, ALSEP y LRV)', url: NSSDC + '1971-063C' }],
+  },
+  lrv2: {
+    leftBehind: LRV_LEFT,
+    sources: [{ label: 'NSSDCA · Apollo 16 Lunar Module / ALSEP', url: NSSDC + '1972-031C' }],
+  },
+  lrv3: {
+    leftBehind: LRV_LEFT,
+    sources: [{ label: 'NSSDCA · Apollo 17 Lunar Module / ALSEP', url: NSSDC + '1972-096C' }],
+  },
+  alsep_apollo14: {
+    leftBehind: ALSEP_LEFT,
+    sources: [{ label: 'NSSDCA · Apollo 14 Lunar Module / ALSEP', url: NSSDC + '1971-008C' }],
+  },
+  alsep_apollo15: {
+    leftBehind: ALSEP_LEFT,
+    sources: [{ label: 'NSSDCA · Apollo 15 Lunar Module / ALSEP', url: NSSDC + '1971-063C' }],
+  },
+  alsep_apollo16: {
+    leftBehind: ALSEP_LEFT,
+    sources: [{ label: 'NSSDCA · Apollo 16 Lunar Module / ALSEP', url: NSSDC + '1972-031C' }],
+  },
+  alsep_apollo17: {
+    leftBehind: ALSEP_LEFT,
+    sources: [{ label: 'NSSDCA · Apollo 17 Lunar Module / ALSEP', url: NSSDC + '1972-096C' }],
+  },
+  surveyor5: {
+    leftBehind: SURVEYOR_LEFT,
+    sources: [{ label: 'NSSDCA · Surveyor 5', url: NSSDC + '1967-084A' }],
+  },
+  surveyor6: {
+    leftBehind:
+      'Hasta Surveyor 6 ninguna nave había despegado de la Luna, pero su «salto» fue solo una prueba de 3 a 4 metros: no tenía combustible ni diseño para volver a la Tierra. ' +
+      SURVEYOR_LEFT,
+    sources: [{ label: 'NSSDCA · Surveyor 6', url: NSSDC + '1967-112A' }],
+  },
+  surveyor7: {
+    leftBehind: SURVEYOR_LEFT,
+    sources: [{ label: 'NSSDCA · Surveyor 7', url: NSSDC + '1968-001A' }],
+  },
+  pathfinder: {
+    leftBehind:
+      'Era un módulo de un solo viaje: no tenía cómo despegar de Marte. Estaba diseñado para trabajar un mes y funcionó casi tres, como estación base y antena del rover Sojourner. El 27 de septiembre de 1997 se perdió el contacto; según NSSDCA la causa nunca se confirmó, aunque la explicación más citada es que su batería se agotó y el frío nocturno dañó sus sistemas.',
+    sources: [
+      { label: 'NSSDCA · Mars Pathfinder', url: NSSDC + '1996-068A' },
+      { label: 'NASA · Mars Pathfinder y Sojourner', url: SCI + 'mars-pathfinder/' },
     ],
   },
   kepler: {

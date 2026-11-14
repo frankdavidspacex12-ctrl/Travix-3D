@@ -1274,6 +1274,20 @@ const OFFLINE_NASA_CATALOG: Record<string, OfflineNasaPhoto[]> = {
   ]
 };
 
+const PHOTO_ALIASES: Record<string, string> = {
+  lrv1: 'apollo15', // incluye el despliegue del LRV
+  lrv2: 'apollo16',
+  lrv3: 'apollo17', // incluye un primer plano del LRV
+  alsep_apollo14: 'apollo14', // incluye la estación central ALSEP del Apollo 14
+  alsep_apollo15: 'apollo15',
+  alsep_apollo16: 'apollo16',
+  alsep_apollo17: 'apollo17',
+  surveyor5: 'surveyor3',
+  surveyor6: 'surveyor3',
+  surveyor7: 'surveyor3',
+  pathfinder: 'sojourner',
+};
+
 export function getOfflineNasaPhotos(
   id: string,
   _fallbackQuery?: string,
@@ -1281,6 +1295,11 @@ export function getOfflineNasaPhotos(
   const key = id.trim().toLowerCase();
   if (OFFLINE_NASA_CATALOG[key] && OFFLINE_NASA_CATALOG[key].length > 0) {
     return OFFLINE_NASA_CATALOG[key];
+  }
+  // Fichas sin fotos propias: se muestran las de su misión madre (mismo sitio y equipo relacionado)
+  const alias = PHOTO_ALIASES[key];
+  if (alias && OFFLINE_NASA_CATALOG[alias]?.length) {
+    return OFFLINE_NASA_CATALOG[alias];
   }
   return OFFLINE_NASA_CATALOG.milkyway ?? [];
 }
