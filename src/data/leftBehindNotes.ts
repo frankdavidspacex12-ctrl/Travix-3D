@@ -101,6 +101,84 @@ export const LEFT_BEHIND_NOTES: Record<string, LeftBehindNote> = {
       { label: 'NASA · Perseverance', url: SCI + 'mars-2020-perseverance/' },
     ],
   },
+
+  // ---------- Fichas agregadas en el commit 3fafe86 ----------
+  surveyor1: {
+    leftBehind:
+      'Como todas las Surveyor, era una sonda de un solo viaje: no tenía cómo despegar de nuevo. Fue la primera nave de EE. UU. en aterrizar suave en la Luna (2 de junio de 1966) y demostró que el suelo lunar podía sostener una nave, algo clave antes de enviar astronautas. Siguió enviando fotos durante varios días lunares hasta enero de 1967.',
+    sources: [
+      { label: 'NSSDCA · Surveyor 1', url: NSSDC + '1966-045A' },
+      { label: 'NASA · Surveyor 1', url: SCI + 'surveyor-1/' },
+    ],
+  },
+  alsep_apollo12: {
+    leftBehind:
+      'Los astronautas del Apolo 12 la instalaron a propósito para que siguiera midiendo la Luna cuando ellos se fueran: sismómetro, magnetómetro, detectores de viento solar y de gases, alimentados por un generador nuclear (RTG). Funcionó durante años hasta que, el 30 de septiembre de 1977, la NASA apagó todas las estaciones ALSEP por falta de presupuesto. Sus equipos siguen extendidos sobre el suelo.',
+    sources: [{ label: 'NSSDCA · Apollo 12 Lunar Module / ALSEP', url: NSSDC + '1969-099C' }],
+  },
+  viking1: {
+    leftBehind:
+      'Era un módulo de un solo viaje, hecho para quedarse donde aterrizó. Debía trabajar 90 días, pero sus generadores nucleares (RTG) lo mantuvieron activo más de seis años. El final no fue por desgaste: en noviembre de 1982 una actualización de software enviada desde la Tierra apuntó por error su antena fuera de nuestro planeta, y el contacto se perdió para siempre el 13 de noviembre de 1982.',
+    sources: [
+      { label: 'NSSDCA · Viking 1 Lander', url: NSSDC + '1975-075C' },
+      { label: 'NASA · Viking 1', url: SCI + 'viking-1/' },
+    ],
+  },
+  viking2: {
+    leftBehind:
+      'Como Viking 1, era de un solo viaje y quedó exactamente donde aterrizó. Trabajó 1.281 días marcianos hasta que sus baterías fallaron, y la NASA lo apagó el 11 de abril de 1980.',
+    sources: [
+      { label: 'NSSDCA · Viking 2 Lander', url: NSSDC + '1975-083C' },
+      { label: 'NASA · Viking 2', url: SCI + 'viking-2/' },
+    ],
+  },
+  ingenuity: {
+    leftBehind:
+      'Era una prueba de tecnología pensada para hasta 5 vuelos, y terminó haciendo 72 en casi tres años. En su último vuelo, el 18 de enero de 2024, se dañaron las palas de su rotor al aterrizar y ya no pudo volar. No había forma de repararlo, así que quedó inmóvil donde aterrizó por última vez, mientras Perseverance sigue su camino.',
+    sources: [
+      { label: 'NASA · Helicóptero Ingenuity', url: SCI + 'mars-2020-perseverance/ingenuity-mars-helicopter/' },
+    ],
+  },
+  near_shoemaker: {
+    leftBehind:
+      'NEAR fue diseñada para orbitar el asteroide Eros, no para aterrizar. Al terminar su misión, con poco combustible, el equipo decidió intentar un descenso lento el 12 de febrero de 2001. Sobrevivió al contacto y siguió enviando datos desde la superficie unas dos semanas, hasta su última señal el 28 de febrero de 2001. Allí sigue, sobre Eros.',
+    sources: [
+      { label: 'NSSDCA · NEAR Shoemaker', url: NSSDC + '1996-008A' },
+      { label: 'NASA · NEAR Shoemaker', url: SCI + 'near-shoemaker/' },
+    ],
+  },
+  dawn: {
+    leftBehind:
+      'Dawn usaba un combustible (hidracina) para orientar su antena y sus paneles; cuando se le acabó, en 2018, ya no pudo comunicarse ni cargar energía. La NASA no la estrelló contra Ceres a propósito: la dejó en una órbita estable que la mantendrá alrededor de Ceres por décadas, para no contaminar un mundo que podría tener agua salada bajo su superficie.',
+    sources: [
+      { label: 'NSSDCA · Dawn', url: NSSDC + '2007-043A' },
+      { label: 'NASA · Dawn', url: SCI + 'dawn/' },
+    ],
+  },
+  pioneer10: {
+    leftBehind:
+      'Las Pioneer no estaban hechas para volver: tras pasar junto a Júpiter (1973) iban tan rápido que escaparon de la gravedad del Sol. Su energía venía de generadores nucleares que se fueron debilitando con los años; su última señal, ya demasiado débil, llegó el 23 de enero de 2003. Sigue viajando en silencio y lleva una placa con un mensaje para quien la encuentre.',
+    sources: [
+      { label: 'NSSDCA · Pioneer 10', url: NSSDC + '1972-012A' },
+      { label: 'NASA · Pioneer 10', url: SCI + 'pioneer-10/' },
+    ],
+  },
+  pioneer11: {
+    leftBehind:
+      'Después de visitar Júpiter (1974) y ser la primera nave en pasar junto a Saturno (1979), quedó en una trayectoria de salida del sistema solar, sin forma de volver. Su generador nuclear perdió potencia hasta que ya no alcanzaba para operar: la NASA terminó su misión el 30 de septiembre de 1995 y poco después se perdió todo contacto. Lleva la misma placa que Pioneer 10.',
+    sources: [
+      { label: 'NSSDCA · Pioneer 11', url: NSSDC + '1973-019A' },
+      { label: 'NASA · Pioneer 11', url: SCI + 'pioneer-11/' },
+    ],
+  },
+  kepler: {
+    leftBehind:
+      'Kepler no orbitaba la Tierra sino el Sol, siguiendo a nuestro planeta cada vez más lejos, así que nadie podía ir a cargarle combustible. En octubre de 2018 se le acabó el combustible que usaba para apuntar su telescopio y la NASA lo retiró; el 15 de noviembre de 2018 recibió sus últimas órdenes para apagar sus transmisores. Hoy deriva sin energía alrededor del Sol.',
+    sources: [
+      { label: 'NSSDCA · Kepler', url: NSSDC + '2009-011A' },
+      { label: 'NASA · Kepler', url: SCI + 'kepler/' },
+    ],
+  },
 };
 
 export function getLeftBehindNote(missionId: string): LeftBehindNote | undefined {

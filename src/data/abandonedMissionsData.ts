@@ -310,7 +310,7 @@ export const ABANDONED_MISSIONS: AbandonedMission[] = [
     lonDeg: 312.05,
     launchYear: '1975',
     launchDate: '20 ago 1975',
-    lastContactDate: '11 nov 1982',
+    lastContactDate: '13 nov 1982',
     operationalDuration: '2.245 soles (más de 6 años)',
     status: 'Inactivo · Récord de duración hasta 2010',
     whatItDid:
@@ -751,7 +751,7 @@ export const ABANDONED_MISSIONS: AbandonedMission[] = [
     whyImportant:
       'Demostró que el regolito lunar podía sostener una nave pesada: la prueba directa que necesitaba el programa Apollo antes de enviar astronautas.',
     farewellMessage:
-      'La primera nave estadounidense en aterrizar suavemente en otro mundo sigue de pie en el Océano de las Tormentas; LRO fotografió su sombra en 2009.',
+      'La primera nave estadounidense en aterrizar suavemente en otro mundo sigue de pie en el Océano de las Tormentas; la sonda LRO de la NASA la ha fotografiado desde órbita.',
     legacySummary:
       'Abrió la serie Surveyor (1, 3, 5, 6 y 7 aterrizaron con éxito) que certificó los sitios de aterrizaje de Apollo.',
     nasaQuery: 'Surveyor 1 moon landing 1966',
