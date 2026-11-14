@@ -1,0 +1,6 @@
+{
+  "name": "Sistema Solar 3D Interactivo",
+  "description": "Explorador 3D interactivo del Sistema Solar en Three.js con el Sol, los 8 planetas con texturas realistas, anillos de Saturno, control de velocidad temporal y cámara libre con viaje suave.",
+  "requestFramePermissions": [],
+  "majorCapabilities": []
+}

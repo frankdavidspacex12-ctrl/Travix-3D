@@ -1,0 +1,431 @@
+/**
+ * @license
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { FileText, Search } from 'lucide-react';
+import {
+  ABANDONED_MISSIONS,
+  AbandonedMission,
+} from './data/abandonedMissionsData';
+import {
+  CELESTIAL_BODIES,
+  CelestialBodyId,
+  DEEP_SPACE_TARGETS,
+  DeepSpaceTargetId,
+} from './data/solarSystemData';
+import { GuidedTourStep } from './data/guidedToursData';
+import { FocusSelection, SolarSystemEngine } from './three/SolarSystemEngine';
+import { SurfaceCameraMode } from './three/surfaceDiorama';
+import { ControlDock } from './components/ControlDock';
+import { GuidedTourBar } from './components/GuidedTourBar';
+import { MissionDossier } from './components/MissionDossier';
+import {
+  ActiveSearchAnswer,
+  MissionSearch,
+  SearchTab,
+} from './components/MissionSearch';
+import { PWAControls } from './components/PWAControls';
+
+export default function App() {
+  const canvasMountRef = useRef<HTMLDivElement | null>(null);
+  const engineRef = useRef<SolarSystemEngine | null>(null);
+
+  const [selection, setSelection] = useState<FocusSelection | null>(null);
+  const [activeDeepSpaceId, setActiveDeepSpaceId] =
+    useState<DeepSpaceTargetId | null>(null);
+  const [hoveredId, setHoveredId] = useState<CelestialBodyId | null>(null);
+  const [cameraMode, setCameraMode] = useState<'overview' | 'tracking' | 'free'>(
+    'overview',
+  );
+  const [isSurfaceActive, setIsSurfaceActive] = useState(false);
+  const [surfaceViewMode, setSurfaceViewMode] =
+    useState<SurfaceCameraMode>('rover');
+  const [simEpochMs, setSimEpochMs] = useState(() => Date.now());
+  const [isSiteSunlit, setIsSiteSunlit] = useState<boolean | null>(null);
+  const [isPaused, setIsPaused] = useState(false);
+  const [showOrbits, setShowOrbits] = useState(false);
+  const [isDockCollapsed, setIsDockCollapsed] = useState(false);
+  const [isInfoHidden, setIsInfoHidden] = useState(false);
+  const [isPlanetInfoOpen, setIsPlanetInfoOpen] = useState(false);
+  const [searchAnswer, setSearchAnswer] = useState<ActiveSearchAnswer | null>(
+    null,
+  );
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const [searchTab, setSearchTab] = useState<SearchTab>('surface');
+  const [webglError, setWebglError] = useState(false);
+
+  const handleOpenSearch = useCallback((tab?: SearchTab) => {
+    if (tab) setSearchTab(tab);
+    setIsSearchOpen(true);
+  }, []);
+
+  useEffect(() => {
+    const mount = canvasMountRef.current;
+    if (!mount) return;
+
+    let engine: SolarSystemEngine | null = null;
+    try {
+      engine = new SolarSystemEngine(mount, {
+        onSelectTarget: (sel) => {
+          setSelection(sel);
+          if (sel?.missionId) {
+            setIsInfoHidden(false);
+          } else {
+            setIsPlanetInfoOpen(false);
+          }
+        },
+        onHoverBody: (id) => setHoveredId(id),
+        onClockUpdate: (epochMs, sunlit) => {
+          setSimEpochMs(epochMs);
+          setIsSiteSunlit(sunlit);
+        },
+        onCameraModeChange: (mode) => setCameraMode(mode),
+        onSurfaceModeChange: (active, viewMode) => {
+          setIsSurfaceActive(active);
+          setSurfaceViewMode(viewMode);
+        },
+        onDeepSpaceChange: (id) => {
+          setActiveDeepSpaceId(id);
+          if (id) setIsInfoHidden(false);
+        },
+      });
+      engineRef.current = engine;
+    } catch {
+      setWebglError(true);
+    }
+
+    return () => {
+      engine?.dispose();
+      engineRef.current = null;
+    };
+  }, []);
+
+  const handleSelectBody = useCallback(
+    (id: CelestialBodyId, context?: ActiveSearchAnswer) => {
+      setSearchAnswer(context ?? null);
+      setIsPlanetInfoOpen(Boolean(context));
+      engineRef.current?.flyToBody(id);
+    },
+    [],
+  );
+
+  const handleSelectMoon = useCallback(
+    (bodyId: CelestialBodyId, moonId: string, context?: ActiveSearchAnswer) => {
+      setSearchAnswer(context ?? null);
+      setIsPlanetInfoOpen(Boolean(context));
+      engineRef.current?.flyToMoon(bodyId, moonId);
+    },
+    [],
+  );
+
+  const handleSelectMission = useCallback(
+    (mission: AbandonedMission, context?: ActiveSearchAnswer) => {
+      setSearchAnswer(context ?? null);
+      setIsInfoHidden(false);
+      engineRef.current?.flyToMission(mission);
+    },
+    [],
+  );
+
+  const handleSelectDeepSpace = useCallback(
+    (id: DeepSpaceTargetId, context?: ActiveSearchAnswer) => {
+      setSearchAnswer(context ?? null);
+      setIsInfoHidden(false);
+      engineRef.current?.flyToDeepSpace(id);
+    },
+    [],
+  );
+
+  const handleSelectTourStep = useCallback(
+    (step: GuidedTourStep) => {
+      const { target } = step;
+      if (target.kind === 'body') {
+        handleSelectBody(target.bodyId);
+      } else if (target.kind === 'moon') {
+        handleSelectMoon(target.bodyId, target.moonId);
+      } else if (target.kind === 'mission') {
+        const mission = ABANDONED_MISSIONS.find(
+          (m) => m.id === target.missionId,
+        );
+        if (mission) handleSelectMission(mission);
+      } else if (target.kind === 'deepspace') {
+        handleSelectDeepSpace(target.id);
+      }
+    },
+    [
+      handleSelectBody,
+      handleSelectMoon,
+      handleSelectMission,
+      handleSelectDeepSpace,
+    ],
+  );
+
+  const handleChangeSurfaceView = useCallback((mode: SurfaceCameraMode) => {
+    engineRef.current?.setSurfaceCameraMode(mode);
+  }, []);
+
+  const handleExitToOrbit = useCallback(() => {
+    setIsInfoHidden(false);
+    setSearchAnswer(null);
+    if (activeDeepSpaceId) {
+      engineRef.current?.resetToOverview();
+    } else {
+      engineRef.current?.exitSurfaceToBody();
+    }
+  }, [activeDeepSpaceId]);
+
+  // X closes ONLY the text card — keeps the 3D spacecraft, planet, moon, or galaxy visible!
+  const handleHideInfoPanel = useCallback(() => {
+    setIsInfoHidden(true);
+    setIsPlanetInfoOpen(false);
+  }, []);
+
+  const handleResetOverview = useCallback(() => {
+    setIsInfoHidden(false);
+    setIsPlanetInfoOpen(false);
+    setSearchAnswer(null);
+    engineRef.current?.resetToOverview();
+  }, []);
+
+  const handleReleaseCamera = useCallback(() => {
+    engineRef.current?.releaseTracking();
+  }, []);
+
+  const handleTogglePause = useCallback(() => {
+    setIsPaused((prev) => {
+      const next = !prev;
+      engineRef.current?.setPaused(next);
+      return next;
+    });
+  }, []);
+
+  const handleToggleOrbits = useCallback(() => {
+    setShowOrbits((prev) => {
+      const next = !prev;
+      engineRef.current?.setShowOrbits(next);
+      if (selection !== null && next) {
+        engineRef.current?.resetToOverview();
+      }
+      return next;
+    });
+  }, [selection]);
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (
+        e.target instanceof HTMLInputElement ||
+        e.target instanceof HTMLTextAreaElement
+      ) {
+        return;
+      }
+      if (e.code === 'Space') {
+        e.preventDefault();
+        handleTogglePause();
+      } else if (e.code === 'KeyH') {
+        setIsDockCollapsed((prev) => !prev);
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [handleTogglePause]);
+
+  const selectedBody = useMemo(
+    () =>
+      selection
+        ? CELESTIAL_BODIES.find((b) => b.id === selection.bodyId) ?? null
+        : null,
+    [selection],
+  );
+
+  const selectedMoon = useMemo(() => {
+    if (!selectedBody || !selection?.moonId) return null;
+    return selectedBody.moons.find((m) => m.id === selection.moonId) ?? null;
+  }, [selectedBody, selection]);
+
+  const selectedMission = useMemo(() => {
+    if (!selection?.missionId) return null;
+    return (
+      ABANDONED_MISSIONS.find((m) => m.id === selection.missionId) ?? null
+    );
+  }, [selection]);
+
+  const selectedDeepSpace = useMemo(() => {
+    if (!activeDeepSpaceId) return null;
+    return (
+      DEEP_SPACE_TARGETS.find((d) => d.id === activeDeepSpaceId) ?? null
+    );
+  }, [activeDeepSpaceId]);
+
+  const activeTargetKey = useMemo(() => {
+    if (selectedMission) return `mission:${selectedMission.id}`;
+    if (selectedDeepSpace) return `deepspace:${selectedDeepSpace.id}`;
+    if (selectedBody && selectedMoon)
+      return `moon:${selectedBody.id}:${selectedMoon.id}`;
+    if (selectedBody) return `body:${selectedBody.id}`;
+    return null;
+  }, [selectedMission, selectedDeepSpace, selectedBody, selectedMoon]);
+
+  const activeSearchContext = useMemo(() => {
+    if (!searchAnswer || !activeTargetKey) return null;
+    if (searchAnswer.targetKey !== activeTargetKey) return null;
+    return { headline: searchAnswer.headline, answer: searchAnswer.answer };
+  }, [searchAnswer, activeTargetKey]);
+
+  const hasActiveDossier = Boolean(selectedMission || selectedDeepSpace);
+
+  return (
+    <main className="relative w-screen h-screen overflow-hidden bg-[#010204]">
+      {/* Dedicated isolated WebGL canvas mount */}
+      <div
+        ref={canvasMountRef}
+        className="fixed inset-0 w-full h-full"
+        aria-label="Simulador espacial 3D en tiempo real Travix 3D"
+      />
+
+      {webglError && (
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-[#04060D] p-6">
+          <div className="max-w-md rounded-xl border border-white/12 bg-[#0B0E17] p-6 text-center">
+            <h1 className="font-display text-xl font-semibold text-white">
+              No se pudo inicializar WebGL
+            </h1>
+            <p className="mt-2 text-sm text-slate-300">
+              Tu navegador no tiene habilitada la aceleración gráfica 3D para
+              ejecutar el simulador espacial.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Clean Travel: projected planet labels appear strictly in Overview mode */}
+      <div className="fixed inset-0 z-10 pointer-events-none overflow-hidden">
+        {CELESTIAL_BODIES.map((body) => {
+          const isHovered = hoveredId === body.id;
+          return (
+            <button
+              key={body.id}
+              type="button"
+              ref={(el) => engineRef.current?.registerLabelElement(body.id, el)}
+              onClick={() => handleSelectBody(body.id)}
+              className={`fixed top-0 left-0 px-2.5 py-0.5 rounded-full text-[11px] font-medium tracking-wide transition-colors cursor-pointer focus-visible:outline-2 focus-visible:outline-amber-400 ${
+                isHovered
+                  ? 'travix-glass-bar border-white/35 text-white'
+                  : 'travix-glass-label text-slate-100/95 hover:text-white hover:border-white/30'
+              }`}
+            >
+              {body.name}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Minimalist Top-Left Brand Logo + Guided NASA Tours Trigger */}
+      <header className="fixed top-2.5 left-4 z-20 flex items-center gap-3 pointer-events-none">
+        <h1 className="m-0 flex items-center shrink-0">
+          <img
+            src="/travix-logo.png"
+            alt="Travix 3D"
+            className="h-9 sm:h-10 w-auto object-contain select-none drop-shadow-[0_2px_12px_rgba(255,255,255,0.22)]"
+            draggable={false}
+          />
+        </h1>
+        <GuidedTourBar
+          onSelectStep={handleSelectTourStep}
+          onOpenSearch={handleOpenSearch}
+        />
+      </header>
+
+      {/* PWA Offline Status & Install Controls */}
+      <PWAControls />
+
+      {/* Top-Right Round Search Trigger & Space Explorer */}
+      <MissionSearch
+        isOpen={isSearchOpen}
+        activeTab={searchTab}
+        onOpenChange={setIsSearchOpen}
+        onTabChange={setSearchTab}
+        activeMissionId={selectedMission?.id ?? null}
+        activeBodyId={selectedBody?.id ?? null}
+        activeDeepSpaceId={activeDeepSpaceId}
+        onSelectMission={handleSelectMission}
+        onSelectBody={handleSelectBody}
+        onSelectMoon={handleSelectMoon}
+        onSelectDeepSpace={handleSelectDeepSpace}
+      />
+
+      {/* Restore Ficha / Search buttons when user closes X on Mission / Deep Space dossier */}
+      {isInfoHidden && hasActiveDossier && (
+        <div className="fixed top-14 left-4 z-20 flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setIsInfoHidden(false)}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full travix-glass-bar text-xs text-slate-100 hover:text-white transition-colors cursor-pointer"
+          >
+            <FileText className="w-3.5 h-3.5 text-amber-400" />
+            <span>Ver ficha</span>
+          </button>
+          <button
+            type="button"
+            onClick={() =>
+              handleOpenSearch(
+                selectedMission
+                  ? 'surface'
+                  : selectedDeepSpace
+                    ? 'galaxy'
+                    : 'planets',
+              )
+            }
+            aria-label="Buscar otro destino"
+            title="Buscar planetas, misiones o galaxia"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full travix-glass-bar text-xs text-slate-100 hover:text-white transition-colors cursor-pointer"
+          >
+            <Search className="w-3.5 h-3.5 text-amber-400" />
+            <span>Buscar</span>
+          </button>
+        </div>
+      )}
+
+      {/* Left-Side Compact Mission / Deep Space Dossier & 3D Rover/POV Switcher */}
+      {(selectedMission || selectedDeepSpace) && !isInfoHidden && (
+        <MissionDossier
+          mission={selectedMission}
+          deepSpaceTarget={selectedDeepSpace}
+          searchContext={activeSearchContext}
+          isSunlit={isSiteSunlit}
+          isSurfaceActive={isSurfaceActive}
+          surfaceViewMode={surfaceViewMode}
+          onChangeSurfaceView={handleChangeSurfaceView}
+          onViewMilkyWay={() => handleSelectDeepSpace('milkyway')}
+          onExitToOrbit={handleExitToOrbit}
+          onOpenSearch={handleOpenSearch}
+          onClose={handleHideInfoPanel}
+        />
+      )}
+
+      {/* Minimalist 98% Glassmorphism Bottom Control Bar */}
+      <ControlDock
+        selectedBody={selectedBody}
+        selectedMoon={selectedMoon}
+        selectedMission={selectedMission}
+        isPlanetInfoOpen={isPlanetInfoOpen}
+        searchContext={activeSearchContext}
+        cameraMode={cameraMode}
+        simEpochMs={simEpochMs}
+        isPaused={isPaused}
+        showOrbits={showOrbits}
+        isCollapsed={isDockCollapsed}
+        onToggleCollapse={() => setIsDockCollapsed((prev) => !prev)}
+        onTogglePlanetInfo={() => setIsPlanetInfoOpen((prev) => !prev)}
+        onHidePanel={() => setIsPlanetInfoOpen(false)}
+        onOpenSearch={handleOpenSearch}
+        onSelectBody={handleSelectBody}
+        onSelectMoon={handleSelectMoon}
+        onResetOverview={handleResetOverview}
+        onReleaseCamera={handleReleaseCamera}
+        onTogglePause={handleTogglePause}
+        onToggleOrbits={handleToggleOrbits}
+      />
+    </main>
+  );
+}

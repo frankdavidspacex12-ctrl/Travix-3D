@@ -1,0 +1,3523 @@
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+import {
+  AU_TO_UNITS,
+  PLANET_ELEMENTS_J2000,
+  computeAxialRotationRad,
+  computeHeliocentricPosition,
+  daysSinceJ2000,
+  latLonToLocalVector3,
+  sampleOrbitEllipsePoints,
+} from '../astronomy/ephemeris';
+import {
+  ABANDONED_MISSIONS,
+  AbandonedMission,
+} from '../data/abandonedMissionsData';
+import {
+  CELESTIAL_BODIES,
+  CelestialBodyData,
+  CelestialBodyId,
+  DeepSpaceTargetId,
+  MoonData,
+} from '../data/solarSystemData';
+import {
+  DeepSpaceDioramaRuntime,
+  createDeepSpaceDiorama,
+} from './blackHole';
+import {
+  createDetailedSaturnRingTexture,
+  createNebulaPuffTexture,
+  createProceduralEarthClouds,
+  createProceduralEarthNightLights,
+  createProceduralJupiterClouds,
+  createProceduralMoonTextureSet,
+  createProceduralPlanetTextureSet,
+  createSunGlowTexture,
+  createUranusRingTexture,
+  deriveSurfaceReliefMaps,
+} from './proceduralTextures';
+import {
+  FullPbrTextureSet,
+  Pbr8KCapabilities,
+  getPbr8KCapabilities,
+  processSurface8KPBR,
+} from './highResPbrProcessor';
+import type { SurfacePbrProfile } from './pbr8k.worker';
+import {
+  SurfaceCameraMode,
+  SurfaceDioramaRuntime,
+  createSurfaceDiorama,
+} from './surfaceDiorama';
+
+const _vec3A = new THREE.Vector3();
+const _vec3B = new THREE.Vector3();
+const _vec3C = new THREE.Vector3();
+const _vec3D = new THREE.Vector3();
+const _projVec = new THREE.Vector3();
+const _mat4 = new THREE.Matrix4();
+const _quat = new THREE.Quaternion();
+const _scale = new THREE.Vector3();
+const _color = new THREE.Color();
+const _upVec = new THREE.Vector3(0, 1, 0);
+
+// Panoramic inner Solar System framing at NASA 1:215 solar-radius-to-AU scale
+const OVERVIEW_CAM_POS = new THREE.Vector3(0, 1450, 3400);
+const OVERVIEW_TARGET = new THREE.Vector3(0, 0, 0);
+
+interface BasePbrSnapshot {
+  map: THREE.Texture | null;
+  normalMap: THREE.Texture | null;
+  roughnessMap: THREE.Texture | null;
+  metalnessMap: THREE.Texture | null;
+  metalness: number;
+}
+
+interface MoonRuntime {
+  data: MoonData;
+  parentId: CelestialBodyId;
+  pivotGroup: THREE.Group;
+  mesh: THREE.Mesh;
+  hitProxy: THREE.Mesh;
+  material: THREE.MeshPhysicalMaterial;
+  basePbr: BasePbrSnapshot;
+  albedoImage?: HTMLImageElement;
+  bumpImage?: HTMLImageElement;
+  angle: number;
+  lastWorldPos: THREE.Vector3;
+  currentWorldPos: THREE.Vector3;
+}
+
+interface PlanetRuntime {
+  data: CelestialBodyData;
+  inclinationGroup: THREE.Group;
+  anchorGroup: THREE.Group;
+  tiltGroup: THREE.Group;
+  mesh: THREE.Mesh;
+  hitProxy: THREE.Mesh;
+  material?: THREE.MeshPhysicalMaterial;
+  basePbr?: BasePbrSnapshot;
+  albedoImage?: HTMLImageElement;
+  bumpImage?: HTMLImageElement;
+  specImage?: HTMLImageElement;
+  cloudMesh?: THREE.Mesh;
+  ringMesh?: THREE.Mesh;
+  atmosphereMesh?: THREE.Mesh;
+  orbitLine?: THREE.LineLoop;
+  moons: MoonRuntime[];
+  lastWorldPos: THREE.Vector3;
+  currentWorldPos: THREE.Vector3;
+}
+
+interface MissionBeaconRuntime {
+  mission: AbandonedMission;
+  group: THREE.Group;
+  ringMat: THREE.MeshBasicMaterial;
+  dotMat: THREE.MeshBasicMaterial;
+  hostRadius: number;
+  lastWorldPos: THREE.Vector3;
+  currentWorldPos: THREE.Vector3;
+  worldNormal: THREE.Vector3;
+}
+
+export interface FocusSelection {
+  bodyId: CelestialBodyId;
+  moonId?: string;
+  missionId?: string;
+}
+
+export interface EngineCallbacks {
+  onSelectTarget: (selection: FocusSelection | null) => void;
+  onHoverBody: (id: CelestialBodyId | null) => void;
+  onClockUpdate: (epochMs: number, isActiveSiteSunlit: boolean | null) => void;
+  onCameraModeChange: (mode: 'overview' | 'tracking' | 'free') => void;
+  onSurfaceModeChange?: (active: boolean, viewMode: SurfaceCameraMode) => void;
+  onDeepSpaceChange?: (id: DeepSpaceTargetId | null) => void;
+}
+
+function detectSoftwareWebGL(): boolean {
+  try {
+    const canvas = document.createElement('canvas');
+    const gl = canvas.getContext('webgl2') || canvas.getContext('webgl');
+    if (!gl) return true;
+    const ext = gl.getExtension('WEBGL_debug_renderer_info');
+    const param = ext ? ext.UNMASKED_RENDERER_WEBGL : gl.RENDERER;
+    const gpu = String(gl.getParameter(param) || '');
+    gl.getExtension('WEBGL_lose_context')?.loseContext();
+    return /SwiftShader|llvmpipe|softpipe|Software|Basic Render/i.test(gpu);
+  } catch {
+    return false;
+  }
+}
+
+function createIrregularMoonGeometry(radius: number): THREE.SphereGeometry {
+  const geo = new THREE.SphereGeometry(radius, 24, 18);
+  const pos = geo.attributes.position;
+  const v = new THREE.Vector3();
+  for (let i = 0; i < pos.count; i++) {
+    v.fromBufferAttribute(pos, i);
+    const n =
+      1 +
+      0.16 * Math.sin(v.x * 9.0 + v.y * 5.0) +
+      0.11 * Math.cos(v.z * 7.0 - v.x * 4.0);
+    v.x *= 1.18 * n;
+    v.y *= 0.84 * n;
+    v.z *= 0.96 * n;
+    pos.setXYZ(i, v.x, v.y, v.z);
+  }
+  geo.computeVertexNormals();
+  return geo;
+}
+
+/**
+ * Bilobed "rubber-duck" contact binary shape for Comet 67P/Churyumov-Gerasimenko.
+ */
+function createComet67PGeometry(radius: number): THREE.SphereGeometry {
+  const geo = new THREE.SphereGeometry(radius, 84, 60);
+  const pos = geo.attributes.position;
+  const v = new THREE.Vector3();
+
+  // Prominent impact / sublimation pits matching OSIRIS radar topography
+  const craters = [
+    { dir: new THREE.Vector3(-0.72, 0.44, 0.53).normalize(), r: 0.42, depth: 0.14 },
+    { dir: new THREE.Vector3(-0.35, -0.68, -0.64).normalize(), r: 0.36, depth: 0.11 },
+    { dir: new THREE.Vector3(0.76, 0.32, -0.56).normalize(), r: 0.32, depth: 0.12 },
+    { dir: new THREE.Vector3(0.42, -0.78, 0.46).normalize(), r: 0.28, depth: 0.09 },
+  ];
+
+  for (let i = 0; i < pos.count; i++) {
+    v.fromBufferAttribute(pos, i);
+    const dir = v.clone().normalize();
+
+    // Pinched asymmetric Hapi canyon neck at x = +0.16 separating Ash (major lobe) & Ma'at (head lobe)
+    const neckGauss = Math.exp(-Math.pow((dir.x - 0.16) / 0.21, 2));
+    const waist = 1.0 - 0.44 * neckGauss;
+    const stretch = dir.x < 0.16 ? 1.32 : 0.92;
+    // Slight head-lobe upward offset (authentic "rubber duck" silhouette)
+    const headLift = dir.x > 0.16 ? 0.16 * smoothstep01((dir.x - 0.16) / 0.5) : 0;
+
+    // Terraced sedimentary strata & rocky fractures
+    const strata =
+      0.045 * Math.sin(dir.y * 14.0 + dir.x * 6.0) +
+      0.032 * Math.cos(dir.z * 11.0 - dir.x * 9.0) +
+      0.022 * Math.sin((dir.x + dir.y + dir.z) * 23.0);
+
+    // Flat Imhotep equatorial bench on lower major lobe
+    const flatImhotep =
+      dir.x < -0.15 && dir.y < -0.2 ? -0.07 * (-dir.y - 0.2) : 0;
+
+    let craterOffset = 0;
+    for (const c of craters) {
+      const angDist = dir.angleTo(c.dir);
+      if (angDist < c.r) {
+        const t = angDist / c.r;
+        const rim = t > 0.78 ? Math.sin(((t - 0.78) / 0.22) * Math.PI) * c.depth * 0.28 : 0;
+        const bowl = -(1 - t * t) * c.depth;
+        craterOffset += bowl + rim;
+      }
+    }
+
+    const relief = 1.0 + strata + flatImhotep + craterOffset;
+    v.set(
+      dir.x * radius * stretch * 1.18 * relief,
+      (dir.y * waist * 0.84 + headLift) * radius * relief,
+      dir.z * radius * waist * 0.88 * relief,
+    );
+    pos.setXYZ(i, v.x, v.y, v.z);
+  }
+  geo.computeVertexNormals();
+  return geo;
+}
+
+function smoothstep01(x: number): number {
+  const t = Math.max(0, Math.min(1, x));
+  return t * t * (3 - 2 * t);
+}
+
+function createRadialRingGeometry(
+  innerRadius: number,
+  outerRadius: number,
+  thetaSegments = 160,
+  phiSegments = 6,
+): THREE.RingGeometry {
+  const geo = new THREE.RingGeometry(
+    innerRadius,
+    outerRadius,
+    thetaSegments,
+    phiSegments,
+  );
+  const pos = geo.attributes.position;
+  const uv = geo.attributes.uv;
+  const v3 = new THREE.Vector3();
+  const span = outerRadius - innerRadius;
+  for (let i = 0; i < pos.count; i++) {
+    v3.fromBufferAttribute(pos, i);
+    const radius = Math.sqrt(v3.x * v3.x + v3.y * v3.y);
+    const u = THREE.MathUtils.clamp((radius - innerRadius) / span, 0, 1);
+    const angle = (Math.atan2(v3.y, v3.x) + Math.PI) / (Math.PI * 2);
+    uv.setXY(i, u, angle);
+  }
+  uv.needsUpdate = true;
+  geo.rotateX(-Math.PI / 2);
+  return geo;
+}
+
+function createAtmosphereShaderMaterial(
+  colorHex: string,
+  intensity: number,
+): THREE.ShaderMaterial {
+  return new THREE.ShaderMaterial({
+    uniforms: {
+      uColor: { value: new THREE.Color(colorHex) },
+      uIntensity: { value: intensity },
+    },
+    vertexShader: `
+      varying vec3 vWorldNormal;
+      varying vec3 vWorldPosition;
+      void main() {
+        vec4 worldPos = modelMatrix * vec4(position, 1.0);
+        vWorldPosition = worldPos.xyz;
+        vWorldNormal = normalize(mat3(modelMatrix) * normal);
+        gl_Position = projectionMatrix * viewMatrix * worldPos;
+      }
+    `,
+    fragmentShader: `
+      uniform vec3 uColor;
+      uniform float uIntensity;
+      varying vec3 vWorldNormal;
+      varying vec3 vWorldPosition;
+      void main() {
+        vec3 viewDir = normalize(cameraPosition - vWorldPosition);
+        vec3 N = normalize(vWorldNormal);
+        float rim = pow(clamp(1.0 + dot(viewDir, N), 0.0, 1.0), 3.35);
+        vec3 sunDir = normalize(-vWorldPosition);
+        float sunDot = dot(N, sunDir);
+        // Sunlit day-side Rayleigh scatter + warm golden-amber twilight terminator ring
+        float dayFactor = smoothstep(-0.22, 0.48, sunDot);
+        float terminatorBand = exp(-pow(sunDot / 0.16, 2.0));
+        vec3 scatterCol = mix(uColor, vec3(1.0, 0.56, 0.28), terminatorBand * 0.42);
+        float alpha = rim * uIntensity * (dayFactor + terminatorBand * 0.24);
+        gl_FragColor = vec4(scatterCol * (0.95 + 0.55 * dayFactor), clamp(alpha, 0.0, 1.0));
+      }
+    `,
+    side: THREE.BackSide,
+    transparent: true,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+  });
+}
+
+function createSunSurfaceMaterial(initialTexture: THREE.Texture): THREE.ShaderMaterial {
+  return new THREE.ShaderMaterial({
+    uniforms: {
+      uTexture: { value: initialTexture },
+      uTime: { value: 0 },
+      uFocusBoost: { value: 0 },
+    },
+    vertexShader: `
+      varying vec2 vUv;
+      varying vec3 vNormalView;
+      varying vec3 vPosView;
+      varying vec3 vLocalDir;
+      void main() {
+        vUv = uv;
+        vLocalDir = normalize(position);
+        vec4 mvPos = modelViewMatrix * vec4(position, 1.0);
+        vPosView = mvPos.xyz;
+        vNormalView = normalize(normalMatrix * normal);
+        gl_Position = projectionMatrix * mvPos;
+      }
+    `,
+    fragmentShader: `
+      uniform sampler2D uTexture;
+      uniform float uTime;
+      uniform float uFocusBoost;
+      varying vec2 vUv;
+      varying vec3 vNormalView;
+      varying vec3 vPosView;
+      varying vec3 vLocalDir;
+
+      float hash31(vec3 p) {
+        return fract(sin(dot(p, vec3(127.1, 311.7, 74.7))) * 43758.5453123);
+      }
+      float vnoise3(vec3 p) {
+        vec3 i = floor(p);
+        vec3 f = fract(p);
+        f = f * f * (3.0 - 2.0 * f);
+        float n000 = hash31(i);
+        float n100 = hash31(i + vec3(1.0, 0.0, 0.0));
+        float n010 = hash31(i + vec3(0.0, 1.0, 0.0));
+        float n110 = hash31(i + vec3(1.0, 1.0, 0.0));
+        float n001 = hash31(i + vec3(0.0, 0.0, 1.0));
+        float n101 = hash31(i + vec3(1.0, 0.0, 1.0));
+        float n011 = hash31(i + vec3(0.0, 1.0, 1.0));
+        float n111 = hash31(i + vec3(1.0, 1.0, 1.0));
+        return mix(
+          mix(mix(n000, n100, f.x), mix(n010, n110, f.x), f.y),
+          mix(mix(n001, n101, f.x), mix(n011, n111, f.x), f.y),
+          f.z
+        );
+      }
+      float fbm3(vec3 p) {
+        float v = 0.0;
+        float a = 0.52;
+        for (int i = 0; i < 5; i++) {
+          v += a * vnoise3(p);
+          p = p * 2.08 + vec3(3.1, 1.7, 5.3);
+          a *= 0.5;
+        }
+        return v;
+      }
+
+      void main() {
+        vec2 uv1 = vec2(fract(vUv.x + uTime * 0.004), vUv.y);
+        vec2 uv2 = vec2(fract(vUv.x - uTime * 0.0025), clamp(vUv.y + sin(vUv.x * 12.566 + uTime * 0.22) * 0.008, 0.01, 0.99));
+        vec3 texA = texture2D(uTexture, uv1).rgb;
+        vec3 texB = texture2D(uTexture, uv2).rgb;
+        vec3 baseTex = mix(texA, texB, 0.42);
+        float texLum = dot(baseTex, vec3(0.299, 0.587, 0.114));
+
+        // 3D spherical boiling convection cells + supergranulation (video 00:00 look)
+        vec3 sp = vLocalDir * 6.5 + vec3(uTime * 0.06, -uTime * 0.04, uTime * 0.05);
+        float warp = fbm3(sp * 0.65);
+        float boil = fbm3(sp * 1.45 + vec3(warp * 2.4));
+        float fineCells = fbm3(sp * 4.2 - vec3(0.0, uTime * 0.12, warp * 1.6));
+
+        // Magnetic sunspot umbrae & bright surrounding faculae ridges
+        float spotField = fbm3(vLocalDir * 3.8 + vec3(1.4, uTime * 0.015, -0.8));
+        float sunspot = smoothstep(0.29, 0.16, spotField) * smoothstep(0.7, 0.18, abs(vLocalDir.y));
+        float faculae = smoothstep(0.68, 0.92, boil * 0.65 + fineCells * 0.45);
+
+        float plasmaTemp = clamp(texLum * 0.55 + boil * 0.52 + fineCells * 0.32 - sunspot * 0.62, 0.0, 1.35);
+
+        vec3 umbraRed = vec3(0.32, 0.03, 0.0);
+        vec3 deepSolarRed = vec3(1.15, 0.18, 0.01);
+        vec3 moltenOrange = vec3(1.85, 0.58, 0.06);
+        vec3 hotGold = vec3(2.45, 1.52, 0.34);
+        vec3 flareWhite = vec3(3.2, 2.55, 1.35);
+
+        vec3 plasmaCol = mix(umbraRed, deepSolarRed, smoothstep(0.05, 0.32, plasmaTemp));
+        plasmaCol = mix(plasmaCol, moltenOrange, smoothstep(0.28, 0.62, plasmaTemp));
+        plasmaCol = mix(plasmaCol, hotGold, smoothstep(0.56, 0.88, plasmaTemp));
+        plasmaCol = mix(plasmaCol, flareWhite, smoothstep(0.84, 1.18, plasmaTemp + faculae * 0.25));
+
+        // Physical photospheric limb darkening + blistering volcanic coronal rim
+        vec3 viewDir = normalize(-vPosView);
+        float ndv = clamp(dot(vNormalView, viewDir), 0.0, 1.0);
+        float limbDark = pow(ndv, 0.38);
+        float chromoRim = pow(1.0 - ndv, 3.2);
+
+        float boost = mix(0.88, 1.48, uFocusBoost);
+        vec3 coreOut = plasmaCol * (0.62 + 0.58 * limbDark) * boost;
+        vec3 fireRim = vec3(3.4, 0.95, 0.14) * chromoRim * mix(0.95, 1.85, uFocusBoost);
+
+        gl_FragColor = vec4(coreOut + fireRim, 1.0);
+      }
+    `,
+  });
+}
+
+export class SolarSystemEngine {
+  private container: HTMLElement;
+  private callbacks: EngineCallbacks;
+  private isSoftwareGl: boolean;
+  private renderer: THREE.WebGLRenderer;
+  private scene: THREE.Scene;
+  private camera: THREE.PerspectiveCamera;
+  private controls: OrbitControls;
+  private composer: EffectComposer | null = null;
+  private bloomPass: UnrealBloomPass | null = null;
+
+  // True physical PointLight (decay: 2) + focused 4K DirectionalLight ShadowMap rig
+  private sunPointLight!: THREE.PointLight;
+  private focusShadowLight: THREE.DirectionalLight | null = null;
+
+  private bodies = new Map<CelestialBodyId, PlanetRuntime>();
+  private moonsById = new Map<string, MoonRuntime>();
+  private beaconsByMissionId = new Map<string, MissionBeaconRuntime>();
+  private hitProxies: THREE.Mesh[] = [];
+  private missionHitProxies: THREE.Mesh[] = [];
+  private sunSurfaceMat: THREE.ShaderMaterial | null = null;
+  private sunChromoMat: THREE.ShaderMaterial | null = null;
+  private sunProminenceMats: THREE.ShaderMaterial[] = [];
+  private sunInnerGlowMat: THREE.SpriteMaterial | null = null;
+  private sunOuterGlowMat: THREE.SpriteMaterial | null = null;
+  private sunFocusBoost = 0;
+  private auroraMats: THREE.ShaderMaterial[] = [];
+  private saturnIceRingPoints: THREE.Points | null = null;
+  private moonPlumes: Array<{ points: THREE.Points; radius: number; dir: THREE.Vector3; speed: number }> = [];
+  private asteroidBelt: THREE.InstancedMesh | null = null;
+  private kuiperBelt: THREE.InstancedMesh | null = null;
+  private cometTailGroup: THREE.Group | null = null;
+  private cometComaPoints: THREE.Points | null = null;
+  private orbitSatellites: Array<{ missionId: string; pivot: THREE.Group; speed: number; ledMat?: THREE.MeshBasicMaterial; phase: number }> = [];
+
+  private clock = new THREE.Clock();
+  private frameId = 0;
+  private disposed = false;
+
+  // Real-Time J2000 clock state (default strictly 1x Real Time synced to Date.now())
+  private simEpochMs = Date.now();
+  private timeMultiplier = 1;
+  private isPaused = false;
+  private sunAnimTime = 0;
+  private surfaceElapsed = 0;
+  private lastHudSync = 0;
+
+  // Camera navigation, Clean Travel & FlyTo Surface
+  private focusedBodyId: CelestialBodyId | null = null;
+  private focusedMoonId: string | null = null;
+  private focusedMissionId: string | null = null;
+  private isFlying = false;
+  private isTracking = false;
+  private flightTargetPos = new THREE.Vector3().copy(OVERVIEW_CAM_POS);
+  private flightLookTarget = new THREE.Vector3().copy(OVERVIEW_TARGET);
+  private currentExposure = 1.85;
+
+  private keysPressed = new Set<string>();
+  private raycaster = new THREE.Raycaster();
+  private pointerNdc = new THREE.Vector2();
+  private pointerDownPos = { x: 0, y: 0 };
+  private hoveredId: CelestialBodyId | null = null;
+  private lastHoverCheck = 0;
+
+  private spaceRoot = new THREE.Group();
+  private surfaceDiorama: SurfaceDioramaRuntime | null = null;
+  private surfaceMission: AbandonedMission | null = null;
+  private pendingSurfaceMission: AbandonedMission | null = null;
+  private surfaceApproachElapsed = 0;
+  private surfaceViewMode: SurfaceCameraMode = 'rover';
+  private deepSpaceDiorama: DeepSpaceDioramaRuntime | null = null;
+  private activeDeepSpaceId: DeepSpaceTargetId | null = null;
+
+  private labelElements = new Map<CelestialBodyId, HTMLElement>();
+  private showOrbits = false;
+  private currentOrbitOpacity = 0;
+  private showLabels = true;
+
+  private disposables: Array<{ dispose: () => void }> = [];
+  private pbrCaps!: Pbr8KCapabilities;
+  private active8KAbort: AbortController | null = null;
+  private active8KUpgrade: {
+    material: THREE.MeshPhysicalMaterial;
+    restore: BasePbrSnapshot;
+    set: FullPbrTextureSet;
+  } | null = null;
+
+  constructor(container: HTMLElement, callbacks: EngineCallbacks) {
+    this.container = container;
+    this.callbacks = callbacks;
+    this.isSoftwareGl = detectSoftwareWebGL();
+
+    const width = container.clientWidth || window.innerWidth;
+    const height = container.clientHeight || window.innerHeight;
+
+    this.renderer = new THREE.WebGLRenderer({
+      antialias: !this.isSoftwareGl,
+      powerPreference: 'high-performance',
+      logarithmicDepthBuffer: true,
+    });
+    this.renderer.outputColorSpace = THREE.SRGBColorSpace;
+    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    this.renderer.toneMappingExposure = this.currentExposure;
+    this.renderer.setPixelRatio(
+      this.isSoftwareGl ? 1 : Math.min(window.devicePixelRatio, 2),
+    );
+    this.renderer.setSize(width, height);
+    this.renderer.shadowMap.enabled = !this.isSoftwareGl;
+    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    this.pbrCaps = getPbr8KCapabilities(this.renderer, this.isSoftwareGl);
+    this.renderer.domElement.style.display = 'block';
+    this.renderer.domElement.style.width = '100%';
+    this.renderer.domElement.style.height = '100%';
+
+    container.appendChild(this.renderer.domElement);
+
+    this.scene = new THREE.Scene();
+    this.scene.background = new THREE.Color(0x010204);
+    this.scene.add(this.spaceRoot);
+
+    // Initialize RoomEnvironment per spec but keep intensity strictly 0.0 so night hemispheres stay pitch-black
+    const pmremGenerator = new THREE.PMREMGenerator(this.renderer);
+    const envTex = pmremGenerator.fromScene(new RoomEnvironment(), 0.04).texture;
+    this.scene.environment = envTex;
+    this.scene.environmentIntensity = 0.0;
+    this.disposables.push(envTex);
+    pmremGenerator.dispose();
+
+    this.camera = new THREE.PerspectiveCamera(45, width / height, 0.05, 190000);
+    this.camera.position.copy(OVERVIEW_CAM_POS);
+
+    this.controls = new OrbitControls(this.camera, this.renderer.domElement);
+    this.controls.enableDamping = !this.isSoftwareGl;
+    this.controls.dampingFactor = 0.055;
+    this.controls.enablePan = true;
+    this.controls.enableZoom = true;
+    this.controls.rotateSpeed = 0.68;
+    this.controls.zoomSpeed = 1.05;
+    this.controls.panSpeed = 0.85;
+    this.controls.minDistance = 0.28;
+    this.controls.maxDistance = 65000;
+    this.controls.target.copy(OVERVIEW_TARGET);
+
+    this.controls.addEventListener('start', () => {
+      if (this.isFlying) {
+        this.isFlying = false;
+      }
+    });
+
+    if (!this.isSoftwareGl) {
+      this.composer = new EffectComposer(this.renderer);
+      this.composer.addPass(new RenderPass(this.scene, this.camera));
+      this.bloomPass = new UnrealBloomPass(
+        new THREE.Vector2(width, height),
+        0.34,
+        0.58,
+        0.94,
+      );
+      this.composer.addPass(this.bloomPass);
+      this.composer.addPass(new OutputPass());
+    }
+
+    this.buildLighting();
+    this.buildDeepSpaceSky();
+    this.buildAsteroidBelt();
+    this.buildKuiperBelt();
+    this.buildCelestialBodies();
+    this.buildMissionBeacons();
+    this.buildOrbitingSpacecraftMarkers();
+    this.applyJ2000State(daysSinceJ2000(this.simEpochMs), true);
+    this.bindEvents();
+
+    if (!this.isSoftwareGl) {
+      this.renderer.compile(this.scene, this.camera);
+    }
+
+    this.startLoop();
+  }
+
+  private buildLighting(): void {
+    // SOLE illumination source: PointLight with inverse-square decay = 2 tuned for vivid sunlit reflection & crisp night contrast
+    this.sunPointLight = new THREE.PointLight(0xfff7ea, 1680000, 0, 2);
+    this.sunPointLight.position.set(0, 0, 0);
+    this.spaceRoot.add(this.sunPointLight);
+
+    // Focused Sun-aligned high-resolution DirectionalLight ShadowMap (4096x4096) for crisp planet-on-ring, ring-on-planet & eclipse shadows
+    if (!this.isSoftwareGl) {
+      const shadowRes = Math.min(
+        4096,
+        this.renderer.capabilities.maxTextureSize || 4096,
+      );
+      const dir = new THREE.DirectionalLight(0xfff7ea, 0);
+      dir.castShadow = true;
+      dir.shadow.mapSize.set(shadowRes, shadowRes);
+      dir.shadow.bias = -0.00018;
+      dir.shadow.normalBias = 0.015;
+      dir.shadow.radius = 2;
+      dir.visible = false;
+      this.spaceRoot.add(dir);
+      this.spaceRoot.add(dir.target);
+      this.focusShadowLight = dir;
+    }
+    // Zero AmbientLight, zero HemisphereLight in Space Mode: complete darkness on night sides
+  }
+
+  private buildDeepSpaceSky(): void {
+    // 1. Multi-magnitude celestial starfield
+    const starCount = 5600;
+    const positions = new Float32Array(starCount * 3);
+    const colors = new Float32Array(starCount * 3);
+
+    const palette = [
+      new THREE.Color(0xcad8ff),
+      new THREE.Color(0xf8fafc),
+      new THREE.Color(0xfef3c7),
+      new THREE.Color(0xfde68a),
+    ];
+
+    for (let i = 0; i < starCount; i++) {
+      const u = Math.random();
+      const v = Math.random();
+      const theta = u * 2 * Math.PI;
+      const phi = Math.acos(2 * v - 1);
+      const r = 68000 + Math.random() * 28000;
+
+      positions[i * 3] = r * Math.sin(phi) * Math.cos(theta);
+      positions[i * 3 + 1] = r * Math.cos(phi);
+      positions[i * 3 + 2] = r * Math.sin(phi) * Math.sin(theta);
+
+      const baseCol = palette[Math.floor(Math.random() * palette.length)];
+      const mag = 0.25 + Math.pow(Math.random(), 2.8) * 0.75;
+      colors[i * 3] = baseCol.r * mag;
+      colors[i * 3 + 1] = baseCol.g * mag;
+      colors[i * 3 + 2] = baseCol.b * mag;
+    }
+
+    const starGeo = new THREE.BufferGeometry();
+    starGeo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    starGeo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+
+    const starMat = new THREE.PointsMaterial({
+      size: 74,
+      sizeAttenuation: true,
+      vertexColors: true,
+      transparent: true,
+      opacity: 0.9,
+      depthWrite: false,
+      toneMapped: false,
+    });
+
+    const stars = new THREE.Points(starGeo, starMat);
+    this.scene.add(stars);
+    this.disposables.push(starGeo, starMat);
+
+    // 2. Subtle Milky Way galactic band (inclined ~60.2 deg to ecliptic)
+    const mwCount = 3800;
+    const mwPos = new Float32Array(mwCount * 3);
+    const mwCol = new Float32Array(mwCount * 3);
+    const mwGroup = new THREE.Group();
+    mwGroup.rotation.set(
+      THREE.MathUtils.degToRad(60.2),
+      THREE.MathUtils.degToRad(28.0),
+      0,
+    );
+
+    for (let i = 0; i < mwCount; i++) {
+      const lon = Math.random() * Math.PI * 2;
+      // Gaussian concentration along galactic equator
+      const u1 = Math.max(1e-5, Math.random());
+      const u2 = Math.random();
+      const gauss = Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
+      const lat = THREE.MathUtils.clamp(gauss * 0.11, -0.55, 0.55);
+      const r = 74000 + Math.random() * 18000;
+
+      mwPos[i * 3] = r * Math.cos(lat) * Math.cos(lon);
+      mwPos[i * 3 + 1] = r * Math.sin(lat);
+      mwPos[i * 3 + 2] = r * Math.cos(lat) * Math.sin(lon);
+
+      const coreBulge = 0.55 + 0.45 * Math.max(0, Math.cos(lon));
+      const faint = (0.14 + Math.random() * 0.24) * coreBulge;
+      mwCol[i * 3] = faint * 0.85;
+      mwCol[i * 3 + 1] = faint * 0.9;
+      mwCol[i * 3 + 2] = faint * 1.05;
+    }
+
+    const mwGeo = new THREE.BufferGeometry();
+    mwGeo.setAttribute('position', new THREE.BufferAttribute(mwPos, 3));
+    mwGeo.setAttribute('color', new THREE.BufferAttribute(mwCol, 3));
+
+    const mwMat = new THREE.PointsMaterial({
+      size: 118,
+      sizeAttenuation: true,
+      vertexColors: true,
+      transparent: true,
+      opacity: 0.42,
+      depthWrite: false,
+      toneMapped: false,
+    });
+
+    const mwPoints = new THREE.Points(mwGeo, mwMat);
+    mwGroup.add(mwPoints);
+    this.scene.add(mwGroup);
+    this.disposables.push(mwGeo, mwMat);
+
+    // 3. Milky Way Galactic Plane Nebulae & Star-Forming Regions (100% intra-galactic sky, zero external galaxies)
+    const nebTex = createNebulaPuffTexture();
+    this.disposables.push(nebTex);
+    const nebPlaneGeo = new THREE.PlaneGeometry(1, 1);
+    this.disposables.push(nebPlaneGeo);
+
+    const mwNebulaTints = [0xec4899, 0x38bdf8, 0xfbbf24, 0x2dd4bf, 0x818cf8];
+    const mwNebulaCount = 36;
+    for (let i = 0; i < mwNebulaCount; i++) {
+      const lon = (i / mwNebulaCount) * Math.PI * 2 + (i % 3) * 0.14;
+      const lat = ((i % 5) - 2) * 0.048;
+      const r = 74000 + (i % 4) * 3200;
+
+      const nx = r * Math.cos(lat) * Math.cos(lon);
+      const ny = r * Math.sin(lat);
+      const nz = r * Math.cos(lat) * Math.sin(lon);
+
+      const nMat = new THREE.MeshBasicMaterial({
+        map: nebTex,
+        color: mwNebulaTints[i % mwNebulaTints.length],
+        transparent: true,
+        opacity: 0.14 + (i % 3) * 0.04,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+        side: THREE.DoubleSide,
+        toneMapped: false,
+      });
+      const nMesh = new THREE.Mesh(nebPlaneGeo, nMat);
+      nMesh.position.set(nx, ny, nz);
+      nMesh.lookAt(0, 0, 0);
+      nMesh.rotateZ(i * 0.65);
+      const nSize = 4800 + (i % 4) * 1900;
+      nMesh.scale.set(nSize, nSize * 0.62, 1);
+
+      mwGroup.add(nMesh);
+      this.disposables.push(nMat);
+    }
+  }
+
+  private buildAsteroidBelt(): void {
+    // Realistic Main Asteroid Belt between 2.15 AU and 3.25 AU (2150..3250 world units)
+    const count = 1100;
+    const geo = new THREE.DodecahedronGeometry(0.45, 0);
+    const mat = new THREE.MeshStandardMaterial({
+      color: 0x8d94a0,
+      roughness: 0.96,
+      metalness: 0.0,
+    });
+    const instanced = new THREE.InstancedMesh(geo, mat, count);
+    instanced.frustumCulled = false;
+
+    for (let i = 0; i < count; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      const radius = (2.15 + Math.random() * 1.1) * AU_TO_UNITS;
+      const y = (Math.random() - 0.5) * 95;
+      _vec3A.set(Math.cos(angle) * radius, y, Math.sin(angle) * radius);
+      _quat.setFromEuler(
+        new THREE.Euler(
+          Math.random() * Math.PI,
+          Math.random() * Math.PI,
+          Math.random() * Math.PI,
+        ),
+      );
+      const s = 0.7 + Math.pow(Math.random(), 2) * 2.6;
+      _scale.set(s, s * (0.65 + Math.random() * 0.55), s);
+      _mat4.compose(_vec3A, _quat, _scale);
+      instanced.setMatrixAt(i, _mat4);
+
+      const shade = 0.5 + Math.random() * 0.45;
+      _color.setRGB(shade, shade * 0.95, shade * 0.88);
+      instanced.setColorAt(i, _color);
+    }
+
+    instanced.instanceMatrix.needsUpdate = true;
+    if (instanced.instanceColor) instanced.instanceColor.needsUpdate = true;
+    instanced.computeBoundingSphere();
+
+    this.asteroidBelt = instanced;
+    this.spaceRoot.add(instanced);
+    this.disposables.push(geo, mat);
+  }
+
+  private buildKuiperBelt(): void {
+    // Realistic Outer Kuiper Belt icy objects between 30.8 AU and 50.5 AU
+    const count = 1200;
+    const geo = new THREE.DodecahedronGeometry(0.65, 0);
+    const mat = new THREE.MeshStandardMaterial({
+      color: 0xa5b4c8,
+      roughness: 0.9,
+      metalness: 0.04,
+    });
+    const instanced = new THREE.InstancedMesh(geo, mat, count);
+    instanced.frustumCulled = false;
+
+    for (let i = 0; i < count; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      const radius = (30.8 + Math.random() * 19.7) * AU_TO_UNITS;
+      const y = (Math.random() - 0.5) * 2600;
+      _vec3A.set(Math.cos(angle) * radius, y, Math.sin(angle) * radius);
+      _quat.setFromEuler(
+        new THREE.Euler(
+          Math.random() * Math.PI,
+          Math.random() * Math.PI,
+          Math.random() * Math.PI,
+        ),
+      );
+      const s = 1.4 + Math.pow(Math.random(), 2) * 4.5;
+      _scale.set(s, s * (0.7 + Math.random() * 0.5), s);
+      _mat4.compose(_vec3A, _quat, _scale);
+      instanced.setMatrixAt(i, _mat4);
+
+      const shade = 0.55 + Math.random() * 0.4;
+      _color.setRGB(shade * 0.9, shade * 0.96, shade);
+      instanced.setColorAt(i, _color);
+    }
+
+    instanced.instanceMatrix.needsUpdate = true;
+    if (instanced.instanceColor) instanced.instanceColor.needsUpdate = true;
+    instanced.computeBoundingSphere();
+
+    this.kuiperBelt = instanced;
+    this.spaceRoot.add(instanced);
+    this.disposables.push(geo, mat);
+  }
+
+  private buildCelestialBodies(): void {
+    const maxAnisotropy = this.renderer.capabilities.getMaxAnisotropy();
+    const loader = new THREE.TextureLoader();
+    loader.setCrossOrigin('anonymous');
+
+    for (const data of CELESTIAL_BODIES) {
+      const inclinationGroup = new THREE.Group();
+      this.spaceRoot.add(inclinationGroup);
+
+      // True J2000 elliptical orbit line (hidden by default & strictly off during FlyTo)
+      let orbitLine: THREE.LineLoop | undefined;
+      const kepler = PLANET_ELEMENTS_J2000[data.id];
+      if (kepler) {
+        const pts = sampleOrbitEllipsePoints(kepler, 256, AU_TO_UNITS);
+        const orbitGeo = new THREE.BufferGeometry().setFromPoints(pts);
+        const orbitMat = new THREE.LineBasicMaterial({
+          color: new THREE.Color(data.accentColor),
+          transparent: true,
+          opacity: 0,
+          depthWrite: false,
+          toneMapped: false,
+        });
+        orbitLine = new THREE.LineLoop(orbitGeo, orbitMat);
+        orbitLine.visible = false;
+        inclinationGroup.add(orbitLine);
+        this.disposables.push(orbitGeo, orbitMat);
+      }
+
+      const anchorGroup = new THREE.Group();
+      inclinationGroup.add(anchorGroup);
+
+      const tiltGroup = new THREE.Group();
+      tiltGroup.rotation.z = THREE.MathUtils.degToRad(data.axialTiltDeg);
+      anchorGroup.add(tiltGroup);
+
+      const sphereGeo =
+        data.id === 'comet67p'
+          ? createComet67PGeometry(data.visualRadius)
+          : new THREE.SphereGeometry(data.visualRadius, 72, 54);
+      this.disposables.push(sphereGeo);
+
+      const texSet = createProceduralPlanetTextureSet(data.id, maxAnisotropy);
+      this.disposables.push(
+        texSet.map,
+        texSet.normalMap,
+        texSet.roughnessMap,
+        texSet.metalnessMap,
+      );
+
+      let mesh: THREE.Mesh;
+      let planetMat: THREE.MeshPhysicalMaterial | undefined;
+      let basePbr: BasePbrSnapshot | undefined;
+
+      if (data.id === 'sun') {
+        const sunMat = createSunSurfaceMaterial(texSet.map);
+        this.sunSurfaceMat = sunMat;
+        mesh = new THREE.Mesh(sphereGeo, sunMat);
+        tiltGroup.add(mesh);
+        this.disposables.push(sunMat);
+
+        const chromoGeo = new THREE.SphereGeometry(
+          data.visualRadius * 1.075,
+          48,
+          36,
+        );
+        const chromoMat = new THREE.ShaderMaterial({
+          uniforms: {
+            uColor: { value: new THREE.Color(0xffae38) },
+            uFocusBoost: { value: 0 },
+          },
+          vertexShader: `
+            varying vec3 vNormalView;
+            varying vec3 vPosView;
+            void main() {
+              vec4 mv = modelViewMatrix * vec4(position, 1.0);
+              vPosView = mv.xyz;
+              vNormalView = normalize(normalMatrix * normal);
+              gl_Position = projectionMatrix * mv;
+            }
+          `,
+          fragmentShader: `
+            uniform vec3 uColor;
+            uniform float uFocusBoost;
+            varying vec3 vNormalView;
+            varying vec3 vPosView;
+            void main() {
+              vec3 viewDir = normalize(-vPosView);
+              float rim = pow(clamp(1.0 + dot(viewDir, vNormalView), 0.0, 1.0), 2.2);
+              gl_FragColor = vec4(uColor * mix(1.18, 2.35, uFocusBoost), rim * mix(0.5, 0.94, uFocusBoost));
+            }
+          `,
+          side: THREE.BackSide,
+          transparent: true,
+          depthWrite: false,
+          blending: THREE.AdditiveBlending,
+        });
+        this.sunChromoMat = chromoMat;
+        const chromoMesh = new THREE.Mesh(chromoGeo, chromoMat);
+        anchorGroup.add(chromoMesh);
+        this.disposables.push(chromoGeo, chromoMat);
+
+        // Corona sprites (bright natural stellar radiance across overview & blazing close-up)
+        const glowTex = createSunGlowTexture();
+        const innerGlowMat = new THREE.SpriteMaterial({
+          map: glowTex,
+          color: 0xffdf94,
+          transparent: true,
+          opacity: 0.48,
+          blending: THREE.AdditiveBlending,
+          depthWrite: false,
+          toneMapped: false,
+        });
+        this.sunInnerGlowMat = innerGlowMat;
+        const innerGlow = new THREE.Sprite(innerGlowMat);
+        innerGlow.scale.set(
+          data.visualRadius * 3.8,
+          data.visualRadius * 3.8,
+          1,
+        );
+        anchorGroup.add(innerGlow);
+
+        const outerGlowMat = new THREE.SpriteMaterial({
+          map: glowTex,
+          color: 0xf97316,
+          transparent: true,
+          opacity: 0.16,
+          blending: THREE.AdditiveBlending,
+          depthWrite: false,
+          toneMapped: false,
+        });
+        this.sunOuterGlowMat = outerGlowMat;
+        const outerGlow = new THREE.Sprite(outerGlowMat);
+        outerGlow.scale.set(
+          data.visualRadius * 6.8,
+          data.visualRadius * 6.8,
+          1,
+        );
+        anchorGroup.add(outerGlow);
+        this.disposables.push(glowTex, innerGlowMat, outerGlowMat);
+
+        // Animated magnetic solar prominence flare loops anchored to solar photosphere
+        const promSpecs = [
+          { lat: 0.28, lon: 0.4, tilt: 0.35, scale: 1.04 },
+          { lat: -0.34, lon: 2.1, tilt: -0.25, scale: 1.26 },
+          { lat: 0.18, lon: 3.9, tilt: 0.5, scale: 0.92 },
+          { lat: -0.22, lon: 5.2, tilt: -0.4, scale: 1.12 },
+          { lat: 0.4, lon: 2.85, tilt: 0.28, scale: 0.96 },
+          { lat: -0.14, lon: 1.15, tilt: -0.5, scale: 1.18 },
+        ];
+        for (let p = 0; p < promSpecs.length; p++) {
+          const sp = promSpecs[p];
+          const arcGeo = new THREE.TorusGeometry(
+            data.visualRadius * 0.24 * sp.scale,
+            data.visualRadius * 0.017,
+            10,
+            28,
+            Math.PI,
+          );
+          const arcMat = new THREE.ShaderMaterial({
+            uniforms: {
+              uTime: { value: 0 },
+              uFocusBoost: { value: 0 },
+              uSeed: { value: p * 1.9 },
+            },
+            vertexShader: `
+              varying vec2 vUv;
+              void main() {
+                vUv = uv;
+                gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+              }
+            `,
+            fragmentShader: `
+              uniform float uTime;
+              uniform float uFocusBoost;
+              uniform float uSeed;
+              varying vec2 vUv;
+              void main() {
+                float flow = 0.55 + 0.45 * sin(vUv.x * 18.0 - uTime * 2.4 + uSeed);
+                float edgeFade = sin(vUv.x * 3.14159);
+                vec3 col = mix(vec3(1.0, 0.42, 0.12), vec3(1.0, 0.86, 0.42), flow);
+                float alpha = edgeFade * (0.38 + 0.42 * flow) * mix(0.75, 1.5, uFocusBoost);
+                gl_FragColor = vec4(col * mix(1.35, 2.55, uFocusBoost), alpha);
+              }
+            `,
+            transparent: true,
+            blending: THREE.AdditiveBlending,
+            depthWrite: false,
+            side: THREE.DoubleSide,
+          });
+          const arcMesh = new THREE.Mesh(arcGeo, arcMat);
+          const surfR = data.visualRadius * 0.96;
+          arcMesh.position.set(
+            Math.cos(sp.lat) * Math.cos(sp.lon) * surfR,
+            Math.sin(sp.lat) * surfR,
+            Math.cos(sp.lat) * Math.sin(sp.lon) * surfR,
+          );
+          arcMesh.lookAt(arcMesh.position.clone().multiplyScalar(2));
+          arcMesh.rotateX(Math.PI / 2);
+          arcMesh.rotateZ(sp.tilt);
+          tiltGroup.add(arcMesh);
+          this.sunProminenceMats.push(arcMat);
+          this.disposables.push(arcGeo, arcMat);
+        }
+
+        loader.load(
+          data.textures.map,
+          (tex) => {
+            if (this.disposed) {
+              tex.dispose();
+              return;
+            }
+            tex.colorSpace = THREE.SRGBColorSpace;
+            tex.wrapS = THREE.RepeatWrapping;
+            tex.anisotropy = maxAnisotropy;
+            sunMat.uniforms.uTexture.value = tex;
+            this.disposables.push(tex);
+          },
+          undefined,
+          () => {},
+        );
+      } else {
+        const isGasGiant =
+          data.id === 'jupiter' ||
+          data.id === 'saturn' ||
+          data.id === 'uranus' ||
+          data.id === 'neptune';
+        const isIcyWorld = data.id === 'pluto' || data.id === 'eris';
+
+        const planetMetalness =
+          isGasGiant || isIcyWorld || data.id === 'earth' ? 0.0 : 0.05;
+        planetMat = new THREE.MeshPhysicalMaterial({
+          map: texSet.map,
+          normalMap: texSet.normalMap,
+          normalScale: new THREE.Vector2(
+            isGasGiant ? 0.24 : data.id === 'comet67p' ? 1.15 : 0.72,
+            isGasGiant ? 0.24 : data.id === 'comet67p' ? 1.15 : 0.72,
+          ),
+          roughness: 1.0,
+          roughnessMap: texSet.roughnessMap,
+          metalness: planetMetalness,
+          metalnessMap: texSet.metalnessMap,
+          // Eliminate plastic specular on gas giants & dusty regolith; reserve wet glint strictly for Earth's oceans
+          specularIntensity:
+            data.id === 'earth'
+              ? 1.25
+              : isIcyWorld
+                ? 0.48
+                : isGasGiant
+                  ? 0.14
+                  : 0.24,
+          clearcoat: data.id === 'earth' ? 0.08 : 0.0,
+          clearcoatRoughness: 0.28,
+          envMapIntensity: 0.0,
+        });
+        basePbr = {
+          map: texSet.map,
+          normalMap: texSet.normalMap,
+          roughnessMap: texSet.roughnessMap,
+          metalnessMap: texSet.metalnessMap,
+          metalness: planetMetalness,
+        };
+
+        mesh = new THREE.Mesh(sphereGeo, planetMat);
+        // True astrophysical equatorial oblateness on rapidly spinning gas giants
+        if (data.id === 'jupiter') {
+          mesh.scale.set(1, 0.935, 1);
+        } else if (data.id === 'saturn') {
+          mesh.scale.set(1, 0.902, 1);
+        }
+        if (!this.isSoftwareGl) {
+          mesh.castShadow = true;
+          mesh.receiveShadow = true;
+        }
+        tiltGroup.add(mesh);
+        this.disposables.push(planetMat);
+
+        // Luminous solar-wind coma, dual cyan ion + warm dust tails & streaming particles for Comet 67P
+        if (data.id === 'comet67p') {
+          const tailGrp = new THREE.Group();
+          anchorGroup.add(tailGrp);
+          this.cometTailGroup = tailGrp;
+
+          const tailGeo = new THREE.ConeGeometry(0.62, 7.2, 24, 1, true);
+          tailGeo.translate(0, 3.6, 0);
+          tailGeo.rotateX(Math.PI / 2);
+          const tailMat = new THREE.MeshBasicMaterial({
+            color: 0x67e8f9,
+            transparent: true,
+            opacity: 0.24,
+            blending: THREE.AdditiveBlending,
+            depthWrite: false,
+            side: THREE.DoubleSide,
+          });
+          const ionTail = new THREE.Mesh(tailGeo, tailMat);
+          tailGrp.add(ionTail);
+
+          const dustTailGeo = new THREE.ConeGeometry(0.95, 5.4, 24, 1, true);
+          dustTailGeo.translate(0, 2.7, 0);
+          dustTailGeo.rotateX(Math.PI / 2);
+          const dustTailMat = new THREE.MeshBasicMaterial({
+            color: 0xfde68a,
+            transparent: true,
+            opacity: 0.14,
+            blending: THREE.AdditiveBlending,
+            depthWrite: false,
+            side: THREE.DoubleSide,
+          });
+          const dustTail = new THREE.Mesh(dustTailGeo, dustTailMat);
+          dustTail.rotation.y = 0.22;
+          tailGrp.add(dustTail);
+
+          const comaCount = 140;
+          const comaPos = new Float32Array(comaCount * 3);
+          for (let ci = 0; ci < comaCount; ci++) {
+            const d = Math.random() * 6.5;
+            const spread = 0.15 + d * 0.14;
+            comaPos[ci * 3] = (Math.random() - 0.5) * spread;
+            comaPos[ci * 3 + 1] = (Math.random() - 0.5) * spread;
+            comaPos[ci * 3 + 2] = d;
+          }
+          const comaGeo = new THREE.BufferGeometry();
+          comaGeo.setAttribute('position', new THREE.BufferAttribute(comaPos, 3));
+          const comaMat = new THREE.PointsMaterial({
+            color: 0xa5f3fc,
+            size: 0.12,
+            transparent: true,
+            opacity: 0.55,
+            blending: THREE.AdditiveBlending,
+            depthWrite: false,
+            toneMapped: false,
+          });
+          const comaPts = new THREE.Points(comaGeo, comaMat);
+          tailGrp.add(comaPts);
+          this.cometComaPoints = comaPts;
+          this.disposables.push(tailGeo, tailMat, dustTailGeo, dustTailMat, comaGeo, comaMat);
+        }
+
+        const activePlanetMat = planetMat;
+        const activeBasePbr = basePbr;
+        loader.load(
+          data.textures.map,
+          (tex) => {
+            if (this.disposed) {
+              tex.dispose();
+              return;
+            }
+            tex.colorSpace = THREE.SRGBColorSpace;
+            tex.wrapS = THREE.RepeatWrapping;
+            tex.anisotropy = maxAnisotropy;
+            activePlanetMat.map = tex;
+            activeBasePbr.map = tex;
+
+            if (tex.image instanceof HTMLImageElement) {
+              const rt = this.bodies.get(data.id);
+              if (rt) rt.albedoImage = tex.image;
+            }
+
+            // Replace initial procedural normal/roughness/metalness with Sobel relief derived directly from the real NASA photo
+            if (!data.textures.normalMap && !data.textures.bumpMap && tex.image) {
+              const relief = deriveSurfaceReliefMaps(tex.image as HTMLImageElement, {
+                normalStrength: isGasGiant ? 1.15 : data.id === 'comet67p' ? 5.2 : 3.6,
+                anisotropy: maxAnisotropy,
+                isGasGiant,
+                isIcy: isIcyWorld,
+              });
+              activePlanetMat.normalMap = relief.normalMap;
+              activeBasePbr.normalMap = relief.normalMap;
+              if (!data.textures.specularMap) {
+                activePlanetMat.roughnessMap = relief.roughnessMap;
+                activeBasePbr.roughnessMap = relief.roughnessMap;
+              } else {
+                relief.roughnessMap.dispose();
+              }
+              activePlanetMat.metalnessMap = relief.metalnessMap;
+              activeBasePbr.metalnessMap = relief.metalnessMap;
+              activePlanetMat.normalScale.set(
+                isGasGiant ? 0.28 : data.id === 'comet67p' ? 1.25 : 0.85,
+                isGasGiant ? 0.28 : data.id === 'comet67p' ? 1.25 : 0.85,
+              );
+              this.disposables.push(
+                relief.normalMap,
+                relief.roughnessMap,
+                relief.metalnessMap,
+              );
+            }
+            activePlanetMat.needsUpdate = true;
+            this.disposables.push(tex);
+            if (this.focusedBodyId === data.id && !this.focusedMoonId) {
+              this.schedule8KUpgrade(data.id, null);
+            }
+          },
+          undefined,
+          () => {},
+        );
+
+        if (data.textures.bumpMap) {
+          loader.load(
+            data.textures.bumpMap,
+            (tex) => {
+              if (this.disposed) {
+                tex.dispose();
+                return;
+              }
+              if (tex.image instanceof HTMLImageElement) {
+                const rt = this.bodies.get(data.id);
+                if (rt) rt.bumpImage = tex.image;
+              }
+              if (!data.textures.normalMap && tex.image) {
+                // Convert NASA elevation/bump heightmap into a true tangent-space normalMap instead of keeping old procedural noise!
+                const relief = deriveSurfaceReliefMaps(tex.image as HTMLImageElement, {
+                  normalStrength: data.id === 'mercury' || data.id === 'mars' ? 4.4 : 2.2,
+                  anisotropy: maxAnisotropy,
+                  isGasGiant,
+                  isIcy: isIcyWorld,
+                });
+                activePlanetMat.normalMap = relief.normalMap;
+                activeBasePbr.normalMap = relief.normalMap;
+                activePlanetMat.normalScale.set(
+                  data.id === 'venus' ? 0.42 : 0.92,
+                  data.id === 'venus' ? 0.42 : 0.92,
+                );
+                if (!data.textures.specularMap) {
+                  activePlanetMat.roughnessMap = relief.roughnessMap;
+                  activeBasePbr.roughnessMap = relief.roughnessMap;
+                } else {
+                  relief.roughnessMap.dispose();
+                }
+                activePlanetMat.metalnessMap = relief.metalnessMap;
+                activeBasePbr.metalnessMap = relief.metalnessMap;
+                activePlanetMat.bumpMap = null;
+                this.disposables.push(
+                  relief.normalMap,
+                  relief.roughnessMap,
+                  relief.metalnessMap,
+                );
+                tex.dispose();
+              } else {
+                tex.wrapS = THREE.RepeatWrapping;
+                tex.anisotropy = maxAnisotropy;
+                activePlanetMat.bumpMap = tex;
+                activePlanetMat.bumpScale = 0.024;
+                this.disposables.push(tex);
+              }
+              activePlanetMat.needsUpdate = true;
+              if (this.focusedBodyId === data.id && !this.focusedMoonId) {
+                this.schedule8KUpgrade(data.id, null);
+              }
+            },
+            undefined,
+            () => {},
+          );
+        }
+
+        if (data.textures.normalMap) {
+          loader.load(
+            data.textures.normalMap,
+            (tex) => {
+              if (this.disposed) {
+                tex.dispose();
+                return;
+              }
+              tex.wrapS = THREE.RepeatWrapping;
+              tex.anisotropy = maxAnisotropy;
+              if (tex.image instanceof HTMLImageElement) {
+                const rt = this.bodies.get(data.id);
+                if (rt) rt.bumpImage = tex.image;
+              }
+              activePlanetMat.normalMap = tex;
+              activeBasePbr.normalMap = tex;
+              activePlanetMat.normalScale.set(0.82, 0.82);
+              activePlanetMat.bumpMap = null;
+              activePlanetMat.needsUpdate = true;
+              this.disposables.push(tex);
+            },
+            undefined,
+            () => {},
+          );
+        }
+
+        if (data.textures.specularMap) {
+          loader.load(
+            data.textures.specularMap,
+            (tex) => {
+              if (this.disposed) {
+                tex.dispose();
+                return;
+              }
+              const img = tex.image as HTMLImageElement;
+              if (img && img.width && img.height) {
+                const rt = this.bodies.get(data.id);
+                if (rt) rt.specImage = img;
+                const c = document.createElement('canvas');
+                c.width = Math.min(2048, img.width);
+                c.height = Math.min(1024, img.height);
+                const ctx = c.getContext('2d');
+                if (ctx) {
+                  ctx.drawImage(img, 0, 0, c.width, c.height);
+                  const idata = ctx.getImageData(0, 0, c.width, c.height);
+                  const d = idata.data;
+                  for (let i = 0; i < d.length; i += 4) {
+                    const spec = d[i] / 255;
+                    // Matte continents (0.94 roughness), specular sunlit oceans (0.20 roughness)
+                    const rough = Math.round((0.94 - spec * 0.74) * 255);
+                    d[i] = rough;
+                    d[i + 1] = rough;
+                    d[i + 2] = rough;
+                  }
+                  ctx.putImageData(idata, 0, 0);
+                  const roughTex = new THREE.CanvasTexture(c);
+                  roughTex.wrapS = THREE.RepeatWrapping;
+                  roughTex.anisotropy = maxAnisotropy;
+                  activePlanetMat.roughness = 1.0;
+                  activePlanetMat.roughnessMap = roughTex;
+                  activeBasePbr.roughnessMap = roughTex;
+                  activePlanetMat.needsUpdate = true;
+                  this.disposables.push(roughTex);
+                }
+              }
+              tex.dispose();
+              if (this.focusedBodyId === data.id && !this.focusedMoonId) {
+                this.schedule8KUpgrade(data.id, null);
+              }
+            },
+            undefined,
+            () => {},
+          );
+        }
+      }
+
+      // Day-side atmospheric Fresnel shell
+      let atmosphereMesh: THREE.Mesh | undefined;
+      if (data.atmosphereColor && data.atmosphereIntensity) {
+        const atmoGeo = new THREE.SphereGeometry(
+          data.visualRadius * 1.045,
+          48,
+          36,
+        );
+        const atmoMat = createAtmosphereShaderMaterial(
+          data.atmosphereColor,
+          data.atmosphereIntensity,
+        );
+        atmosphereMesh = new THREE.Mesh(atmoGeo, atmoMat);
+        tiltGroup.add(atmosphereMesh);
+        this.disposables.push(atmoGeo, atmoMat);
+      }
+
+      // Independent Cloud Decks for Earth and Jupiter
+      let cloudMesh: THREE.Mesh | undefined;
+      if (data.id === 'earth') {
+        const cloudGeo = new THREE.SphereGeometry(
+          data.visualRadius * 1.018,
+          48,
+          36,
+        );
+        const fallbackClouds = createProceduralEarthClouds(maxAnisotropy);
+        const cloudMat = new THREE.MeshStandardMaterial({
+          map: fallbackClouds,
+          transparent: true,
+          opacity: 0.88,
+          depthWrite: false,
+          roughness: 0.92,
+        });
+        cloudMesh = new THREE.Mesh(cloudGeo, cloudMat);
+        if (!this.isSoftwareGl) cloudMesh.receiveShadow = true;
+        tiltGroup.add(cloudMesh);
+        this.disposables.push(cloudGeo, fallbackClouds, cloudMat);
+
+        if (data.textures.cloudsMap) {
+          loader.load(
+            data.textures.cloudsMap,
+            (tex) => {
+              if (this.disposed) {
+                tex.dispose();
+                return;
+              }
+              tex.colorSpace = THREE.SRGBColorSpace;
+              tex.wrapS = THREE.RepeatWrapping;
+              tex.anisotropy = maxAnisotropy;
+              cloudMat.map = tex;
+              cloudMat.needsUpdate = true;
+              this.disposables.push(tex);
+            },
+            undefined,
+            () => {},
+          );
+        }
+
+        // Earth Night City Lights on Dark Hemisphere (immediate offline lights + optional HD upgrade)
+        const offlineLightsTex = createProceduralEarthNightLights(maxAnisotropy);
+        const lightsGeo = new THREE.SphereGeometry(
+          data.visualRadius * 1.003,
+          48,
+          36,
+        );
+        const lightsMat = new THREE.ShaderMaterial({
+          uniforms: {
+            uLightsMap: { value: offlineLightsTex },
+          },
+          vertexShader: `
+            varying vec2 vUv;
+            varying vec3 vWorldNormal;
+            varying vec3 vWorldPos;
+            void main() {
+              vUv = uv;
+              vec4 wp = modelMatrix * vec4(position, 1.0);
+              vWorldPos = wp.xyz;
+              vWorldNormal = normalize(mat3(modelMatrix) * normal);
+              gl_Position = projectionMatrix * viewMatrix * wp;
+            }
+          `,
+          fragmentShader: `
+            uniform sampler2D uLightsMap;
+            varying vec2 vUv;
+            varying vec3 vWorldNormal;
+            varying vec3 vWorldPos;
+            void main() {
+              vec3 sunDir = normalize(-vWorldPos);
+              float sunDot = dot(normalize(vWorldNormal), sunDir);
+              float nightMask = smoothstep(0.1, -0.22, sunDot);
+              vec3 col = texture2D(uLightsMap, vUv).rgb;
+              float lum = dot(col, vec3(0.3, 0.59, 0.11));
+              gl_FragColor = vec4(col * vec3(1.45, 1.2, 0.8), nightMask * smoothstep(0.06, 0.5, lum) * 0.92);
+            }
+          `,
+          transparent: true,
+          depthWrite: false,
+          blending: THREE.AdditiveBlending,
+        });
+        const lightsMesh = new THREE.Mesh(lightsGeo, lightsMat);
+        mesh.add(lightsMesh);
+        this.disposables.push(offlineLightsTex, lightsGeo, lightsMat);
+
+        loader.load(
+          '/textures/planets/earth_lights_2048.png',
+          (lightsTex) => {
+            if (this.disposed) {
+              lightsTex.dispose();
+              return;
+            }
+            lightsTex.colorSpace = THREE.SRGBColorSpace;
+            lightsTex.wrapS = THREE.RepeatWrapping;
+            lightsTex.anisotropy = maxAnisotropy;
+            lightsMat.uniforms.uLightsMap.value = lightsTex;
+            this.disposables.push(lightsTex);
+          },
+          undefined,
+          () => {},
+        );
+      } else if (data.id === 'jupiter') {
+        const jupCloudGeo = new THREE.SphereGeometry(
+          data.visualRadius * 1.014,
+          48,
+          36,
+        );
+        const jupCloudTex = createProceduralJupiterClouds(maxAnisotropy);
+        const jupCloudMat = new THREE.MeshStandardMaterial({
+          map: jupCloudTex,
+          transparent: true,
+          opacity: 0.56,
+          depthWrite: false,
+          roughness: 0.85,
+        });
+        cloudMesh = new THREE.Mesh(jupCloudGeo, jupCloudMat);
+        if (!this.isSoftwareGl) cloudMesh.receiveShadow = true;
+        tiltGroup.add(cloudMesh);
+        this.disposables.push(jupCloudGeo, jupCloudTex, jupCloudMat);
+      }
+
+      // Planetary Ring Systems (Saturn & Uranus)
+      let ringMesh: THREE.Mesh | undefined;
+      if (data.rings) {
+        const innerR = data.visualRadius * data.rings.innerMultiplier;
+        const outerR = data.visualRadius * data.rings.outerMultiplier;
+        const ringGeo = createRadialRingGeometry(innerR, outerR, 180, 6);
+
+        const proceduralRingTex = data.rings.hasCassiniDetail
+          ? createDetailedSaturnRingTexture(maxAnisotropy)
+          : createUranusRingTexture(maxAnisotropy);
+
+        const ringMat = new THREE.MeshStandardMaterial({
+          map: proceduralRingTex,
+          transparent: true,
+          opacity: data.rings.opacity,
+          side: THREE.DoubleSide,
+          shadowSide: THREE.DoubleSide,
+          roughness: 0.78,
+          metalness: 0.04,
+          depthWrite: false,
+          alphaTest: 0.015,
+        });
+
+        ringMesh = new THREE.Mesh(ringGeo, ringMat);
+        let ringDepthMat: THREE.MeshDepthMaterial | undefined;
+        if (!this.isSoftwareGl) {
+          ringMesh.castShadow = true;
+          ringMesh.receiveShadow = true;
+          ringDepthMat = new THREE.MeshDepthMaterial({
+            depthPacking: THREE.RGBADepthPacking,
+            map: proceduralRingTex,
+            alphaTest: 0.22,
+            side: THREE.DoubleSide,
+          });
+          ringMesh.customDepthMaterial = ringDepthMat;
+          this.disposables.push(ringDepthMat);
+        }
+        tiltGroup.add(ringMesh);
+        this.disposables.push(ringGeo, proceduralRingTex, ringMat);
+
+        if (data.rings.hasCassiniDetail && data.textures.ringColorMap) {
+          loader.load(
+            data.textures.ringColorMap,
+            (colorTex) => {
+              if (this.disposed) {
+                colorTex.dispose();
+                return;
+              }
+              const img = colorTex.image as HTMLImageElement;
+              const baseCanvas = proceduralRingTex.image as HTMLCanvasElement;
+              if (img && baseCanvas) {
+                const merged = document.createElement('canvas');
+                merged.width = baseCanvas.width;
+                merged.height = baseCanvas.height;
+                const ctx = merged.getContext('2d');
+                if (ctx) {
+                  ctx.drawImage(baseCanvas, 0, 0);
+                  const alphaData = ctx.getImageData(
+                    0,
+                    0,
+                    merged.width,
+                    merged.height,
+                  );
+                  const temp = document.createElement('canvas');
+                  temp.width = merged.width;
+                  temp.height = merged.height;
+                  const tctx = temp.getContext('2d')!;
+                  tctx.drawImage(img, 0, 0, merged.width, merged.height);
+                  const colorData = tctx.getImageData(
+                    0,
+                    0,
+                    merged.width,
+                    merged.height,
+                  );
+
+                  for (let i = 0; i < alphaData.data.length; i += 4) {
+                    alphaData.data[i] = Math.round(
+                      colorData.data[i] * 0.78 + alphaData.data[i] * 0.22,
+                    );
+                    alphaData.data[i + 1] = Math.round(
+                      colorData.data[i + 1] * 0.78 +
+                        alphaData.data[i + 1] * 0.22,
+                    );
+                    alphaData.data[i + 2] = Math.round(
+                      colorData.data[i + 2] * 0.78 +
+                        alphaData.data[i + 2] * 0.22,
+                    );
+                  }
+                  ctx.putImageData(alphaData, 0, 0);
+                  const combinedTex = new THREE.CanvasTexture(merged);
+                  combinedTex.colorSpace = THREE.SRGBColorSpace;
+                  combinedTex.wrapS = THREE.ClampToEdgeWrapping;
+                  combinedTex.wrapT = THREE.ClampToEdgeWrapping;
+                  combinedTex.anisotropy = maxAnisotropy;
+                  ringMat.map = combinedTex;
+                  ringMat.needsUpdate = true;
+                  if (ringDepthMat) {
+                    ringDepthMat.map = combinedTex;
+                    ringDepthMat.needsUpdate = true;
+                  }
+                  this.disposables.push(combinedTex);
+                }
+              }
+              colorTex.dispose();
+            },
+            undefined,
+            () => {},
+          );
+        }
+
+        // Orbiting Glittering Ice-Crystal Ring Particles for Saturn
+        if (data.id === 'saturn') {
+          const iceCount = 480;
+          const icePos = new Float32Array(iceCount * 3);
+          for (let ic = 0; ic < iceCount; ic++) {
+            const rad = THREE.MathUtils.lerp(innerR * 1.04, outerR * 0.96, Math.random());
+            const ang = Math.random() * Math.PI * 2;
+            icePos[ic * 3] = Math.cos(ang) * rad;
+            icePos[ic * 3 + 1] = (Math.random() - 0.5) * 0.06;
+            icePos[ic * 3 + 2] = Math.sin(ang) * rad;
+          }
+          const iceGeo = new THREE.BufferGeometry();
+          iceGeo.setAttribute('position', new THREE.BufferAttribute(icePos, 3));
+          const iceMat = new THREE.PointsMaterial({
+            color: 0xfef3c7,
+            size: 0.09,
+            transparent: true,
+            opacity: 0.65,
+            depthWrite: false,
+          });
+          const icePts = new THREE.Points(iceGeo, iceMat);
+          tiltGroup.add(icePts);
+          this.saturnIceRingPoints = icePts;
+          this.disposables.push(iceGeo, iceMat);
+        }
+      }
+
+      // Animated Polar Auroras for Jupiter & Saturn
+      if (data.id === 'jupiter' || data.id === 'saturn') {
+        const auroraColor =
+          data.id === 'jupiter' ? new THREE.Color(0x38bdf8) : new THREE.Color(0xa78bfa);
+        for (const poleSign of [-1, 1]) {
+          const aurGeo = new THREE.CylinderGeometry(
+            data.visualRadius * 0.34,
+            data.visualRadius * 0.25,
+            data.visualRadius * 0.16,
+            40,
+            1,
+            true,
+          );
+          const aurMat = new THREE.ShaderMaterial({
+            uniforms: {
+              uTime: { value: 0 },
+              uColor: { value: auroraColor },
+            },
+            vertexShader: `
+              varying vec2 vUv;
+              void main() {
+                vUv = uv;
+                gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+              }
+            `,
+            fragmentShader: `
+              uniform float uTime;
+              uniform vec3 uColor;
+              varying vec2 vUv;
+              void main() {
+                float curtain = 0.5 + 0.5 * sin(vUv.x * 25.132 + uTime * 2.1) * cos(vUv.x * 12.566 - uTime * 1.4);
+                float vert = sin(vUv.y * 3.14159);
+                float alpha = vert * (0.18 + 0.52 * curtain);
+                gl_FragColor = vec4(uColor * (1.2 + curtain * 0.8), alpha);
+              }
+            `,
+            transparent: true,
+            blending: THREE.AdditiveBlending,
+            depthWrite: false,
+            side: THREE.DoubleSide,
+          });
+          const aurMesh = new THREE.Mesh(aurGeo, aurMat);
+          aurMesh.position.y = poleSign * data.visualRadius * 0.94;
+          if (poleSign < 0) aurMesh.rotation.x = Math.PI;
+          tiltGroup.add(aurMesh);
+          this.auroraMats.push(aurMat);
+          this.disposables.push(aurGeo, aurMat);
+        }
+      }
+
+      // Moon Systems
+      const moonParent = data.id === 'uranus' ? tiltGroup : anchorGroup;
+      const moons: MoonRuntime[] = [];
+
+      for (const mData of data.moons) {
+        const pivotGroup = new THREE.Group();
+        pivotGroup.rotation.z = THREE.MathUtils.degToRad(mData.inclinationDeg);
+        moonParent.add(pivotGroup);
+
+        const moonGeo = mData.irregular
+          ? createIrregularMoonGeometry(mData.radius)
+          : new THREE.SphereGeometry(mData.radius, 36, 28);
+        const moonSet = createProceduralMoonTextureSet(mData.style, maxAnisotropy);
+        const isIcyMoon =
+          mData.style === 'enceladus' ||
+          mData.style === 'europa' ||
+          mData.style === 'triton';
+        const moonMetalness = isIcyMoon ? 0.0 : 0.05;
+        const moonMat = new THREE.MeshPhysicalMaterial({
+          map: moonSet.map,
+          normalMap: moonSet.normalMap,
+          normalScale: new THREE.Vector2(0.76, 0.76),
+          roughness: 1.0,
+          roughnessMap: moonSet.roughnessMap,
+          metalness: moonMetalness,
+          metalnessMap: moonSet.metalnessMap,
+          specularIntensity: isIcyMoon ? 0.52 : 0.24,
+          clearcoat: 0.0,
+          envMapIntensity: 0.0,
+        });
+        const moonBasePbr: BasePbrSnapshot = {
+          map: moonSet.map,
+          normalMap: moonSet.normalMap,
+          roughnessMap: moonSet.roughnessMap,
+          metalnessMap: moonSet.metalnessMap,
+          metalness: moonMetalness,
+        };
+
+        const moonMesh = new THREE.Mesh(moonGeo, moonMat);
+        if (!this.isSoftwareGl) {
+          moonMesh.castShadow = true;
+          moonMesh.receiveShadow = true;
+        }
+        pivotGroup.add(moonMesh);
+        this.disposables.push(
+          moonGeo,
+          moonSet.map,
+          moonSet.normalMap,
+          moonSet.roughnessMap,
+          moonSet.metalnessMap,
+          moonMat,
+        );
+
+        if (mData.atmosphereColor) {
+          const mAtmoGeo = new THREE.SphereGeometry(mData.radius * 1.07, 24, 18);
+          const mAtmoMat = createAtmosphereShaderMaterial(
+            mData.atmosphereColor,
+            0.5,
+          );
+          const mAtmo = new THREE.Mesh(mAtmoGeo, mAtmoMat);
+          moonMesh.add(mAtmo);
+          this.disposables.push(mAtmoGeo, mAtmoMat);
+        }
+
+        // Active Volcanic Sulfur Plume on Io & South-Polar Cryo-Geyser Plume on Enceladus
+        if (mData.id === 'io' || mData.id === 'enceladus') {
+          const isIo = mData.id === 'io';
+          const plumeDir = isIo
+            ? new THREE.Vector3(0.65, 0.72, 0.24).normalize()
+            : new THREE.Vector3(0.08, -0.99, 0.08).normalize();
+          const pCount = 52;
+          const pArr = new Float32Array(pCount * 3);
+          for (let pi = 0; pi < pCount; pi++) {
+            const h = Math.random() * mData.radius * 0.9;
+            const spread = 0.02 + h * 0.28;
+            pArr[pi * 3] = plumeDir.x * (mData.radius + h) + (Math.random() - 0.5) * spread;
+            pArr[pi * 3 + 1] = plumeDir.y * (mData.radius + h) + (Math.random() - 0.5) * spread;
+            pArr[pi * 3 + 2] = plumeDir.z * (mData.radius + h) + (Math.random() - 0.5) * spread;
+          }
+          const pGeo = new THREE.BufferGeometry();
+          pGeo.setAttribute('position', new THREE.BufferAttribute(pArr, 3));
+          const pMat = new THREE.PointsMaterial({
+            color: isIo ? 0xfbbf24 : 0xbae6fd,
+            size: Math.max(0.025, mData.radius * 0.16),
+            transparent: true,
+            opacity: 0.72,
+            blending: THREE.AdditiveBlending,
+            depthWrite: false,
+            toneMapped: false,
+          });
+          const plumePts = new THREE.Points(pGeo, pMat);
+          moonMesh.add(plumePts);
+          this.moonPlumes.push({
+            points: plumePts,
+            radius: mData.radius,
+            dir: plumeDir,
+            speed: isIo ? 0.35 : 0.28,
+          });
+          this.disposables.push(pGeo, pMat);
+        }
+
+        if (mData.textureUrl) {
+          loader.load(
+            mData.textureUrl,
+            (tex) => {
+              if (this.disposed) {
+                tex.dispose();
+                return;
+              }
+              tex.colorSpace = THREE.SRGBColorSpace;
+              tex.wrapS = THREE.RepeatWrapping;
+              tex.anisotropy = maxAnisotropy;
+              moonMat.map = tex;
+              moonBasePbr.map = tex;
+              if (tex.image instanceof HTMLImageElement) {
+                const mrt = this.moonsById.get(mData.id);
+                if (mrt) mrt.albedoImage = tex.image;
+              }
+              if (!mData.bumpUrl && tex.image) {
+                const relief = deriveSurfaceReliefMaps(tex.image as HTMLImageElement, {
+                  normalStrength: 3.4,
+                  anisotropy: maxAnisotropy,
+                  isIcy: isIcyMoon,
+                  maxWidth: 1024,
+                });
+                moonMat.normalMap = relief.normalMap;
+                moonMat.roughnessMap = relief.roughnessMap;
+                moonMat.metalnessMap = relief.metalnessMap;
+                moonBasePbr.normalMap = relief.normalMap;
+                moonBasePbr.roughnessMap = relief.roughnessMap;
+                moonBasePbr.metalnessMap = relief.metalnessMap;
+                moonMat.normalScale.set(0.86, 0.86);
+                this.disposables.push(
+                  relief.normalMap,
+                  relief.roughnessMap,
+                  relief.metalnessMap,
+                );
+              }
+              moonMat.needsUpdate = true;
+              this.disposables.push(tex);
+              if (this.focusedMoonId === mData.id) {
+                this.schedule8KUpgrade(data.id, mData.id);
+              }
+            },
+            undefined,
+            () => {},
+          );
+        }
+
+        if (mData.bumpUrl) {
+          loader.load(
+            mData.bumpUrl,
+            (tex) => {
+              if (this.disposed) {
+                tex.dispose();
+                return;
+              }
+              if (tex.image instanceof HTMLImageElement) {
+                const mrt = this.moonsById.get(mData.id);
+                if (mrt) mrt.bumpImage = tex.image;
+                const relief = deriveSurfaceReliefMaps(tex.image as HTMLImageElement, {
+                  normalStrength: 4.2,
+                  anisotropy: maxAnisotropy,
+                  isIcy: isIcyMoon,
+                  maxWidth: 1024,
+                });
+                moonMat.normalMap = relief.normalMap;
+                moonMat.roughnessMap = relief.roughnessMap;
+                moonMat.metalnessMap = relief.metalnessMap;
+                moonBasePbr.normalMap = relief.normalMap;
+                moonBasePbr.roughnessMap = relief.roughnessMap;
+                moonBasePbr.metalnessMap = relief.metalnessMap;
+                moonMat.normalScale.set(0.95, 0.95);
+                moonMat.bumpMap = null;
+                this.disposables.push(
+                  relief.normalMap,
+                  relief.roughnessMap,
+                  relief.metalnessMap,
+                );
+                tex.dispose();
+              } else {
+                tex.wrapS = THREE.RepeatWrapping;
+                tex.anisotropy = maxAnisotropy;
+                moonMat.bumpMap = tex;
+                moonMat.bumpScale = 0.032;
+                this.disposables.push(tex);
+              }
+              moonMat.needsUpdate = true;
+              if (this.focusedMoonId === mData.id) {
+                this.schedule8KUpgrade(data.id, mData.id);
+              }
+            },
+            undefined,
+            () => {},
+          );
+        }
+
+        const mHitGeo = new THREE.SphereGeometry(
+          Math.max(mData.radius * 2.2, 0.55),
+          12,
+          10,
+        );
+        const mHitMat = new THREE.MeshBasicMaterial({ visible: false });
+        const mHitProxy = new THREE.Mesh(mHitGeo, mHitMat);
+        mHitProxy.userData.bodyId = data.id;
+        mHitProxy.userData.moonId = mData.id;
+        moonMesh.add(mHitProxy);
+        this.hitProxies.push(mHitProxy);
+        this.disposables.push(mHitGeo, mHitMat);
+
+        const moonRuntime: MoonRuntime = {
+          data: mData,
+          parentId: data.id,
+          pivotGroup,
+          mesh: moonMesh,
+          hitProxy: mHitProxy,
+          material: moonMat,
+          basePbr: moonBasePbr,
+          angle: THREE.MathUtils.degToRad(mData.j2000MeanLonDeg),
+          lastWorldPos: new THREE.Vector3(),
+          currentWorldPos: new THREE.Vector3(),
+        };
+        moons.push(moonRuntime);
+        this.moonsById.set(mData.id, moonRuntime);
+      }
+
+      // Generous invisible planet hit-proxy for effortless clicking across 1000-unit AU distances
+      const hitRadius = Math.max(data.visualRadius * 1.6, 18.0);
+      const hitGeo = new THREE.SphereGeometry(hitRadius, 16, 12);
+      const hitMat = new THREE.MeshBasicMaterial({ visible: false });
+      const hitProxy = new THREE.Mesh(hitGeo, hitMat);
+      hitProxy.userData.bodyId = data.id;
+      anchorGroup.add(hitProxy);
+      this.hitProxies.push(hitProxy);
+      this.disposables.push(hitGeo, hitMat);
+
+      const runtime: PlanetRuntime = {
+        data,
+        inclinationGroup,
+        anchorGroup,
+        tiltGroup,
+        mesh,
+        hitProxy,
+        material: planetMat,
+        basePbr,
+        cloudMesh,
+        ringMesh,
+        atmosphereMesh,
+        orbitLine,
+        moons,
+        lastWorldPos: new THREE.Vector3(),
+        currentWorldPos: new THREE.Vector3(),
+      };
+
+      this.bodies.set(data.id, runtime);
+    }
+  }
+
+  /**
+   * Places discrete scientific surface beacons at exact spherical (lat, lon) coordinates
+   * directly inside each host planet/moon/comet's rotating mesh.
+   */
+  private buildMissionBeacons(): void {
+    for (const mission of ABANDONED_MISSIONS) {
+      let hostMesh: THREE.Mesh | undefined;
+      let hostRadius = 1;
+
+      if (mission.targetMoonId) {
+        const moon = this.moonsById.get(mission.targetMoonId);
+        if (moon) {
+          hostMesh = moon.mesh;
+          hostRadius = moon.data.radius;
+        }
+      } else {
+        const planet = this.bodies.get(mission.targetBodyId);
+        if (planet) {
+          hostMesh = planet.mesh;
+          hostRadius = planet.data.visualRadius;
+        }
+      }
+
+      if (!hostMesh) continue;
+
+      const orbitalAltitude =
+        mission.missionRole === 'orbital' ? 1.16 : 1.006;
+      const localPos = latLonToLocalVector3(
+        mission.latDeg,
+        mission.lonDeg,
+        hostRadius * orbitalAltitude,
+      );
+      const localNormal = localPos.clone().normalize();
+
+      const group = new THREE.Group();
+      group.position.copy(localPos);
+      group.quaternion.setFromUnitVectors(_upVec, localNormal);
+      group.visible = false; // Discrete: revealed cleanly on host body / mission focus
+      hostMesh.add(group);
+
+      const dotSize = Math.max(0.018, hostRadius * 0.018);
+      const dotGeo = new THREE.SphereGeometry(dotSize, 12, 10);
+      const dotMat = new THREE.MeshBasicMaterial({
+        color: new THREE.Color(mission.accentColor),
+        toneMapped: false,
+      });
+      const dotMesh = new THREE.Mesh(dotGeo, dotMat);
+      dotMesh.position.y = dotSize * 0.5;
+      group.add(dotMesh);
+
+      const ringGeo = new THREE.RingGeometry(dotSize * 2.0, dotSize * 2.8, 32);
+      ringGeo.rotateX(-Math.PI / 2);
+      const ringMat = new THREE.MeshBasicMaterial({
+        color: new THREE.Color(mission.accentColor),
+        side: THREE.DoubleSide,
+        transparent: true,
+        opacity: 0.75,
+        depthWrite: false,
+        toneMapped: false,
+      });
+      const ringMesh = new THREE.Mesh(ringGeo, ringMat);
+      ringMesh.position.y = dotSize * 0.2;
+      group.add(ringMesh);
+
+      const beaconHitGeo = new THREE.SphereGeometry(dotSize * 4.5, 10, 8);
+      const beaconHitMat = new THREE.MeshBasicMaterial({ visible: false });
+      const beaconHitProxy = new THREE.Mesh(beaconHitGeo, beaconHitMat);
+      beaconHitProxy.userData.missionId = mission.id;
+      group.add(beaconHitProxy);
+      this.missionHitProxies.push(beaconHitProxy);
+
+      this.disposables.push(
+        dotGeo,
+        dotMat,
+        ringGeo,
+        ringMat,
+        beaconHitGeo,
+        beaconHitMat,
+      );
+
+      const runtime: MissionBeaconRuntime = {
+        mission,
+        group,
+        ringMat,
+        dotMat,
+        hostRadius,
+        lastWorldPos: new THREE.Vector3(),
+        currentWorldPos: new THREE.Vector3(),
+        worldNormal: new THREE.Vector3(),
+      };
+      this.beaconsByMissionId.set(mission.id, runtime);
+    }
+  }
+
+  /**
+   * Adds multi-part physical orbiting spacecraft markers (ISS, Hubble, LRO, MRO, Juno, Cassini) around host worlds in Space Mode.
+   */
+  private buildOrbitingSpacecraftMarkers(): void {
+    const specs: Array<{
+      missionId: string;
+      bodyId: CelestialBodyId;
+      moonId?: string;
+      orbitR: number;
+      inclination: number;
+      speed: number;
+      color: number;
+      radialWings?: boolean;
+    }> = [
+      { missionId: 'iss', bodyId: 'earth', orbitR: 1.08, inclination: 0.9, speed: 0.55, color: 0xf59e0b },
+      { missionId: 'hubble', bodyId: 'earth', orbitR: 1.15, inclination: 0.5, speed: 0.44, color: 0x60a5fa },
+      { missionId: 'lro', bodyId: 'earth', moonId: 'luna', orbitR: 0.34, inclination: 1.45, speed: 0.65, color: 0x93c5fd },
+      { missionId: 'mro', bodyId: 'mars', orbitR: 0.72, inclination: 1.52, speed: 0.52, color: 0xf87171 },
+      { missionId: 'juno', bodyId: 'jupiter', orbitR: 11.4, inclination: 1.55, speed: 0.38, color: 0x38bdf8, radialWings: true },
+      { missionId: 'cassini', bodyId: 'saturn', orbitR: 13.8, inclination: 1.05, speed: 0.32, color: 0xfbbf24 },
+    ];
+
+    for (let idx = 0; idx < specs.length; idx++) {
+      const s = specs[idx];
+      const parentObj = s.moonId
+        ? this.moonsById.get(s.moonId)?.mesh
+        : this.bodies.get(s.bodyId)?.anchorGroup;
+      if (!parentObj) continue;
+
+      const scaleFactor = s.orbitR > 8 ? 2.4 : 1.0;
+
+      const pivot = new THREE.Group();
+      pivot.visible = false; // Strictly hidden when inspecting pure planets/moons; shown only on specific mission selection
+      pivot.rotation.z = s.inclination;
+      parentObj.add(pivot);
+
+      const satGroup = new THREE.Group();
+      satGroup.position.set(s.orbitR, 0, 0);
+      satGroup.scale.setScalar(scaleFactor);
+      pivot.add(satGroup);
+
+      const busGeo = new THREE.BoxGeometry(0.032, 0.022, 0.056);
+      const wingGeo = new THREE.BoxGeometry(0.14, 0.005, 0.024);
+      const dishGeo = new THREE.CylinderGeometry(0.02, 0.005, 0.012, 12);
+      const busMat = new THREE.MeshBasicMaterial({ color: 0xe2e8f0, toneMapped: false });
+      const wingMat = new THREE.MeshBasicMaterial({ color: s.color, toneMapped: false });
+      const ledMat = new THREE.MeshBasicMaterial({
+        color: s.color,
+        transparent: true,
+        opacity: 1,
+        toneMapped: false,
+      });
+      const ledGeo = new THREE.SphereGeometry(0.014, 8, 6);
+
+      const core = new THREE.Mesh(busGeo, busMat);
+      const dish = new THREE.Mesh(dishGeo, busMat);
+      dish.position.y = 0.016;
+      const led = new THREE.Mesh(ledGeo, ledMat);
+      led.position.y = 0.028;
+      satGroup.add(core, dish, led);
+
+      if (s.radialWings) {
+        for (let w = 0; w < 3; w++) {
+          const wg = new THREE.Mesh(wingGeo, wingMat);
+          wg.rotation.y = (w * Math.PI * 2) / 3;
+          wg.position.set(Math.cos(wg.rotation.y) * 0.075, 0, -Math.sin(wg.rotation.y) * 0.075);
+          satGroup.add(wg);
+        }
+      } else {
+        const wings = new THREE.Mesh(wingGeo, wingMat);
+        satGroup.add(wings);
+      }
+
+      const hitGeo = new THREE.SphereGeometry(0.095, 8, 8);
+      const hitMat = new THREE.MeshBasicMaterial({ visible: false });
+      const hit = new THREE.Mesh(hitGeo, hitMat);
+      hit.userData.missionId = s.missionId;
+      satGroup.add(hit);
+      this.missionHitProxies.push(hit);
+
+      this.disposables.push(busGeo, wingGeo, dishGeo, ledGeo, busMat, wingMat, ledMat, hitGeo, hitMat);
+      this.orbitSatellites.push({
+        missionId: s.missionId,
+        pivot,
+        speed: s.speed,
+        ledMat,
+        phase: idx * 1.3,
+      });
+    }
+  }
+
+  /**
+   * Computes exact J2000 orbital positions, sidereal axial rotations, and lunar tidal-locked positions.
+   */
+  private applyJ2000State(dJ2000: number, snapHistory = false): void {
+    this.bodies.forEach((runtime, id) => {
+      runtime.lastWorldPos.copy(runtime.currentWorldPos);
+
+      const kepler = PLANET_ELEMENTS_J2000[id];
+      if (kepler) {
+        computeHeliocentricPosition(
+          kepler,
+          dJ2000,
+          runtime.anchorGroup.position,
+          AU_TO_UNITS,
+        );
+      } else {
+        runtime.anchorGroup.position.set(0, 0, 0);
+      }
+
+      const rotRad = computeAxialRotationRad(id, dJ2000);
+      runtime.mesh.rotation.y = rotRad;
+      if (runtime.cloudMesh) {
+        // Subtle atmospheric super-rotation relative to surface
+        runtime.cloudMesh.rotation.y = rotRad + dJ2000 * 0.12;
+      }
+
+      runtime.anchorGroup.updateMatrixWorld(true);
+      runtime.anchorGroup.getWorldPosition(runtime.currentWorldPos);
+      if (snapHistory) {
+        runtime.lastWorldPos.copy(runtime.currentWorldPos);
+      }
+
+      if (id === 'comet67p' && this.cometTailGroup) {
+        // Dual Ion + Dust tails strictly point antisolar (away from the Sun at origin)
+        _vec3A.copy(runtime.currentWorldPos).multiplyScalar(2);
+        this.cometTailGroup.lookAt(_vec3A);
+      }
+
+      for (const m of runtime.moons) {
+        m.lastWorldPos.copy(m.currentWorldPos);
+        const angleDeg =
+          m.data.j2000MeanLonDeg + (360 / m.data.orbitalPeriodDays) * dJ2000;
+        m.angle = THREE.MathUtils.degToRad(angleDeg);
+        m.mesh.position.set(
+          Math.cos(m.angle) * m.data.orbitRadius,
+          0,
+          -Math.sin(m.angle) * m.data.orbitRadius,
+        );
+        // Synchronous tidal lock: lon=0 (+X) always faces parent planet
+        m.mesh.rotation.y = m.angle + Math.PI;
+        m.mesh.updateMatrixWorld(true);
+        m.mesh.getWorldPosition(m.currentWorldPos);
+        if (snapHistory) {
+          m.lastWorldPos.copy(m.currentWorldPos);
+        }
+      }
+    });
+
+    // Update all surface beacon world positions & outward normals
+    this.beaconsByMissionId.forEach((beacon) => {
+      beacon.lastWorldPos.copy(beacon.currentWorldPos);
+      beacon.group.getWorldPosition(beacon.currentWorldPos);
+      if (snapHistory) {
+        beacon.lastWorldPos.copy(beacon.currentWorldPos);
+      }
+
+      const hostPos = beacon.mission.targetMoonId
+        ? this.moonsById.get(beacon.mission.targetMoonId)?.currentWorldPos
+        : this.bodies.get(beacon.mission.targetBodyId)?.currentWorldPos;
+      if (hostPos) {
+        beacon.worldNormal
+          .subVectors(beacon.currentWorldPos, hostPos)
+          .normalize();
+      }
+    });
+  }
+
+  private bindEvents(): void {
+    const dom = this.renderer.domElement;
+
+    const onPointerDown = (e: PointerEvent) => {
+      this.pointerDownPos = { x: e.clientX, y: e.clientY };
+    };
+
+    const onPointerUp = (e: PointerEvent) => {
+      const dist = Math.hypot(
+        e.clientX - this.pointerDownPos.x,
+        e.clientY - this.pointerDownPos.y,
+      );
+      if (dist > 6) return;
+
+      const rect = dom.getBoundingClientRect();
+      this.pointerNdc.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+      this.pointerNdc.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+
+      this.raycaster.setFromCamera(this.pointerNdc, this.camera);
+
+      // 1. Check visible mission surface beacons only when explicitly focusing a mission
+      if (this.focusedMissionId) {
+        const visibleBeacons = this.missionHitProxies.filter(
+          (p) => p.parent?.visible,
+        );
+        const beaconHits = this.raycaster.intersectObjects(
+          visibleBeacons,
+          false,
+        );
+        for (const hit of beaconHits) {
+          const mId = hit.object.userData.missionId as string | undefined;
+          const beacon = mId ? this.beaconsByMissionId.get(mId) : undefined;
+          if (!beacon) continue;
+          const isOrbitalMarker = hit.object.parent !== beacon.group;
+          if (isOrbitalMarker) {
+            this.flyToMission(beacon.mission);
+            return;
+          }
+          // Ensure surface beacon is on the camera-facing hemisphere (not through the planet)
+          _vec3A
+            .subVectors(this.camera.position, beacon.currentWorldPos)
+            .normalize();
+          if (beacon.worldNormal.dot(_vec3A) > 0.05) {
+            this.flyToMission(beacon.mission);
+            return;
+          }
+        }
+      }
+
+      const intersects = this.raycaster.intersectObjects(this.hitProxies, false);
+      if (intersects.length > 0) {
+        // When focused on a planet, prioritize moon clicks even if inside planet's overview hit proxy
+        const preferred =
+          (this.focusedBodyId
+            ? intersects.find(
+                (i) =>
+                  i.object.userData.moonId &&
+                  i.object.userData.bodyId === this.focusedBodyId,
+              )
+            : undefined) ?? intersects[0];
+        const hit = preferred.object.userData;
+        const bodyId = hit.bodyId as CelestialBodyId;
+        const moonId = hit.moonId as string | undefined;
+        if (moonId) {
+          this.flyToMoon(bodyId, moonId);
+        } else {
+          this.flyToBody(bodyId);
+        }
+      }
+    };
+
+    const onPointerMove = (e: PointerEvent) => {
+      const now = performance.now();
+      if (now - this.lastHoverCheck < 45) return;
+      this.lastHoverCheck = now;
+
+      const rect = dom.getBoundingClientRect();
+      this.pointerNdc.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+      this.pointerNdc.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+
+      this.raycaster.setFromCamera(this.pointerNdc, this.camera);
+      const intersects = this.raycaster.intersectObjects(this.hitProxies, false);
+      const hitId =
+        intersects.length > 0
+          ? (intersects[0].object.userData.bodyId as CelestialBodyId)
+          : null;
+
+      if (hitId !== this.hoveredId) {
+        this.hoveredId = hitId;
+        dom.style.cursor = hitId ? 'pointer' : 'grab';
+        this.callbacks.onHoverBody(hitId);
+      }
+    };
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (
+        e.target instanceof HTMLInputElement ||
+        e.target instanceof HTMLTextAreaElement
+      ) {
+        return;
+      }
+      this.keysPressed.add(e.code);
+      if (e.code === 'Escape') {
+        this.resetToOverview();
+      }
+    };
+
+    const onKeyUp = (e: KeyboardEvent) => {
+      this.keysPressed.delete(e.code);
+    };
+
+    const onResize = () => {
+      if (this.disposed) return;
+      const w = this.container.clientWidth || window.innerWidth;
+      const h = this.container.clientHeight || window.innerHeight;
+      this.camera.aspect = w / h;
+      this.camera.updateProjectionMatrix();
+      this.renderer.setSize(w, h);
+      if (this.composer) this.composer.setSize(w, h);
+      if (this.bloomPass) this.bloomPass.resolution.set(w, h);
+    };
+
+    const onContextLost = (e: Event) => {
+      e.preventDefault();
+    };
+
+    dom.addEventListener('pointerdown', onPointerDown);
+    dom.addEventListener('pointerup', onPointerUp);
+    dom.addEventListener('pointermove', onPointerMove);
+    dom.addEventListener('webglcontextlost', onContextLost);
+    window.addEventListener('keydown', onKeyDown);
+    window.addEventListener('keyup', onKeyUp);
+    window.addEventListener('resize', onResize);
+
+    this.disposables.push({
+      dispose: () => {
+        dom.removeEventListener('pointerdown', onPointerDown);
+        dom.removeEventListener('pointerup', onPointerUp);
+        dom.removeEventListener('pointermove', onPointerMove);
+        dom.removeEventListener('webglcontextlost', onContextLost);
+        window.removeEventListener('keydown', onKeyDown);
+        window.removeEventListener('keyup', onKeyUp);
+        window.removeEventListener('resize', onResize);
+      },
+    });
+  }
+
+  private updateBeaconVisibilities(): void {
+    // Planets and moons stay 100% pure (zero rovers, beacons, or orbital dots unless that mission is selected)
+    this.beaconsByMissionId.forEach((beacon, id) => {
+      const isSelected = id === this.focusedMissionId;
+      beacon.group.visible = isSelected;
+      beacon.ringMat.opacity = isSelected ? 0.92 : 0.0;
+    });
+    for (const sat of this.orbitSatellites) {
+      sat.pivot.visible = this.focusedMissionId === sat.missionId;
+    }
+  }
+
+  public flyToBody(id: CelestialBodyId): void {
+    const runtime = this.bodies.get(id);
+    if (!runtime) return;
+
+    this.pendingSurfaceMission = null;
+    if (this.deepSpaceDiorama) {
+      this.exitDeepSpaceMode();
+      this.computeIdealCameraOffset(
+        runtime.currentWorldPos,
+        runtime.data.visualRadius,
+        runtime.data.cameraDistanceFactor * 1.3,
+        id === 'sun',
+        id === 'saturn',
+        _vec3B,
+      );
+      this.camera.position.copy(runtime.currentWorldPos).add(_vec3B);
+      this.controls.target.copy(runtime.currentWorldPos);
+    }
+    if (this.surfaceDiorama) {
+      this.exitSurfaceMode();
+      // Snap camera smoothly near target body after exiting surface diorama
+      this.computeIdealCameraOffset(
+        runtime.currentWorldPos,
+        runtime.data.visualRadius,
+        runtime.data.cameraDistanceFactor * 1.3,
+        id === 'sun',
+        id === 'saturn',
+        _vec3B,
+      );
+      this.camera.position.copy(runtime.currentWorldPos).add(_vec3B);
+      this.controls.target.copy(runtime.currentWorldPos);
+    }
+
+    this.focusedBodyId = id;
+    this.focusedMoonId = null;
+    this.focusedMissionId = null;
+    this.isFlying = true;
+    this.isTracking = true;
+    this.controls.minDistance = Math.max(0.45, runtime.data.visualRadius * 1.35);
+    this.updateBeaconVisibilities();
+    this.schedule8KUpgrade(id, null);
+    this.callbacks.onSelectTarget({ bodyId: id });
+    this.callbacks.onCameraModeChange('tracking');
+  }
+
+  public flyToMoon(bodyId: CelestialBodyId, moonId: string): void {
+    const moon = this.moonsById.get(moonId);
+    if (!moon || moon.parentId !== bodyId) return;
+
+    this.pendingSurfaceMission = null;
+    if (this.deepSpaceDiorama) {
+      this.exitDeepSpaceMode();
+      this.computeIdealCameraOffset(
+        moon.currentWorldPos,
+        moon.data.radius,
+        5.0,
+        false,
+        false,
+        _vec3B,
+      );
+      this.camera.position.copy(moon.currentWorldPos).add(_vec3B);
+      this.controls.target.copy(moon.currentWorldPos);
+    }
+    if (this.surfaceDiorama) {
+      this.exitSurfaceMode();
+      this.computeIdealCameraOffset(
+        moon.currentWorldPos,
+        moon.data.radius,
+        5.0,
+        false,
+        false,
+        _vec3B,
+      );
+      this.camera.position.copy(moon.currentWorldPos).add(_vec3B);
+      this.controls.target.copy(moon.currentWorldPos);
+    }
+
+    this.focusedBodyId = bodyId;
+    this.focusedMoonId = moonId;
+    this.focusedMissionId = null;
+    this.isFlying = true;
+    this.isTracking = true;
+    this.controls.minDistance = Math.max(0.28, moon.data.radius * 1.6);
+    this.updateBeaconVisibilities();
+    this.schedule8KUpgrade(bodyId, moonId);
+    this.callbacks.onSelectTarget({ bodyId, moonId });
+    this.callbacks.onCameraModeChange('tracking');
+  }
+
+  public flyToMission(mission: AbandonedMission): void {
+    if (this.deepSpaceDiorama) {
+      this.exitDeepSpaceMode();
+    }
+
+    const beacon = this.beaconsByMissionId.get(mission.id);
+    if (!beacon) {
+      this.flyToBody(mission.targetBodyId);
+      return;
+    }
+
+    if (this.surfaceDiorama && this.surfaceMission?.id === mission.id) {
+      this.setSurfaceCameraMode('rover');
+      return;
+    }
+
+    if (this.surfaceDiorama || mission.missionRole === 'deepspace') {
+      this.enterSurfaceMode(mission);
+      this.focusedBodyId = mission.targetBodyId;
+      this.focusedMoonId = mission.targetMoonId ?? null;
+      this.focusedMissionId = mission.id;
+      this.updateBeaconVisibilities();
+      this.callbacks.onSelectTarget({
+        bodyId: mission.targetBodyId,
+        moonId: mission.targetMoonId,
+        missionId: mission.id,
+      });
+      return;
+    }
+
+    this.focusedBodyId = mission.targetBodyId;
+    this.focusedMoonId = mission.targetMoonId ?? null;
+    this.focusedMissionId = mission.id;
+    this.pendingSurfaceMission = mission;
+    this.surfaceApproachElapsed = 0;
+    this.isFlying = true;
+    this.isTracking = true;
+    this.controls.minDistance = Math.max(0.25, beacon.hostRadius * 0.45);
+    this.updateBeaconVisibilities();
+    this.callbacks.onSelectTarget({
+      bodyId: mission.targetBodyId,
+      moonId: mission.targetMoonId,
+      missionId: mission.id,
+    });
+    this.callbacks.onCameraModeChange('tracking');
+  }
+
+  public flyToDeepSpace(id: DeepSpaceTargetId): void {
+    this.pendingSurfaceMission = null;
+    this.exitSurfaceMode();
+    this.exitDeepSpaceMode();
+
+    const diorama = createDeepSpaceDiorama(id);
+    this.deepSpaceDiorama = diorama;
+    this.activeDeepSpaceId = id;
+
+    this.focusedBodyId = null;
+    this.focusedMoonId = null;
+    this.focusedMissionId = null;
+    this.isFlying = false;
+    this.isTracking = false;
+
+    this.spaceRoot.visible = false;
+    this.scene.environmentIntensity = 0.28;
+    this.scene.fog = null;
+    this.scene.add(diorama.root);
+
+    this.camera.position.copy(diorama.defaultCamPos);
+    this.controls.target.copy(diorama.defaultTarget);
+    this.controls.enableZoom = true;
+    this.controls.minDistance = 4;
+    this.controls.maxDistance = 420;
+    this.controls.update();
+
+    this.renderer.toneMappingExposure = 1.25;
+    this.updateBeaconVisibilities();
+    this.callbacks.onSelectTarget(null);
+    this.callbacks.onDeepSpaceChange?.(id);
+    this.callbacks.onCameraModeChange('free');
+  }
+
+  private exitDeepSpaceMode(): void {
+    if (this.deepSpaceDiorama) {
+      this.scene.remove(this.deepSpaceDiorama.root);
+      this.deepSpaceDiorama.dispose();
+      this.deepSpaceDiorama = null;
+    }
+    if (this.activeDeepSpaceId !== null) {
+      this.activeDeepSpaceId = null;
+      this.callbacks.onDeepSpaceChange?.(null);
+    }
+    if (!this.surfaceDiorama) {
+      this.scene.environmentIntensity = 0.0;
+      this.spaceRoot.visible = true;
+      this.controls.minDistance = 0.35;
+      this.controls.maxDistance = 65000;
+    }
+  }
+
+  public setSurfaceCameraMode(mode: SurfaceCameraMode): void {
+    if (!this.surfaceDiorama) return;
+    this.surfaceViewMode = mode;
+
+    if (mode === 'pov') {
+      // First-person mast PanCam: rotate 360° smoothly from the rover's optical eye
+      _vec3A
+        .subVectors(
+          this.surfaceDiorama.povCamTarget,
+          this.surfaceDiorama.povCamPos,
+        )
+        .normalize();
+      this.camera.position.copy(this.surfaceDiorama.povCamPos);
+      this.controls.target
+        .copy(this.surfaceDiorama.povCamPos)
+        .addScaledVector(_vec3A, 0.25);
+      this.controls.enableZoom = false;
+      this.controls.minDistance = 0.25;
+      this.controls.maxDistance = 0.25;
+    } else {
+      this.camera.position.copy(this.surfaceDiorama.roverCamPos);
+      this.controls.target.copy(this.surfaceDiorama.roverCamTarget);
+      this.controls.enableZoom = true;
+      this.controls.minDistance = 1.2;
+      this.controls.maxDistance = 42;
+    }
+
+    this.controls.update();
+    this.callbacks.onSurfaceModeChange?.(true, mode);
+  }
+
+  public exitSurfaceToBody(): void {
+    const bodyId = this.focusedBodyId;
+    const moonId = this.focusedMoonId;
+    if (moonId && bodyId) {
+      this.flyToMoon(bodyId, moonId);
+    } else if (bodyId) {
+      this.flyToBody(bodyId);
+    } else {
+      this.resetToOverview();
+    }
+  }
+
+  private enterSurfaceMode(mission: AbandonedMission): void {
+    this.exitSurfaceMode();
+    this.clearActive8KUpgrade();
+    const maxAnisotropy = this.renderer.capabilities.getMaxAnisotropy();
+    const diorama = createSurfaceDiorama(mission, maxAnisotropy, this.pbrCaps);
+    this.surfaceDiorama = diorama;
+    this.surfaceMission = mission;
+    this.pendingSurfaceMission = null;
+    this.isFlying = false;
+    this.isTracking = false;
+
+    this.spaceRoot.visible = false;
+    this.scene.environmentIntensity = 0.68;
+    this.scene.add(diorama.root);
+
+    if (diorama.theme.fogColor !== null) {
+      this.scene.fog = new THREE.FogExp2(
+        diorama.theme.fogColor,
+        diorama.theme.fogDensity,
+      );
+    } else {
+      this.scene.fog = null;
+    }
+
+    this.renderer.toneMappingExposure = 1.05;
+    this.updateSurfaceSunOrientation();
+    this.setSurfaceCameraMode('rover');
+  }
+
+  private exitSurfaceMode(): void {
+    if (this.surfaceDiorama) {
+      this.scene.remove(this.surfaceDiorama.root);
+      this.surfaceDiorama.dispose();
+      this.surfaceDiorama = null;
+    }
+    this.surfaceMission = null;
+    this.scene.fog = null;
+    if (!this.deepSpaceDiorama) {
+      this.scene.environmentIntensity = 0.0;
+    }
+    this.spaceRoot.visible = true;
+    this.controls.enableZoom = true;
+    this.controls.minDistance = 0.35;
+    this.controls.maxDistance = 65000;
+    this.callbacks.onSurfaceModeChange?.(false, 'rover');
+  }
+
+  private updateSurfaceSunOrientation(): void {
+    if (!this.surfaceDiorama || !this.surfaceMission) return;
+    const b = this.beaconsByMissionId.get(this.surfaceMission.id);
+    if (!b) return;
+    // Transform astronomical Sun vector (-beacon.worldPos) into local East/Up/North surface coordinates
+    const sunDirWorld = _vec3A.copy(b.currentWorldPos).negate().normalize();
+    const up = _vec3B.copy(b.worldNormal).normalize();
+    const east = _vec3C.set(0, 1, 0).cross(up);
+    if (east.lengthSq() < 1e-4) {
+      east.set(1, 0, 0);
+    } else {
+      east.normalize();
+    }
+    const north = _vec3D.crossVectors(up, east).normalize();
+
+    const sx = sunDirWorld.dot(east);
+    const sy = sunDirWorld.dot(up);
+    const sz = -sunDirWorld.dot(north);
+    const sunLocal = new THREE.Vector3(sx, sy, sz).normalize();
+    this.surfaceDiorama.updateSun(sunLocal);
+  }
+
+  private clearActive8KUpgrade(): void {
+    if (this.active8KAbort) {
+      this.active8KAbort.abort();
+      this.active8KAbort = null;
+    }
+    if (this.active8KUpgrade) {
+      const { material, restore, set } = this.active8KUpgrade;
+      if (set.map && restore.map) {
+        material.map = restore.map;
+      }
+      material.normalMap = restore.normalMap;
+      material.roughnessMap = restore.roughnessMap;
+      material.metalnessMap = restore.metalnessMap;
+      material.metalness = restore.metalness;
+      material.needsUpdate = true;
+      set.dispose();
+      this.active8KUpgrade = null;
+    }
+  }
+
+  private schedule8KUpgrade(
+    bodyId: CelestialBodyId,
+    moonId: string | null,
+  ): void {
+    this.clearActive8KUpgrade();
+    if (this.disposed || bodyId === 'sun') return;
+
+    const abort = new AbortController();
+    this.active8KAbort = abort;
+
+    if (moonId) {
+      const mRuntime = this.moonsById.get(moonId);
+      if (!mRuntime || !mRuntime.albedoImage) return;
+      const isIcyMoon =
+        mRuntime.data.style === 'enceladus' ||
+        mRuntime.data.style === 'europa' ||
+        mRuntime.data.style === 'triton';
+      const profile: SurfacePbrProfile = isIcyMoon ? 'icy' : 'rocky';
+
+      void processSurface8KPBR({
+        albedoSource: mRuntime.albedoImage,
+        bumpSource: mRuntime.bumpImage ?? null,
+        profile,
+        normalStrength: mRuntime.bumpImage ? 3.8 : 3.2,
+        skipAlbedo: true,
+        maxWidth: 4096,
+        seed: moonId.charCodeAt(0) * 19 + moonId.length * 7,
+        capabilities: this.pbrCaps,
+        signal: abort.signal,
+      }).then((set) => {
+        if (!set || abort.signal.aborted || this.disposed) {
+          set?.dispose();
+          return;
+        }
+        if (set.map) {
+          mRuntime.material.map = set.map;
+        }
+        mRuntime.material.normalMap = set.normalMap;
+        mRuntime.material.roughnessMap = set.roughnessMap;
+        mRuntime.material.metalnessMap = set.metalnessMap;
+        mRuntime.material.metalness = isIcyMoon ? 0.0 : 0.05;
+        mRuntime.material.needsUpdate = true;
+        this.active8KUpgrade = {
+          material: mRuntime.material,
+          restore: mRuntime.basePbr,
+          set,
+        };
+      });
+      return;
+    }
+
+    const runtime = this.bodies.get(bodyId);
+    if (!runtime || !runtime.material || !runtime.basePbr || !runtime.albedoImage) {
+      return;
+    }
+
+    const isGas =
+      bodyId === 'jupiter' ||
+      bodyId === 'saturn' ||
+      bodyId === 'uranus' ||
+      bodyId === 'neptune';
+    const isIcy = bodyId === 'pluto' || bodyId === 'eris';
+    const profile: SurfacePbrProfile =
+      bodyId === 'earth'
+        ? 'earth'
+        : bodyId === 'comet67p'
+          ? 'comet'
+          : isGas
+            ? 'gas'
+            : isIcy
+              ? 'icy'
+              : 'rocky';
+
+    const mat = runtime.material;
+    const base = runtime.basePbr;
+
+    void processSurface8KPBR({
+      albedoSource: runtime.albedoImage,
+      bumpSource: runtime.bumpImage ?? null,
+      specSource: runtime.specImage ?? null,
+      profile,
+      normalStrength:
+        isGas ? 1.15 : bodyId === 'comet67p' ? 4.8 : bodyId === 'earth' ? 2.4 : 3.6,
+      skipAlbedo: true,
+      maxWidth: 4096,
+      seed: bodyId.charCodeAt(0) * 23 + bodyId.length * 11,
+      capabilities: this.pbrCaps,
+      signal: abort.signal,
+    }).then((set) => {
+      if (!set || abort.signal.aborted || this.disposed) {
+        set?.dispose();
+        return;
+      }
+      if (set.map) {
+        mat.map = set.map;
+      }
+      mat.normalMap = set.normalMap;
+      mat.roughnessMap = set.roughnessMap;
+      mat.metalnessMap = set.metalnessMap;
+      mat.metalness = isGas || isIcy || bodyId === 'earth' ? 0.0 : 0.05;
+      mat.needsUpdate = true;
+      this.active8KUpgrade = {
+        material: mat,
+        restore: base,
+        set,
+      };
+    });
+  }
+
+  public resetToOverview(): void {
+    this.pendingSurfaceMission = null;
+    this.clearActive8KUpgrade();
+    if (this.deepSpaceDiorama) {
+      this.exitDeepSpaceMode();
+      this.camera.position.copy(OVERVIEW_CAM_POS);
+      this.controls.target.copy(OVERVIEW_TARGET);
+    }
+    if (this.surfaceDiorama) {
+      this.exitSurfaceMode();
+      this.camera.position.copy(OVERVIEW_CAM_POS);
+      this.controls.target.copy(OVERVIEW_TARGET);
+    }
+    this.focusedBodyId = null;
+    this.focusedMoonId = null;
+    this.focusedMissionId = null;
+    this.isFlying = true;
+    this.isTracking = false;
+    this.flightTargetPos.copy(OVERVIEW_CAM_POS);
+    this.flightLookTarget.copy(OVERVIEW_TARGET);
+    this.controls.minDistance = 16.0;
+    this.updateBeaconVisibilities();
+    this.callbacks.onSelectTarget(null);
+    this.callbacks.onCameraModeChange('overview');
+  }
+
+  public releaseTracking(): void {
+    this.pendingSurfaceMission = null;
+    if (this.surfaceDiorama || this.deepSpaceDiorama) return;
+    this.isFlying = false;
+    this.isTracking = false;
+    this.controls.minDistance = 0.35;
+    this.callbacks.onCameraModeChange('free');
+  }
+
+  public setTimeMultiplier(mult: number): void {
+    this.timeMultiplier = Math.max(1, mult);
+  }
+
+  public syncToNow(): void {
+    this.simEpochMs = Date.now();
+    this.timeMultiplier = 1;
+    this.isPaused = false;
+  }
+
+  public setPaused(paused: boolean): void {
+    this.isPaused = paused;
+  }
+
+  public setShowOrbits(show: boolean): void {
+    this.showOrbits = show;
+  }
+
+  public registerLabelElement(
+    id: CelestialBodyId,
+    element: HTMLElement | null,
+  ): void {
+    if (element) {
+      this.labelElements.set(id, element);
+    } else {
+      this.labelElements.delete(id);
+    }
+  }
+
+  private computeIdealCameraOffset(
+    worldPos: THREE.Vector3,
+    radius: number,
+    distanceFactor: number,
+    isSun: boolean,
+    isSaturn: boolean,
+    out: THREE.Vector3,
+  ): void {
+    const dist = radius * distanceFactor;
+    if (isSun) {
+      out.set(dist * 0.45, dist * 0.32, dist * 0.85);
+      return;
+    }
+
+    _vec3C.copy(worldPos).normalize();
+    const tangentX = -_vec3C.z;
+    const tangentZ = _vec3C.x;
+    const elevation = isSaturn ? 0.42 : 0.25;
+    out
+      .set(
+        -_vec3C.x * 0.62 + tangentX * 0.74,
+        elevation,
+        -_vec3C.z * 0.62 + tangentZ * 0.74,
+      )
+      .normalize()
+      .multiplyScalar(dist);
+  }
+
+  private updateFocusShadowRig(): void {
+    if (!this.focusShadowLight) return;
+
+    if (
+      !this.focusedBodyId ||
+      this.focusedBodyId === 'sun' ||
+      this.surfaceDiorama ||
+      this.deepSpaceDiorama
+    ) {
+      this.focusShadowLight.visible = false;
+      this.sunPointLight.intensity = 1680000;
+      return;
+    }
+
+    const runtime = this.bodies.get(this.focusedBodyId);
+    if (!runtime) {
+      this.focusShadowLight.visible = false;
+      this.sunPointLight.intensity = 1680000;
+      return;
+    }
+
+    const focusedMoon = this.focusedMoonId
+      ? this.moonsById.get(this.focusedMoonId)
+      : undefined;
+    const targetPos = focusedMoon
+      ? focusedMoon.currentWorldPos
+      : runtime.currentWorldPos;
+    const dist = targetPos.length();
+    if (dist < 1) {
+      this.focusShadowLight.visible = false;
+      this.sunPointLight.intensity = 1680000;
+      return;
+    }
+
+    // Direction FROM target TOWARD the Sun at world origin
+    const sunDir = _vec3A.copy(targetPos).normalize().negate();
+
+    // Match inverse-square solar irradiance at target distance while letting DirectionalLight cast 100% crisp dark shadows
+    this.sunPointLight.intensity = 0;
+    this.focusShadowLight.intensity = 1680000 / (dist * dist);
+    this.focusShadowLight.visible = true;
+
+    let boxHalf: number;
+    let lightBackDist: number;
+    let farDist: number;
+
+    if (focusedMoon) {
+      boxHalf = Math.max(focusedMoon.data.radius * 3.2, 0.8);
+      lightBackDist = Math.max(boxHalf * 2.6, 6);
+      farDist = lightBackDist + boxHalf * 3.0;
+
+      // Include parent planet + rings in shadow frustum whenever parent can eclipse the focused moon
+      const toParent = _vec3B.subVectors(runtime.currentWorldPos, targetPos);
+      const alongSun = toParent.dot(sunDir);
+      const perpSq = Math.max(0, toParent.lengthSq() - alongSun * alongSun);
+      const perpDist = Math.sqrt(perpSq);
+      const parentExtent = runtime.data.rings
+        ? runtime.data.visualRadius * runtime.data.rings.outerMultiplier
+        : runtime.data.visualRadius;
+
+      if (alongSun > -parentExtent * 1.4 && perpDist < parentExtent * 2.1 + boxHalf) {
+        boxHalf = Math.min(Math.max(boxHalf, perpDist + parentExtent * 1.25), 42);
+        lightBackDist = Math.max(lightBackDist, alongSun + parentExtent * 2.2);
+        farDist = lightBackDist + boxHalf * 3.0;
+      }
+    } else {
+      boxHalf = runtime.data.rings
+        ? runtime.data.visualRadius * runtime.data.rings.outerMultiplier * 1.25
+        : runtime.data.visualRadius * 2.8;
+
+      let extraAntiSunFar = 0;
+      for (const m of runtime.moons) {
+        if (m.data.orbitRadius <= runtime.data.visualRadius * 9.0) {
+          boxHalf = Math.max(boxHalf, m.data.orbitRadius + m.data.radius * 2.5);
+        } else {
+          // Extend depth range if a distant moon enters the planet's antisolar shadow cone
+          const toMoon = _vec3B.subVectors(m.currentWorldPos, targetPos);
+          const alongAntiSun = -toMoon.dot(sunDir);
+          const perp = Math.sqrt(Math.max(0, toMoon.lengthSq() - alongAntiSun * alongAntiSun));
+          if (alongAntiSun > 0 && perp < runtime.data.visualRadius * 2.2) {
+            extraAntiSunFar = Math.max(extraAntiSunFar, alongAntiSun + m.data.radius * 3.0);
+          }
+        }
+      }
+
+      boxHalf = Math.min(boxHalf, 48);
+      lightBackDist = Math.max(boxHalf * 2.6, 12);
+      farDist = lightBackDist + Math.max(boxHalf * 2.8, extraAntiSunFar + boxHalf);
+    }
+
+    this.focusShadowLight.position
+      .copy(targetPos)
+      .addScaledVector(sunDir, lightBackDist);
+    this.focusShadowLight.target.position.copy(targetPos);
+    this.focusShadowLight.target.updateMatrixWorld();
+
+    const cam = this.focusShadowLight.shadow.camera;
+    cam.left = -boxHalf;
+    cam.right = boxHalf;
+    cam.top = boxHalf;
+    cam.bottom = -boxHalf;
+    cam.near = 0.5;
+    cam.far = farDist;
+    cam.updateProjectionMatrix();
+  }
+
+  private updateSunVisualIntensity(dt: number): void {
+    const isFocusedOnSun =
+      this.focusedBodyId === 'sun' &&
+      !this.surfaceDiorama &&
+      !this.deepSpaceDiorama;
+    const targetBoost = isFocusedOnSun ? 1 : 0;
+    this.sunFocusBoost = THREE.MathUtils.damp(this.sunFocusBoost, targetBoost, 5.5, dt);
+
+    if (this.sunSurfaceMat) {
+      this.sunSurfaceMat.uniforms.uFocusBoost.value = this.sunFocusBoost;
+    }
+    if (this.sunChromoMat) {
+      this.sunChromoMat.uniforms.uFocusBoost.value = this.sunFocusBoost;
+    }
+    for (const pMat of this.sunProminenceMats) {
+      pMat.uniforms.uFocusBoost.value = this.sunFocusBoost;
+    }
+    if (this.sunInnerGlowMat) {
+      this.sunInnerGlowMat.opacity = THREE.MathUtils.lerp(0.56, 1.0, this.sunFocusBoost);
+    }
+    if (this.sunOuterGlowMat) {
+      this.sunOuterGlowMat.opacity = THREE.MathUtils.lerp(0.22, 0.58, this.sunFocusBoost);
+    }
+    if (this.bloomPass) {
+      if (this.deepSpaceDiorama) {
+        this.bloomPass.strength = 0.56;
+        this.bloomPass.threshold = 0.84;
+      } else if (this.surfaceDiorama) {
+        this.bloomPass.strength = 0.14;
+        this.bloomPass.threshold = 1.12;
+      } else {
+        this.bloomPass.strength = THREE.MathUtils.lerp(0.32, 0.66, this.sunFocusBoost);
+        this.bloomPass.threshold = THREE.MathUtils.lerp(0.94, 0.78, this.sunFocusBoost);
+      }
+    }
+  }
+
+  private updateAstrophysicalExposure(dt: number): void {
+    if (this.deepSpaceDiorama) {
+      this.currentExposure = THREE.MathUtils.damp(
+        this.currentExposure,
+        1.25,
+        6.5,
+        dt,
+      );
+      this.renderer.toneMappingExposure = this.currentExposure;
+      return;
+    }
+
+    if (this.surfaceDiorama) {
+      this.currentExposure = THREE.MathUtils.damp(
+        this.currentExposure,
+        1.05,
+        6.5,
+        dt,
+      );
+      this.renderer.toneMappingExposure = this.currentExposure;
+      return;
+    }
+
+    // Spacecraft optical auto-exposure compensates for inverse-square (decay=2) sunlight while keeping sunlit hemispheres luminous & unclipped
+    const camAU = Math.max(0.22, this.camera.position.length() / AU_TO_UNITS);
+    let targetExp = THREE.MathUtils.clamp(
+      0.56 * Math.pow(camAU, 1.92),
+      0.068,
+      290,
+    );
+    if (this.focusedBodyId === 'sun') {
+      targetExp = 0.95;
+    } else if (!this.focusedBodyId && camAU > 2.2) {
+      targetExp = THREE.MathUtils.clamp(0.54 * Math.pow(camAU, 0.88), 0.72, 6.2);
+    }
+    this.currentExposure = THREE.MathUtils.damp(
+      this.currentExposure,
+      targetExp,
+      6.5,
+      dt,
+    );
+    this.renderer.toneMappingExposure = this.currentExposure;
+  }
+
+  private updateOrbitVisibility(dt: number): void {
+    // Clean Travel: fade orbits completely to 0 during FlyTo or while focused on any planet/moon/mission
+    const cleanTravelHidden =
+      this.focusedBodyId !== null ||
+      this.isFlying ||
+      this.deepSpaceDiorama !== null;
+    const targetOpacity = this.showOrbits && !cleanTravelHidden ? 0.14 : 0;
+
+    this.currentOrbitOpacity = THREE.MathUtils.damp(
+      this.currentOrbitOpacity,
+      targetOpacity,
+      8.0,
+      dt,
+    );
+
+    const visible = this.currentOrbitOpacity > 0.004;
+    this.bodies.forEach((runtime) => {
+      if (!runtime.orbitLine) return;
+      runtime.orbitLine.visible = visible;
+      if (visible) {
+        const mat = runtime.orbitLine.material as THREE.LineBasicMaterial;
+        mat.opacity = this.currentOrbitOpacity;
+      }
+    });
+  }
+
+  private updateSimulation(dt: number): void {
+    if (!this.isPaused) {
+      this.simEpochMs += dt * 1000 * this.timeMultiplier;
+    }
+    this.surfaceElapsed += dt;
+
+    const dJ2000 = daysSinceJ2000(this.simEpochMs);
+    this.applyJ2000State(dJ2000, false);
+
+    this.sunAnimTime +=
+      dt * (this.isPaused ? 0.2 : 1 + Math.log10(Math.max(1, this.timeMultiplier)) * 0.4);
+    if (this.sunSurfaceMat) {
+      this.sunSurfaceMat.uniforms.uTime.value = this.sunAnimTime;
+    }
+    for (const pMat of this.sunProminenceMats) {
+      pMat.uniforms.uTime.value = this.surfaceElapsed;
+    }
+    for (const aMat of this.auroraMats) {
+      aMat.uniforms.uTime.value = this.surfaceElapsed;
+    }
+    if (this.saturnIceRingPoints) {
+      this.saturnIceRingPoints.rotation.y += dt * 0.045;
+    }
+    if (this.cometComaPoints) {
+      const cPos = this.cometComaPoints.geometry.attributes.position as THREE.BufferAttribute;
+      const arr = cPos.array as Float32Array;
+      for (let i = 0; i < arr.length; i += 3) {
+        arr[i + 2] += dt * 2.4;
+        if (arr[i + 2] > 6.5) {
+          arr[i] = (Math.random() - 0.5) * 0.25;
+          arr[i + 1] = (Math.random() - 0.5) * 0.25;
+          arr[i + 2] = 0.2;
+        }
+      }
+      cPos.needsUpdate = true;
+    }
+    for (const plume of this.moonPlumes) {
+      const pPos = plume.points.geometry.attributes.position as THREE.BufferAttribute;
+      const arr = pPos.array as Float32Array;
+      for (let i = 0; i < arr.length; i += 3) {
+        arr[i] += plume.dir.x * dt * plume.speed;
+        arr[i + 1] += plume.dir.y * dt * plume.speed;
+        arr[i + 2] += plume.dir.z * dt * plume.speed;
+        const dist = Math.hypot(arr[i], arr[i + 1], arr[i + 2]);
+        if (dist > plume.radius * 1.95) {
+          arr[i] = plume.dir.x * plume.radius + (Math.random() - 0.5) * 0.03;
+          arr[i + 1] = plume.dir.y * plume.radius + (Math.random() - 0.5) * 0.03;
+          arr[i + 2] = plume.dir.z * plume.radius + (Math.random() - 0.5) * 0.03;
+        }
+      }
+      pPos.needsUpdate = true;
+    }
+
+    if (this.asteroidBelt && !this.isPaused) {
+      this.asteroidBelt.rotation.y += dt * this.timeMultiplier * 1.2e-7;
+    }
+    if (this.kuiperBelt && !this.isPaused) {
+      this.kuiperBelt.rotation.y += dt * this.timeMultiplier * 2.5e-8;
+    }
+    for (const sat of this.orbitSatellites) {
+      sat.pivot.rotation.y += dt * sat.speed;
+      if (sat.ledMat) {
+        const pulse = Math.sin(this.surfaceElapsed * 4.2 + sat.phase) > 0.35 ? 1.0 : 0.25;
+        sat.ledMat.opacity = pulse;
+      }
+    }
+
+    this.updateFocusShadowRig();
+    this.updateAstrophysicalExposure(dt);
+    this.updateSunVisualIntensity(dt);
+
+    if (this.deepSpaceDiorama) {
+      this.deepSpaceDiorama.update(dt, this.surfaceElapsed);
+      this.controls.update();
+      this.updateOrbitVisibility(dt);
+      this.updateProjectedLabels();
+    } else if (this.surfaceDiorama) {
+      this.updateSurfaceSunOrientation();
+      this.surfaceDiorama.update(dt, this.surfaceElapsed);
+      this.controls.update();
+      this.updateOrbitVisibility(dt);
+      this.updateProjectedLabels();
+    } else {
+      // Free-flight WASD / Arrow movement in Space Mode
+      const hasMoveKey =
+        this.keysPressed.has('KeyW') ||
+        this.keysPressed.has('KeyS') ||
+        this.keysPressed.has('KeyA') ||
+        this.keysPressed.has('KeyD') ||
+        this.keysPressed.has('KeyQ') ||
+        this.keysPressed.has('KeyE') ||
+        this.keysPressed.has('ArrowUp') ||
+        this.keysPressed.has('ArrowDown') ||
+        this.keysPressed.has('ArrowLeft') ||
+        this.keysPressed.has('ArrowRight');
+
+      if (hasMoveKey) {
+        if (this.isTracking || this.isFlying) {
+          this.releaseTracking();
+        }
+        const distFromTarget = this.camera.position.distanceTo(
+          this.controls.target,
+        );
+        const moveSpeed = Math.max(6, distFromTarget * 0.75) * dt;
+
+        this.camera.getWorldDirection(_vec3A);
+        _vec3B.crossVectors(_vec3A, this.camera.up).normalize();
+
+        const moveDelta = _vec3C.set(0, 0, 0);
+        if (this.keysPressed.has('KeyW') || this.keysPressed.has('ArrowUp')) {
+          moveDelta.addScaledVector(_vec3A, moveSpeed);
+        }
+        if (this.keysPressed.has('KeyS') || this.keysPressed.has('ArrowDown')) {
+          moveDelta.addScaledVector(_vec3A, -moveSpeed);
+        }
+        if (this.keysPressed.has('KeyD') || this.keysPressed.has('ArrowRight')) {
+          moveDelta.addScaledVector(_vec3B, moveSpeed);
+        }
+        if (this.keysPressed.has('KeyA') || this.keysPressed.has('ArrowLeft')) {
+          moveDelta.addScaledVector(_vec3B, -moveSpeed);
+        }
+        if (this.keysPressed.has('KeyE')) moveDelta.y += moveSpeed;
+        if (this.keysPressed.has('KeyQ')) moveDelta.y -= moveSpeed;
+
+        this.camera.position.add(moveDelta);
+        this.controls.target.add(moveDelta);
+      }
+
+      // Tracking & FlyTo / FlyTo Surface camera motion
+      if (this.focusedBodyId && this.isTracking) {
+        const targetMissionBeacon = this.focusedMissionId
+          ? this.beaconsByMissionId.get(this.focusedMissionId)
+          : undefined;
+        const targetMoon = this.focusedMoonId
+          ? this.moonsById.get(this.focusedMoonId)
+          : undefined;
+        const targetPlanet = this.bodies.get(this.focusedBodyId);
+
+        if (targetMissionBeacon) {
+          _vec3A.subVectors(
+            targetMissionBeacon.currentWorldPos,
+            targetMissionBeacon.lastWorldPos,
+          );
+          this.camera.position.add(_vec3A);
+          this.controls.target.add(_vec3A);
+
+          if (this.isFlying) {
+            const r = targetMissionBeacon.hostRadius;
+            _vec3D.copy(targetMissionBeacon.worldNormal);
+            _vec3B
+              .set(-_vec3D.z, 0.25, _vec3D.x)
+              .normalize()
+              .multiplyScalar(r * 0.55)
+              .addScaledVector(_vec3D, r * 1.45);
+
+            this.flightLookTarget.copy(targetMissionBeacon.currentWorldPos);
+            this.flightTargetPos
+              .copy(targetMissionBeacon.currentWorldPos)
+              .add(_vec3B);
+            this.dampCameraToFlightTarget(dt);
+          }
+
+          if (this.pendingSurfaceMission) {
+            this.surfaceApproachElapsed += dt;
+            const distToSite = this.camera.position.distanceTo(
+              targetMissionBeacon.currentWorldPos,
+            );
+            if (
+              distToSite < targetMissionBeacon.hostRadius * 3.8 ||
+              this.surfaceApproachElapsed > 1.25
+            ) {
+              this.enterSurfaceMode(this.pendingSurfaceMission);
+            }
+          }
+        } else if (targetMoon) {
+          _vec3A.subVectors(
+            targetMoon.currentWorldPos,
+            targetMoon.lastWorldPos,
+          );
+          this.camera.position.add(_vec3A);
+          this.controls.target.add(_vec3A);
+
+          if (this.isFlying) {
+            this.computeIdealCameraOffset(
+              targetMoon.currentWorldPos,
+              targetMoon.data.radius,
+              4.0,
+              false,
+              false,
+              _vec3B,
+            );
+            this.flightLookTarget.copy(targetMoon.currentWorldPos);
+            this.flightTargetPos.copy(targetMoon.currentWorldPos).add(_vec3B);
+            this.dampCameraToFlightTarget(dt);
+          }
+        } else if (targetPlanet) {
+          _vec3A.subVectors(
+            targetPlanet.currentWorldPos,
+            targetPlanet.lastWorldPos,
+          );
+          this.camera.position.add(_vec3A);
+          this.controls.target.add(_vec3A);
+
+          if (this.isFlying) {
+            this.computeIdealCameraOffset(
+              targetPlanet.currentWorldPos,
+              targetPlanet.data.visualRadius,
+              targetPlanet.data.cameraDistanceFactor,
+              targetPlanet.data.id === 'sun',
+              targetPlanet.data.id === 'saturn',
+              _vec3B,
+            );
+            this.flightLookTarget.copy(targetPlanet.currentWorldPos);
+            this.flightTargetPos.copy(targetPlanet.currentWorldPos).add(_vec3B);
+            this.dampCameraToFlightTarget(dt);
+          }
+        }
+      } else if (this.isFlying) {
+        this.dampCameraToFlightTarget(dt);
+      }
+
+      this.controls.update();
+      this.updateOrbitVisibility(dt);
+      this.updateProjectedLabels();
+    }
+
+    const now = performance.now();
+    if (now - this.lastHudSync > 120) {
+      this.lastHudSync = now;
+      let sunlit: boolean | null = null;
+      if (this.focusedMissionId) {
+        const b = this.beaconsByMissionId.get(this.focusedMissionId);
+        if (b && b.mission.missionRole === 'surface') {
+          _vec3A.copy(b.currentWorldPos).negate().normalize();
+          sunlit = b.worldNormal.dot(_vec3A) > 0;
+        }
+      }
+      this.callbacks.onClockUpdate(this.simEpochMs, sunlit);
+    }
+  }
+
+  private dampCameraToFlightTarget(dt: number): void {
+    const remainingDist = this.camera.position.distanceTo(this.flightTargetPos);
+    const lambda = remainingDist > 120 ? 3.2 : 4.6;
+
+    this.controls.target.x = THREE.MathUtils.damp(
+      this.controls.target.x,
+      this.flightLookTarget.x,
+      lambda + 1.4,
+      dt,
+    );
+    this.controls.target.y = THREE.MathUtils.damp(
+      this.controls.target.y,
+      this.flightLookTarget.y,
+      lambda + 1.4,
+      dt,
+    );
+    this.controls.target.z = THREE.MathUtils.damp(
+      this.controls.target.z,
+      this.flightLookTarget.z,
+      lambda + 1.4,
+      dt,
+    );
+
+    this.camera.position.x = THREE.MathUtils.damp(
+      this.camera.position.x,
+      this.flightTargetPos.x,
+      lambda,
+      dt,
+    );
+    this.camera.position.y = THREE.MathUtils.damp(
+      this.camera.position.y,
+      this.flightTargetPos.y,
+      lambda,
+      dt,
+    );
+    this.camera.position.z = THREE.MathUtils.damp(
+      this.camera.position.z,
+      this.flightTargetPos.z,
+      lambda,
+      dt,
+    );
+
+    if (
+      remainingDist < 0.12 &&
+      this.controls.target.distanceTo(this.flightLookTarget) < 0.08
+    ) {
+      this.isFlying = false;
+    }
+  }
+
+  private updateProjectedLabels(): void {
+    const hideForCleanTravel =
+      !this.showLabels ||
+      this.focusedBodyId !== null ||
+      this.isFlying ||
+      this.surfaceDiorama !== null ||
+      this.deepSpaceDiorama !== null;
+
+    if (hideForCleanTravel) {
+      this.labelElements.forEach((el) => {
+        el.style.opacity = '0';
+        el.style.pointerEvents = 'none';
+      });
+      return;
+    }
+
+    const width = this.container.clientWidth || window.innerWidth;
+    const height = this.container.clientHeight || window.innerHeight;
+
+    this.bodies.forEach((runtime, id) => {
+      const el = this.labelElements.get(id);
+      if (!el) return;
+
+      _projVec.copy(runtime.currentWorldPos);
+      _projVec.y += runtime.data.visualRadius + (id === 'sun' ? 4.5 : 2.5);
+      _projVec.project(this.camera);
+
+      const isBehind = _projVec.z > 1 || _projVec.z < -1;
+      const sx = (_projVec.x * 0.5 + 0.5) * width;
+      const sy = (-_projVec.y * 0.5 + 0.5) * height;
+      const outOfBounds =
+        sx < -40 || sx > width + 40 || sy < -30 || sy > height + 30;
+
+      if (isBehind || outOfBounds) {
+        el.style.opacity = '0';
+        el.style.pointerEvents = 'none';
+      } else {
+        el.style.opacity = '0.9';
+        el.style.pointerEvents = 'auto';
+        el.style.transform = `translate3d(${sx.toFixed(1)}px, ${sy.toFixed(1)}px, 0) translate(-50%, -100%)`;
+      }
+    });
+  }
+
+  private afterDraw(cb: () => void): void {
+    const gl = this.renderer.getContext() as WebGL2RenderingContext;
+    if (!gl || typeof gl.fenceSync !== 'function') {
+      this.frameId = window.setTimeout(cb, 80);
+      return;
+    }
+    const sync = gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE, 0);
+    gl.flush();
+    const poll = () => {
+      if (this.disposed) {
+        if (sync) gl.deleteSync(sync);
+        return;
+      }
+      const state = sync ? gl.getSyncParameter(sync, gl.SYNC_STATUS) : gl.SIGNALED;
+      if (state === gl.UNSIGNALED) {
+        this.frameId = window.setTimeout(poll, 5);
+      } else {
+        if (sync) gl.deleteSync(sync);
+        this.frameId = window.setTimeout(cb, 80);
+      }
+    };
+    this.frameId = window.setTimeout(poll, 5);
+  }
+
+  private startLoop(): void {
+    this.clock.start();
+    const tick = () => {
+      if (this.disposed) return;
+      const dt = Math.min(this.clock.getDelta(), 0.1);
+      this.updateSimulation(dt);
+
+      if (this.isSoftwareGl || !this.composer) {
+        this.renderer.render(this.scene, this.camera);
+      } else {
+        this.composer.render();
+      }
+
+      if (this.isSoftwareGl) {
+        this.afterDraw(tick);
+      } else {
+        this.frameId = requestAnimationFrame(tick);
+      }
+    };
+
+    if (this.isSoftwareGl) {
+      this.frameId = window.setTimeout(tick, 0);
+    } else {
+      this.frameId = requestAnimationFrame(tick);
+    }
+  }
+
+  public dispose(): void {
+    this.disposed = true;
+    cancelAnimationFrame(this.frameId);
+    window.clearTimeout(this.frameId);
+    this.clearActive8KUpgrade();
+    this.exitSurfaceMode();
+    this.exitDeepSpaceMode();
+    this.controls.dispose();
+    this.composer?.dispose();
+    this.disposables.forEach((d) => d.dispose());
+    this.disposables = [];
+    this.renderer.dispose();
+    if (this.renderer.domElement.parentElement === this.container) {
+      this.container.removeChild(this.renderer.domElement);
+    }
+  }
+}
