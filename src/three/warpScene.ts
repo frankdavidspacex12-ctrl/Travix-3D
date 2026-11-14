@@ -1,11 +1,21 @@
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
+import { createGlowTexture, createShipRig, loadShipTemplate, ShipRig } from './shipModel';
 
 /**
- * Hyperspace / wormhole jump used by "Modo nave": radial light streaks, a flowing tunnel and an
- * original silver starship with cyan running lights and blue-violet engines, seen from behind.
- * Runs on its own small renderer that only draws while a jump is playing.
+ * Hyperspace / wormhole jump used by "Modo nave": radial light streaks, a flowing tunnel, the
+ * Travix starship seen from behind and the destination ahead, which stays in view and grows as the
+ * ship arrives. Runs on its own small renderer that only draws while a jump is playing.
  */
+
+export interface WarpTarget {
+  /** Surface texture of the destination (planet / moon); omitted for deep-space targets */
+  texture?: string;
+  /** Tint, and fallback colour while / if the texture can't load */
+  color: string;
+  /** Self-luminous destination (the Sun, nebulae, black holes...) */
+  glow?: boolean;
+}
 
 const STREAK_PALETTE = [
   new THREE.Color(0xffffff),
@@ -17,226 +27,35 @@ const STREAK_PALETTE = [
 ];
 const STREAK_NEAR_Z = 14;
 const STREAK_FAR_Z = -170;
-
-function createGlowTexture(): THREE.CanvasTexture {
-  const size = 128;
-  const canvas = document.createElement('canvas');
-  canvas.width = size;
-  canvas.height = size;
-  const ctx = canvas.getContext('2d')!;
-  const g = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
-  g.addColorStop(0, 'rgba(255,255,255,1)');
-  g.addColorStop(0.18, 'rgba(255,255,255,0.85)');
-  g.addColorStop(0.45, 'rgba(255,255,255,0.25)');
-  g.addColorStop(1, 'rgba(255,255,255,0)');
-  ctx.fillStyle = g;
-  ctx.fillRect(0, 0, size, size);
-  const tex = new THREE.CanvasTexture(canvas);
-  tex.colorSpace = THREE.SRGBColorSpace;
-  return tex;
-}
-
-/** Original starship: arrowhead hull, central spine, twin engine nacelles. Points along -Z. */
-function buildShip(glowTex: THREE.Texture, disposables: Array<{ dispose: () => void }>) {
-  const ship = new THREE.Group();
-  const track = <T extends { dispose: () => void }>(x: T): T => {
-    disposables.push(x);
-    return x;
-  };
-
-  const hullMat = track(
-    new THREE.MeshStandardMaterial({ color: 0xdfe5ed, metalness: 0.68, roughness: 0.26 }),
-  );
-  const panelMat = track(
-    new THREE.MeshStandardMaterial({ color: 0x9aa6b6, metalness: 0.7, roughness: 0.34 }),
-  );
-  const darkMat = track(
-    new THREE.MeshStandardMaterial({ color: 0x252c38, metalness: 0.7, roughness: 0.45 }),
-  );
-  const cyanMat = track(
-    new THREE.MeshStandardMaterial({
-      color: 0x0e7490,
-      emissive: 0x22d3ee,
-      emissiveIntensity: 4.2,
-      metalness: 0.2,
-      roughness: 0.4,
-    }),
-  );
-
-  const add = (geo: THREE.BufferGeometry, mat: THREE.Material, x: number, y: number, z: number) => {
-    track(geo);
-    const m = new THREE.Mesh(geo, mat);
-    m.position.set(x, y, z);
-    ship.add(m);
-    return m;
-  };
-
-  // Arrowhead hull (top view outline, extruded upward)
-  const half: Array<[number, number]> = [
-    [0, 3.5],
-    [0.32, 2.7],
-    [0.62, 1.5],
-    [1.55, 0.25],
-    [2.05, -0.35],
-    [2.0, -0.75],
-    [1.25, -0.85],
-    [0.8, -1.35],
-    [0.0, -1.25],
-  ];
-  const outline = [
-    ...half.map(([x, y]) => new THREE.Vector2(x, y)),
-    ...half
-      .slice(1, -1)
-      .reverse()
-      .map(([x, y]) => new THREE.Vector2(-x, y)),
-  ];
-  const hullGeo = new THREE.ExtrudeGeometry(new THREE.Shape(outline), {
-    depth: 0.2,
-    bevelEnabled: true,
-    bevelThickness: 0.06,
-    bevelSize: 0.06,
-    bevelSegments: 2,
-  });
-  hullGeo.rotateX(-Math.PI / 2);
-  add(hullGeo, hullMat, 0, -0.1, 0);
-
-  // Central spine, upper deck and bridge
-  add(new THREE.BoxGeometry(0.74, 0.34, 3.9), hullMat, 0, 0.26, -0.55);
-  add(new THREE.BoxGeometry(0.46, 0.14, 2.7), panelMat, 0, 0.49, -0.45);
-  add(new THREE.BoxGeometry(0.52, 0.22, 0.95), panelMat, 0, 0.4, -2.2);
-  add(new THREE.BoxGeometry(0.3, 0.08, 0.5), cyanMat, 0, 0.53, -2.25);
-  // Cyan running lights along the spine and on the wings
-  for (const sx of [-1, 1]) {
-    add(new THREE.BoxGeometry(0.04, 0.06, 2.6), cyanMat, sx * 0.39, 0.3, -0.5);
-    const wingStrip = add(new THREE.BoxGeometry(0.75, 0.035, 0.07), cyanMat, sx * 1.12, 0.12, -0.05);
-    wingStrip.rotation.y = sx * 0.62;
-    const wingPanel = add(new THREE.BoxGeometry(0.8, 0.05, 0.34), panelMat, sx * 1.0, 0.1, 0.35);
-    wingPanel.rotation.y = sx * 0.62;
-    // Ventral fins
-    const fin = add(new THREE.BoxGeometry(0.06, 0.55, 0.75), darkMat, sx * 0.5, -0.32, 0.85);
-    fin.rotation.z = sx * 0.4;
-  }
-  // Panel seams and armour plates for a more detailed silhouette
-  for (const sx of [-1, 1]) {
-    for (let k = 0; k < 3; k++) {
-      const seam = add(new THREE.BoxGeometry(0.95 - k * 0.2, 0.025, 0.035), darkMat, sx * (0.95 + k * 0.12), 0.135, -0.55 + k * 0.42);
-      seam.rotation.y = sx * 0.62;
-    }
-    add(new THREE.BoxGeometry(0.16, 0.2, 2.2), panelMat, sx * 0.5, 0.2, -0.2);
-    add(new THREE.BoxGeometry(0.035, 0.05, 1.3), cyanMat, sx * 0.59, 0.31, 0.15);
-    add(new THREE.BoxGeometry(0.28, 0.05, 0.05), cyanMat, sx * 0.25, 0.52, -1.55);
-    add(new THREE.BoxGeometry(0.06, 0.06, 0.06), cyanMat, sx * 1.95, 0.13, -0.55);
-  }
-  for (let k = 0; k < 4; k++) {
-    add(new THREE.BoxGeometry(0.5, 0.03, 0.05), darkMat, 0, 0.565, -1.4 + k * 0.6);
-  }
-  // Rear block with twin cyan lights
-  add(new THREE.BoxGeometry(0.66, 0.34, 0.3), panelMat, 0, 0.14, 1.28);
-  for (const sx of [-1, 1]) {
-    add(new THREE.BoxGeometry(0.22, 0.09, 0.03), cyanMat, sx * 0.16, 0.16, 1.45);
-  }
-
-  // Twin engine nacelles with blue-violet thrust
-  const plumeMat = track(
-    new THREE.ShaderMaterial({
-      uniforms: { uTime: { value: 0 }, uPower: { value: 1 } },
-      vertexShader: `
-        varying vec2 vUv;
-        void main() {
-          vUv = uv;
-          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-        }
-      `,
-      fragmentShader: `
-        uniform float uTime;
-        uniform float uPower;
-        varying vec2 vUv;
-        void main() {
-          // Cone uv.y is 1 at the tip and 0 at the base (nozzle): along = 1 at the nozzle
-          float along = 1.0 - vUv.y;
-          float flicker = 0.85 + 0.15 * sin(uTime * 38.0 + vUv.x * 40.0);
-          vec3 core = vec3(0.95, 0.97, 1.0);
-          vec3 mid = vec3(0.45, 0.55, 1.0);
-          vec3 tip = vec3(0.55, 0.3, 1.0);
-          vec3 col = mix(tip, mid, smoothstep(0.0, 0.55, along));
-          col = mix(col, core, smoothstep(0.7, 1.0, along));
-          float a = pow(along, 1.6) * flicker * uPower;
-          gl_FragColor = vec4(col * a * 1.6, a);
-        }
-      `,
-      transparent: true,
-      depthWrite: false,
-      blending: THREE.AdditiveBlending,
-      side: THREE.DoubleSide,
-      toneMapped: false,
-    }),
-  );
-  const engineGlowMat = track(
-    new THREE.SpriteMaterial({
-      map: glowTex,
-      color: 0xaab8ff,
-      blending: THREE.AdditiveBlending,
-      depthWrite: false,
-      transparent: true,
-      toneMapped: false,
-    }),
-  );
-  const nozzleMat = track(
-    new THREE.MeshBasicMaterial({ color: new THREE.Color(1.6, 1.7, 2.2), toneMapped: false }),
-  );
-  const plumes: THREE.Mesh[] = [];
-  const glows: THREE.Sprite[] = [];
-  for (const sx of [-1, 1]) {
-    const x = sx * 1.78;
-    const body = add(new THREE.CylinderGeometry(0.42, 0.47, 2.3, 28), hullMat, x, 0.14, 0.05);
-    body.rotation.x = Math.PI / 2;
-    const nose = add(new THREE.ConeGeometry(0.42, 0.7, 28), panelMat, x, 0.14, -1.45);
-    nose.rotation.x = -Math.PI / 2;
-    const ring = add(new THREE.TorusGeometry(0.44, 0.07, 10, 32), darkMat, x, 0.14, 1.2);
-    ring.rotation.y = 0;
-    add(new THREE.BoxGeometry(0.05, 0.2, 0.6), cyanMat, x + sx * 0.46, 0.14, 0.55);
-    add(new THREE.BoxGeometry(0.26, 0.05, 0.9), cyanMat, x, 0.6, 0.2);
-    add(new THREE.BoxGeometry(0.5, 0.12, 1.4), panelMat, x, 0.52, 0.1);
-    const trim = add(new THREE.TorusGeometry(0.47, 0.035, 8, 32), darkMat, x, 0.14, -0.4);
-    trim.rotation.y = 0;
-    add(new THREE.BoxGeometry(0.05, 0.2, 0.6), cyanMat, x - sx * 0.46, 0.14, 0.55);
-    const nozzle = add(new THREE.CircleGeometry(0.37, 28), nozzleMat, x, 0.14, 1.23);
-    nozzle.rotation.y = 0;
-
-    const plumeGeo = track(new THREE.ConeGeometry(0.36, 3.4, 24, 1, true));
-    // Cone tip points +Y: base moved to the origin (nozzle), then tip turned to trail behind (+Z)
-    plumeGeo.translate(0, 1.7, 0);
-    plumeGeo.rotateX(Math.PI / 2);
-    const plume = new THREE.Mesh(plumeGeo, plumeMat);
-    plume.position.set(x, 0.14, 1.25);
-    ship.add(plume);
-    plumes.push(plume);
-
-    const glow = new THREE.Sprite(engineGlowMat);
-    glow.position.set(x, 0.14, 1.45);
-    glow.scale.set(2.1, 2.1, 1);
-    ship.add(glow);
-    glows.push(glow);
-  }
-
-  return { ship, plumeMat, plumes, glows };
-}
+const SHIP_LENGTH = 4.8;
+const TARGET_RADIUS = 5;
+const TARGET_FAR = 165;
+const TARGET_NEAR = 17;
 
 export class WarpScene {
   private renderer: THREE.WebGLRenderer;
   private scene = new THREE.Scene();
   private camera: THREE.PerspectiveCamera;
   private disposables: Array<{ dispose: () => void }> = [];
+  private disposed = false;
   private streaks: THREE.InstancedMesh;
   private streakData: Float32Array; // per streak: angle, radius, z, width
   private tunnelMat: THREE.ShaderMaterial;
-  private ship: THREE.Group;
-  private plumeMat: THREE.ShaderMaterial;
-  private plumes: THREE.Mesh[];
-  private glows: THREE.Sprite[];
+  private ship = new THREE.Group();
+  private rig: ShipRig | null = null;
   private coreGlow: THREE.Sprite;
+  private glowTex: THREE.CanvasTexture;
+  private target: THREE.Mesh;
+  private targetMat: THREE.MeshStandardMaterial;
+  private targetHalo: THREE.Sprite;
+  private targetTexUrl = '';
+  private textureLoader = new THREE.TextureLoader();
   private time = 0;
   private readonly count: number;
+  private readonly m = new THREE.Matrix4();
+  private readonly q = new THREE.Quaternion();
+  private readonly pos = new THREE.Vector3();
+  private readonly scl = new THREE.Vector3();
 
   constructor(canvas: HTMLCanvasElement, lowPower: boolean) {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: !lowPower, alpha: false });
@@ -258,15 +77,15 @@ export class WarpScene {
     this.disposables.push(env);
 
     this.scene.add(new THREE.HemisphereLight(0xcfe0ff, 0x0b0e16, 0.5));
-    const key = new THREE.DirectionalLight(0xffffff, 1.7);
+    const key = new THREE.DirectionalLight(0xffffff, 1.9);
     key.position.set(2, 6, 4);
     this.scene.add(key);
     const rim = new THREE.DirectionalLight(0x7aa2ff, 1.6);
     rim.position.set(-3, 1, -8);
     this.scene.add(rim);
 
-    const glowTex = createGlowTexture();
-    this.disposables.push(glowTex);
+    this.glowTex = createGlowTexture();
+    this.disposables.push(this.glowTex);
 
     // Wormhole tunnel: flowing bands converging on the vanishing point
     const tunnelGeo = new THREE.CylinderGeometry(16, 16, 340, 48, 1, true);
@@ -297,7 +116,6 @@ export class WarpScene {
           float n = noise(p) * 0.6 + noise(p * 2.3 + 7.0) * 0.4;
           float bands = smoothstep(0.55, 1.0, n);
           vec3 col = mix(vec3(0.12, 0.16, 0.55), vec3(0.45, 0.25, 0.85), noise(p * 0.5));
-          // fade toward both ends of the tunnel
           float ends = smoothstep(0.0, 0.25, vUv.y) * smoothstep(1.0, 0.8, vUv.y);
           float a = bands * ends * uOpacity * 0.55;
           gl_FragColor = vec4(col * a, a);
@@ -314,9 +132,9 @@ export class WarpScene {
     this.scene.add(tunnel);
     this.disposables.push(tunnelGeo, this.tunnelMat);
 
-    // Bright convergence point far ahead
+    // Bright convergence point far ahead (behind the destination)
     const coreMat = new THREE.SpriteMaterial({
-      map: glowTex,
+      map: this.glowTex,
       color: 0xdfe7ff,
       blending: THREE.AdditiveBlending,
       depthWrite: false,
@@ -324,10 +142,29 @@ export class WarpScene {
       toneMapped: false,
     });
     this.coreGlow = new THREE.Sprite(coreMat);
-    this.coreGlow.position.set(0, 0.2, -160);
+    this.coreGlow.position.set(0, 0.2, -175);
     this.coreGlow.scale.set(60, 60, 1);
     this.scene.add(this.coreGlow);
     this.disposables.push(coreMat);
+
+    // Destination: stays in view at the end of the tunnel and grows on approach
+    const targetGeo = new THREE.SphereGeometry(TARGET_RADIUS, 64, 48);
+    this.targetMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.9, metalness: 0 });
+    this.target = new THREE.Mesh(targetGeo, this.targetMat);
+    this.target.visible = false;
+    this.scene.add(this.target);
+    const haloMat = new THREE.SpriteMaterial({
+      map: this.glowTex,
+      color: 0xffffff,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      transparent: true,
+      toneMapped: false,
+    });
+    this.targetHalo = new THREE.Sprite(haloMat);
+    this.targetHalo.visible = false;
+    this.scene.add(this.targetHalo);
+    this.disposables.push(targetGeo, this.targetMat, haloMat);
 
     // Light streaks
     this.count = lowPower ? 420 : 760;
@@ -351,21 +188,79 @@ export class WarpScene {
     this.scene.add(this.streaks);
     this.disposables.push(streakGeo, streakMat);
 
-    const built = buildShip(glowTex, this.disposables);
-    this.ship = built.ship;
-    this.plumeMat = built.plumeMat;
-    this.plumes = built.plumes;
-    this.glows = built.glows;
+    // The Travix starship (team model)
     this.scene.add(this.ship);
+    loadShipTemplate()
+      .then((template) => {
+        if (this.disposed) return;
+        this.rig = createShipRig(template, this.glowTex);
+        this.rig.group.scale.setScalar(SHIP_LENGTH);
+        this.ship.add(this.rig.group);
+        this.renderer.compile(this.scene, this.camera);
+      })
+      .catch(() => {});
   }
 
   private respawnStreak(i: number, z: number): void {
     const d = this.streakData;
     d[i * 4] = Math.random() * Math.PI * 2;
-    // Keep a little clearance around the axis so the ship stays readable
+    // Keep a little clearance around the axis so the ship and the destination stay readable
     d[i * 4 + 1] = 1.2 + Math.pow(Math.random(), 0.7) * 13;
     d[i * 4 + 2] = z;
     d[i * 4 + 3] = 0.018 + Math.random() * 0.05;
+  }
+
+  /** Destination shown ahead during the jump (null = no specific target). */
+  public setTarget(target: WarpTarget | null): void {
+    if (!target) {
+      this.target.visible = false;
+      this.targetHalo.visible = false;
+      return;
+    }
+    const color = new THREE.Color(target.color);
+    this.targetHalo.material.color.copy(color).lerp(new THREE.Color(0xffffff), 0.35);
+    this.targetHalo.visible = true;
+
+    if (!target.texture && target.glow) {
+      // Deep-space objects: a glowing beacon, no solid sphere
+      this.target.visible = false;
+      return;
+    }
+    this.target.visible = true;
+    this.targetMat.emissive.set(target.glow ? 0xffffff : 0x000000);
+    this.targetMat.emissiveIntensity = target.glow ? 1.4 : 0;
+    if (target.texture && target.texture !== this.targetTexUrl) {
+      this.targetTexUrl = target.texture;
+      this.targetMat.map?.dispose();
+      this.targetMat.map = null;
+      this.targetMat.emissiveMap = null;
+      this.targetMat.color.copy(color);
+      this.targetMat.needsUpdate = true;
+      const url = target.texture;
+      const glow = Boolean(target.glow);
+      this.textureLoader.load(url, (tex) => {
+        if (this.disposed || this.targetTexUrl !== url) {
+          tex.dispose();
+          return;
+        }
+        tex.colorSpace = THREE.SRGBColorSpace;
+        this.targetMat.map = tex;
+        this.targetMat.emissiveMap = glow ? tex : null;
+        this.targetMat.color.set(0xffffff);
+        this.targetMat.needsUpdate = true;
+      });
+    } else if (target.texture) {
+      // Same texture as last time: just make sure the emissive setup matches
+      this.targetMat.emissiveMap = target.glow ? this.targetMat.map : null;
+      this.targetMat.needsUpdate = true;
+    } else {
+      this.targetTexUrl = '';
+      this.targetMat.map?.dispose();
+      this.targetMat.map = null;
+      this.targetMat.emissiveMap = null;
+      this.targetMat.color.copy(color);
+      this.targetMat.needsUpdate = true;
+    }
   }
 
   /** Compile every shader up front so the first jump starts without a hitch. */
@@ -385,17 +280,14 @@ export class WarpScene {
    * @param speed 0..1 hyperspace speed (streak length / flow)
    * @param shipIn 0..1 ship entering from below the camera (1 = in place)
    * @param shipOut 0..1 ship leaping ahead into the jump exit
+   * @param approach 0..1 how close the destination is (grows on screen)
    */
-  public render(dt: number, speed: number, shipIn: number, shipOut: number): void {
+  public render(dt: number, speed: number, shipIn: number, shipOut: number, approach: number): void {
     this.time += dt;
     const t = this.time;
     const v = 6 + speed * 230;
     const lengthBase = 0.3 + speed * 22;
 
-    const m = new THREE.Matrix4();
-    const q = new THREE.Quaternion();
-    const pos = new THREE.Vector3();
-    const scl = new THREE.Vector3();
     const d = this.streakData;
     for (let i = 0; i < this.count; i++) {
       let z = d[i * 4 + 2] + v * dt;
@@ -407,18 +299,29 @@ export class WarpScene {
       }
       d[i * 4 + 2] = z;
       const a = d[i * 4];
-      pos.set(Math.cos(a) * r, 0.2 + Math.sin(a) * r, z);
+      this.pos.set(Math.cos(a) * r, 0.2 + Math.sin(a) * r, z);
       const w = d[i * 4 + 3];
-      scl.set(w, w, len);
-      m.compose(pos, q, scl);
-      this.streaks.setMatrixAt(i, m);
+      this.scl.set(w, w, len);
+      this.m.compose(this.pos, this.q, this.scl);
+      this.streaks.setMatrixAt(i, this.m);
     }
     this.streaks.instanceMatrix.needsUpdate = true;
 
     this.tunnelMat.uniforms.uTime.value = t;
     this.tunnelMat.uniforms.uSpeed.value = 2 + speed * 10;
-    this.tunnelMat.uniforms.uOpacity.value = speed;
-    this.coreGlow.material.opacity = 0.35 + 0.65 * speed;
+    this.tunnelMat.uniforms.uOpacity.value = speed * (1 - approach * 0.5);
+    this.coreGlow.material.opacity = (0.35 + 0.65 * speed) * (1 - approach * 0.6);
+
+    // Destination: from a dot at the vanishing point to a large disc above the ship
+    const ap = approach * approach;
+    const dist = THREE.MathUtils.lerp(TARGET_FAR, TARGET_NEAR, ap);
+    const ty = 0.2 + dist * 0.14;
+    this.target.position.set(0, ty, -dist);
+    this.target.rotation.y = t * 0.15;
+    this.targetHalo.position.set(0, ty, -dist - 1);
+    const halo = TARGET_RADIUS * (this.target.visible ? 3.2 : 4.5);
+    this.targetHalo.scale.set(halo, halo, 1);
+    this.targetHalo.material.opacity = this.target.visible ? 0.35 + 0.25 * approach : 0.9;
 
     // Ship: gentle sway in flight, enters from below, leaps ahead at the exit
     const ease = (x: number) => 1 - Math.pow(1 - x, 3);
@@ -430,25 +333,21 @@ export class WarpScene {
       THREE.MathUtils.lerp(5, 0, inE) - outE * 140,
     );
     this.ship.rotation.set(
-      THREE.MathUtils.lerp(0.35, 0.04, inE) + Math.sin(t * 1.1) * 0.015,
+      THREE.MathUtils.lerp(0.35, -0.04, inE) + Math.sin(t * 1.1) * 0.015,
       Math.sin(t * 0.5) * 0.03,
       Math.sin(t * 0.9) * 0.06,
     );
-    this.plumeMat.uniforms.uTime.value = t;
-    this.plumeMat.uniforms.uPower.value = 0.55 + 0.45 * Math.max(speed, outE);
-    const flick = 1 + Math.sin(t * 31) * 0.05;
-    for (const p of this.plumes) p.scale.set(1, 1, (0.7 + speed * 0.6 + outE) * flick);
-    for (const g of this.glows) {
-      const s = (1.8 + speed * 0.8) * flick;
-      g.scale.set(s, s, 1);
-    }
+    this.rig?.update(t, Math.max(speed, outE), 1);
 
     this.renderer.render(this.scene, this.camera);
   }
 
   public dispose(): void {
-    for (const d of this.disposables) d.dispose();
+    this.disposed = true;
+    for (const dsp of this.disposables) dsp.dispose();
     this.disposables = [];
+    this.rig?.dispose();
+    this.targetMat.map?.dispose();
     this.renderer.dispose();
   }
 }

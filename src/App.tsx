@@ -32,6 +32,8 @@ import { shouldShowWelcome, TEAM_NAME, WelcomeCredits } from './components/Welco
 import { subscribeViewInsets, useViewInset } from './ui/viewInsets';
 import type { WarpRequest } from './components/WarpOverlay';
 import { soundscape } from './audio/soundscape';
+import type { WarpTarget } from './three/warpScene';
+import type { LinkTarget } from './components/LinkedText';
 
 // Hyperspace jump of "Modo nave": its own chunk, loaded only when ship mode is turned on
 const WarpOverlay = lazy(() => import('./components/WarpOverlay'));
@@ -47,6 +49,17 @@ function readShipMode(): boolean {
 
 function bodyName(id: CelestialBodyId): string {
   return CELESTIAL_BODIES.find((b) => b.id === id)?.name ?? id;
+}
+
+/** What the hyperspace jump shows ahead for a planet / moon destination. */
+function warpTargetFor(bodyId: CelestialBodyId, moonId?: string): WarpTarget | undefined {
+  const body = CELESTIAL_BODIES.find((b) => b.id === bodyId);
+  if (!body) return undefined;
+  if (moonId) {
+    const moon = body.moons.find((m) => m.id === moonId);
+    if (moon) return { texture: moon.textureUrl, color: '#cbd5e1' };
+  }
+  return { texture: body.textures.map, color: body.accentColor, glow: body.id === 'sun' };
 }
 
 // The engine pushes the simulation clock to React ~8×/s. Only ControlDock shows the clock, so
@@ -143,7 +156,8 @@ export default function App() {
   const [simEpochMs, setSimEpochMs] = useState(() => Date.now());
   const [isSiteSunlit, setIsSiteSunlit] = useState<boolean | null>(null);
   const [isPaused, setIsPaused] = useState(false);
-  const [showOrbits, setShowOrbits] = useState(false);
+  // Orbits on in the system view; the engine fades them out on any planet / moon / mission
+  const [showOrbits, setShowOrbits] = useState(true);
   const [isDockCollapsed, setIsDockCollapsed] = useState(false);
   const [isInfoHidden, setIsInfoHidden] = useState(false);
   const [isPlanetInfoOpen, setIsPlanetInfoOpen] = useState(false);
@@ -213,6 +227,7 @@ export default function App() {
         engine?.registerLabelElement(id, el),
       );
       engine.registerSunMarker(sunMarkerRef.current);
+      engine.setShipMode(shipModeRef.current);
     } catch {
       setWebglError(true);
     }
@@ -271,7 +286,7 @@ export default function App() {
   }, []);
 
   /** Runs `go` directly, or wrapped in a hyperspace jump when ship mode is on. */
-  const travel = useCallback((label: string, go: () => void) => {
+  const travel = useCallback((label: string, go: () => void, target?: WarpTarget) => {
     const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     soundscape.select();
     if (!shipModeRef.current || reducedMotion) {
@@ -280,8 +295,13 @@ export default function App() {
       return;
     }
     soundscape.warp();
-    setWarpRequest({ id: ++warpIdRef.current, label, go });
+    setWarpRequest({ id: ++warpIdRef.current, label, go, target });
   }, []);
+
+  // Always-on starship in the 3D view while ship mode is on
+  useEffect(() => {
+    engineRef.current?.setShipMode(isShipMode);
+  }, [isShipMode]);
 
   // Sonido sintetizado (música ambiental + efectos): apagado por defecto, se recuerda la elección
   const [isSoundOn, setIsSoundOn] = useState(() => soundscape.isEnabled());
@@ -301,7 +321,7 @@ export default function App() {
     (id: CelestialBodyId, context?: ActiveSearchAnswer) => {
       setSearchAnswer(context ?? null);
       setIsPlanetInfoOpen(Boolean(context));
-      travel(bodyName(id), () => engineRef.current?.flyToBody(id));
+      travel(bodyName(id), () => engineRef.current?.flyToBody(id), warpTargetFor(id));
     },
     [travel],
   );
@@ -313,7 +333,7 @@ export default function App() {
       const moonName =
         CELESTIAL_BODIES.find((b) => b.id === bodyId)?.moons.find((m) => m.id === moonId)?.name ??
         moonId;
-      travel(moonName, () => engineRef.current?.flyToMoon(bodyId, moonId));
+      travel(moonName, () => engineRef.current?.flyToMoon(bodyId, moonId), warpTargetFor(bodyId, moonId));
     },
     [travel],
   );
@@ -322,7 +342,11 @@ export default function App() {
     (mission: AbandonedMission, context?: ActiveSearchAnswer) => {
       setSearchAnswer(context ?? null);
       setIsInfoHidden(false);
-      travel(mission.name, () => engineRef.current?.flyToMission(mission));
+      travel(
+        mission.name,
+        () => engineRef.current?.flyToMission(mission),
+        warpTargetFor(mission.targetBodyId, mission.targetMoonId),
+      );
     },
     [travel],
   );
@@ -331,10 +355,23 @@ export default function App() {
     (id: DeepSpaceTargetId, context?: ActiveSearchAnswer) => {
       setSearchAnswer(context ?? null);
       setIsInfoHidden(false);
-      const name = DEEP_SPACE_TARGETS.find((d) => d.id === id)?.name ?? id;
-      travel(name, () => engineRef.current?.flyToDeepSpace(id));
+      const target = DEEP_SPACE_TARGETS.find((d) => d.id === id);
+      travel(target?.name ?? id, () => engineRef.current?.flyToDeepSpace(id), {
+        color: target?.accentColor ?? '#c4b5fd',
+        glow: true,
+      });
     },
     [travel],
+  );
+
+  /** A linked name in a librito / ficha: travel to that planet, moon or spacecraft. */
+  const handleNavigateLink = useCallback(
+    (target: LinkTarget) => {
+      if (target.kind === 'mission') handleSelectMission(target.mission);
+      else if (target.kind === 'moon') handleSelectMoon(target.bodyId, target.moonId);
+      else handleSelectBody(target.bodyId);
+    },
+    [handleSelectBody, handleSelectMoon, handleSelectMission],
   );
 
   const handleSelectTourStep = useCallback(
@@ -408,6 +445,8 @@ export default function App() {
     setIsInfoHidden(false);
     setIsPlanetInfoOpen(false);
     setSearchAnswer(null);
+    setShowOrbits(true);
+    engineRef.current?.setShowOrbits(true);
     engineRef.current?.resetToOverview();
   }, []);
 
@@ -629,6 +668,7 @@ export default function App() {
           onOpenSearch={handleOpenSearch}
           onClose={handleHideInfoPanel}
           startMinimized={isPhone && isTourCardOpen}
+          onNavigateLink={handleNavigateLink}
         />
       )}
 
@@ -658,6 +698,7 @@ export default function App() {
         onToggleShipMode={handleToggleShipMode}
         isSoundOn={isSoundOn}
         onToggleSound={handleToggleSound}
+        onNavigateLink={handleNavigateLink}
       />
 
       {isWelcomeOpen && <WelcomeCredits onClose={handleCloseWelcome} />}

@@ -6,3 +6,6 @@ coverage/
 *.log
 .env*
 !.env.example
+
+# Heavy source models (optimized copies live in public/models)
+modelos-fuente/

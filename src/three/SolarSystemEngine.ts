@@ -3,6 +3,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import type { ShipOverlay } from './shipOverlay';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import {
@@ -563,6 +564,13 @@ export class SolarSystemEngine {
   private sunInnerGlow: THREE.Sprite | null = null;
   private sunOuterGlow: THREE.Sprite | null = null;
   private sunGlowBaseScale = { inner: 1, outer: 1 };
+  /** "Modo nave": always-on starship layer (loaded on first use) */
+  private shipOverlay: ShipOverlay | null = null;
+  private shipPass: RenderPass | null = null;
+  private shipModeOn = false;
+  private shipLoading = false;
+  private shipThrust = 0;
+  private readonly shipSunDir = new THREE.Vector3();
   private cometMats: Array<{ material: THREE.MeshBasicMaterial | THREE.PointsMaterial; baseColor: THREE.Color }> = [];
   private lastCometComp = -1;
   private sunOuterGlowMat: THREE.SpriteMaterial | null = null;
@@ -653,7 +661,7 @@ export class SolarSystemEngine {
   /** Fit factor the current tracked camera distance corresponds to (see updateFramingZoom) */
   private appliedFitFactor = 1;
   private roomEnvTex: THREE.Texture | null = null;
-  private showOrbits = false;
+  private showOrbits = true;
   private currentOrbitOpacity = 0;
   private showLabels = true;
 
@@ -2787,6 +2795,7 @@ export class SolarSystemEngine {
       this.camera.updateProjectionMatrix();
       this.renderer.setSize(w, h);
       if (this.composer) this.composer.setSize(w, h);
+      this.shipOverlay?.setViewport(w, h, this.viewInsetTop, this.viewInsetBottom);
       if (this.bloomPass) this.bloomPass.resolution.set(w, h);
     };
 
@@ -3357,6 +3366,96 @@ export class SolarSystemEngine {
   public setViewInsets(top: number, bottom: number): void {
     this.viewInsetTop = Math.max(0, top);
     this.viewInsetBottom = Math.max(0, bottom);
+    this.shipOverlay?.setViewport(this.viewportW, this.viewportH, this.viewInsetTop, this.viewInsetBottom);
+  }
+
+  /** Shows / hides the always-on starship of "Modo nave" (model loaded on first use). */
+  public setShipMode(on: boolean): void {
+    this.shipModeOn = on;
+    if (this.shipOverlay) {
+      this.shipOverlay.setVisible(on);
+      return;
+    }
+    if (!on || this.shipLoading) return;
+    this.shipLoading = true;
+    void import('./shipOverlay')
+      .then(({ ShipOverlay }) => {
+        if (this.disposed) return;
+        const overlay = new ShipOverlay(this.roomEnvTex);
+        overlay.setViewport(this.viewportW, this.viewportH, this.viewInsetTop, this.viewInsetBottom);
+        overlay.setVisible(this.shipModeOn);
+        this.shipOverlay = overlay;
+        if (this.composer) {
+          // Drawn right after the 3D view, on a cleared depth buffer: never clips into planets
+          const pass = new RenderPass(overlay.scene, overlay.camera);
+          pass.clear = false;
+          pass.clearDepth = true;
+          pass.enabled = false;
+          this.composer.insertPass(pass, 1);
+          this.shipPass = pass;
+        }
+      })
+      .catch(() => {})
+      .finally(() => {
+        this.shipLoading = false;
+      });
+  }
+
+  /** Screen circle (CSS px) of what the user is looking at, so the ship never covers it. */
+  private getFocusScreenCircle(): { x: number; y: number; r: number } | null {
+    const w = this.viewportW || window.innerWidth;
+    const h = this.viewportH || window.innerHeight;
+    if (this.surfaceDiorama || this.deepSpaceDiorama) {
+      // The rover / spacecraft / deep-space object is framed in the middle of the view
+      return { x: w / 2, y: h / 2, r: Math.min(w, h) * 0.3 };
+    }
+    let pos: THREE.Vector3 | null = null;
+    let radius = 0;
+    let minPx = 0;
+    if (this.focusedMissionId) {
+      const beacon = this.beaconsByMissionId.get(this.focusedMissionId);
+      if (beacon) {
+        pos = beacon.currentWorldPos;
+        radius = beacon.hostRadius * 0.5;
+        minPx = 70;
+      }
+    } else if (this.focusedMoonId) {
+      const moon = this.moonsById.get(this.focusedMoonId);
+      if (moon) {
+        pos = moon.currentWorldPos;
+        radius = moon.data.radius * 1.15;
+      }
+    } else if (this.focusedBodyId) {
+      const body = this.bodies.get(this.focusedBodyId);
+      if (body) {
+        pos = body.currentWorldPos;
+        const rings = body.data.rings?.outerMultiplier ?? 1;
+        radius = body.data.visualRadius * Math.max(1.12, rings) * (body.data.id === 'sun' ? 1.5 : 1);
+      }
+    }
+    if (!pos) return null;
+    _projVec.copy(pos).project(this.camera);
+    if (_projVec.z > 1) return null;
+    const dist = Math.max(this.camera.position.distanceTo(pos), 1e-3);
+    const halfTan = Math.tan(THREE.MathUtils.degToRad(this.camera.fov / 2));
+    const r = Math.max(minPx, (radius / (dist * halfTan)) * (h / 2));
+    return { x: (_projVec.x * 0.5 + 0.5) * w, y: (-_projVec.y * 0.5 + 0.5) * h, r };
+  }
+
+  private updateShipOverlay(dt: number): void {
+    const overlay = this.shipOverlay;
+    if (!overlay) return;
+    if (this.deepSpaceDiorama) {
+      this.shipSunDir.set(-0.5, 0.6, 0.4).normalize();
+    } else if (this.surfaceDiorama) {
+      this.shipSunDir.copy(this.surfaceSunLocal).normalize();
+    } else {
+      this.shipSunDir.copy(this.camera.position).negate().normalize();
+    }
+    this.shipThrust = THREE.MathUtils.damp(this.shipThrust, this.isFlying ? 1 : 0.12, 3, dt);
+    const inv = this.composer ? 1 / Math.max(this.currentExposure, 1e-3) : 1;
+    overlay.update(dt, this.camera, this.shipSunDir, inv, this.shipThrust, this.getFocusScreenCircle());
+    if (this.shipPass) this.shipPass.enabled = overlay.isActive;
   }
 
   /** Free (uncovered) viewport band, never smaller than 30% of the screen. */
@@ -3947,6 +4046,7 @@ export class SolarSystemEngine {
   }
 
   private updateSimulation(dt: number): void {
+    this.updateShipOverlay(dt);
     this.updateViewOffset(dt);
     this.updateFramingZoom(dt);
     if (!this.isPaused) {
@@ -4345,6 +4445,12 @@ export class SolarSystemEngine {
 
       if (this.isSoftwareGl || !this.composer) {
         this.renderer.render(this.scene, this.camera);
+        if (this.shipOverlay?.isActive) {
+          this.renderer.autoClear = false;
+          this.renderer.clearDepth();
+          this.renderer.render(this.shipOverlay.scene, this.shipOverlay.camera);
+          this.renderer.autoClear = true;
+        }
       } else {
         this.composer.render();
       }
@@ -4372,6 +4478,7 @@ export class SolarSystemEngine {
     this.exitDeepSpaceMode();
     this.controls.dispose();
     this.composer?.dispose();
+    this.shipOverlay?.dispose();
     this.disposables.forEach((d) => d.dispose());
     this.disposables = [];
     this.renderer.dispose();

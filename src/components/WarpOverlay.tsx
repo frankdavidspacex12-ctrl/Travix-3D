@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { WarpScene } from '../three/warpScene';
+import { WarpScene, WarpTarget } from '../three/warpScene';
 
 export interface WarpRequest {
   id: number;
@@ -7,6 +7,8 @@ export interface WarpRequest {
   label: string;
   /** Starts the real trip in the 3D engine (called mid-jump, hidden behind the tunnel) */
   go: () => void;
+  /** Destination kept in view ahead, growing as the ship arrives */
+  target?: WarpTarget;
 }
 
 interface WarpOverlayProps {
@@ -84,6 +86,7 @@ const WarpOverlay: React.FC<WarpOverlayProps> = ({ request, onDone }) => {
     };
 
     setActiveLabel(request.label);
+    scene.setTarget(request.target ?? null);
     scene.setSize(window.innerWidth, window.innerHeight);
     root.style.display = 'block';
 
@@ -101,7 +104,9 @@ const WarpOverlay: React.FC<WarpOverlayProps> = ({ request, onDone }) => {
             : 1 - clamp01((t - T_EXIT) / 0.45);
       const shipIn = clamp01((t - 0.05) / 0.85);
       const shipOut = clamp01((t - (T_EXIT - 0.1)) / 0.45);
-      scene.render(dt, speed, shipIn, shipOut);
+      // Destination grows from a dot to a large disc right before dropping out of the jump
+      const approach = clamp01((t - 0.15) / (T_FLASH - 0.15));
+      scene.render(dt, speed, shipIn, shipOut, 1 - Math.pow(1 - approach, 1.6));
 
       const fadeIn = clamp01(t / 0.28);
       const fadeOut = 1 - clamp01((t - (T_FLASH + 0.05)) / (T_END - T_FLASH - 0.05));
