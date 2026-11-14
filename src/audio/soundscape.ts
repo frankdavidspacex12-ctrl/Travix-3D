@@ -1,10 +1,13 @@
-// Sonido sintetizado con Web Audio: música ambiental generativa y efectos cortos.
-// No usa archivos de audio, así que funciona sin internet y no requiere licencias.
+// Sonido con Web Audio: música ambiental generativa y efectos cortos sintetizados.
+// Única excepción: el hipersalto usa una grabación (public/audio/hipersalto.mp3, generada con
+// ElevenLabs Sound Effects); si no carga, se sintetiza como antes, así que nunca queda en silencio.
 // Arranca apagado: los navegadores solo permiten sonido después de que la persona toca algo,
 // y la preferencia se recuerda en este navegador.
 
 const STORAGE_KEY = 'travix-sound';
 const MUSIC_LEVEL = 0.8; // volumen normal de la música (baja durante los viajes)
+const WARP_SAMPLE_URL = `${import.meta.env.BASE_URL}audio/hipersalto.mp3`;
+const WARP_SAMPLE_LEVEL = 0.9;
 
 // Pentatónica menor de Re: suena «espacial» y nunca desafina entre notas.
 const PAD_CHORD_HZ = [73.42, 110.0, 146.83, 174.61, 220.0]; // D2 A2 D3 F3 A3
@@ -20,6 +23,7 @@ class Soundscape {
   private reverb: ConvolverNode | null = null;
   private musicNodes: AudioNode[] = [];
   private bellTimer: number | null = null;
+  private warpSample: AudioBuffer | null = null;
   private enabled = false;
   private listeners = new Set<Listener>();
 
@@ -154,6 +158,17 @@ class Soundscape {
     if (!ctx || !this.sfxBus) return;
     const t = ctx.currentTime;
     this.duckMusic(t, 3.6, 0.2);
+
+    // Grabación del hipersalto (3,5 s) si ya está cargada; si no, la versión sintetizada de abajo.
+    if (this.warpSample) {
+      const src = ctx.createBufferSource();
+      const g = ctx.createGain();
+      src.buffer = this.warpSample;
+      g.gain.value = WARP_SAMPLE_LEVEL;
+      src.connect(g).connect(this.sfxBus);
+      src.start(t);
+      return;
+    }
 
     // 1) Carga de los motores: zumbido agudo que sube + rugido que crece
     const whine = ctx.createOscillator();
@@ -339,7 +354,19 @@ class Soundscape {
     this.sfxBus.gain.value = 1;
     this.sfxBus.connect(this.master);
     this.sfxBus.connect(this.reverb);
+    void this.loadWarpSample(ctx);
     return true;
+  }
+
+  /** Descarga y decodifica la grabación del hipersalto (queda en la caché de la PWA para uso sin internet). */
+  private async loadWarpSample(ctx: AudioContext): Promise<void> {
+    try {
+      const res = await fetch(WARP_SAMPLE_URL);
+      if (!res.ok) return;
+      this.warpSample = await ctx.decodeAudioData(await res.arrayBuffer());
+    } catch {
+      // sin archivo o formato no soportado: se usa el hipersalto sintetizado
+    }
   }
 
   /** Devuelve el contexto solo si el sonido está activo y corriendo. */
