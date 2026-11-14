@@ -1063,6 +1063,10 @@ export class SolarSystemEngine {
         data.id === 'comet67p'
           ? createComet67PGeometry(data.visualRadius)
           : new THREE.SphereGeometry(data.visualRadius, 72, 54);
+      if (data.shapeScale) {
+        // Elongated small bodies (433 Eros): stretch the sphere into its real tri-axial shape
+        sphereGeo.scale(data.shapeScale[0], data.shapeScale[1], data.shapeScale[2]);
+      }
       this.disposables.push(sphereGeo);
 
       // Real NASA textures replace these 1×1 placeholders as soon as they load. The costly
@@ -2298,6 +2302,7 @@ export class SolarSystemEngine {
     for (const mission of ABANDONED_MISSIONS) {
       let hostMesh: THREE.Mesh | undefined;
       let hostRadius = 1;
+      let hostShape: [number, number, number] | undefined;
 
       if (mission.targetMoonId) {
         const moon = this.moonsById.get(mission.targetMoonId);
@@ -2310,6 +2315,7 @@ export class SolarSystemEngine {
         if (planet) {
           hostMesh = planet.mesh;
           hostRadius = planet.data.visualRadius;
+          hostShape = planet.data.shapeScale;
         }
       }
 
@@ -2323,6 +2329,16 @@ export class SolarSystemEngine {
         hostRadius * orbitalAltitude,
       );
       const localNormal = localPos.clone().normalize();
+      if (hostShape) {
+        // Project onto the tri-axial ellipsoid: scaled sphere point + true ellipsoid normal
+        const [ax, ay, az] = hostShape;
+        localNormal.set(
+          localNormal.x / ax,
+          localNormal.y / ay,
+          localNormal.z / az,
+        ).normalize();
+        localPos.set(localPos.x * ax, localPos.y * ay, localPos.z * az);
+      }
 
       const group = new THREE.Group();
       group.position.copy(localPos);
@@ -2404,6 +2420,8 @@ export class SolarSystemEngine {
       { missionId: 'mro', bodyId: 'mars', orbitR: 0.72, inclination: 1.52, speed: 0.52, color: 0xf87171 },
       { missionId: 'juno', bodyId: 'jupiter', orbitR: 11.4, inclination: 1.55, speed: 0.38, color: 0x38bdf8, radialWings: true },
       { missionId: 'cassini', bodyId: 'saturn', orbitR: 13.8, inclination: 1.05, speed: 0.32, color: 0xfbbf24 },
+      // Dawn: unpowered, stable orbit around Ceres since 2018 (drifts slowly, no attitude control)
+      { missionId: 'dawn', bodyId: 'ceres', orbitR: 0.42, inclination: 1.45, speed: 0.22, color: 0xf472b6 },
     ];
 
     for (let idx = 0; idx < specs.length; idx++) {

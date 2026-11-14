@@ -25,6 +25,171 @@ export interface GuidedTour {
 
 export const NASA_GUIDED_TOURS: GuidedTour[] = [
   {
+    id: 'hardware_chronology',
+    name: 'Legado de Hardware NASA · Cronología',
+    subtitle: '17 naves en su ubicación real · ordenadas por fecha de lanzamiento',
+    accentColor: '#FB7185',
+    steps: [
+      {
+        id: 'hw_surveyor1',
+        title: '1966 · Surveyor 1 · Primer aterrizaje suave',
+        nasaBadge: 'Lanzado 30 may 1966 · Luna 2,47° S 43,34° O',
+        narration:
+          'Los Surveyor demostraron que el suelo lunar soportaba una nave. Surveyor 1 se posó el 2 de junio de 1966 al norte del cráter Flamsteed y envió más de 11.000 imágenes.',
+        scienceFact:
+          'Cinco Surveyor (1, 3, 5, 6 y 7) aterrizaron con éxito; Apollo 12 visitó a pie a Surveyor 3 en 1969.',
+        target: { kind: 'mission', missionId: 'surveyor1' },
+      },
+      {
+        id: 'hw_apollo11_lm',
+        title: '1969 · Módulos Lunares Apollo · Eagle',
+        nasaBadge: 'Lanzado 16 jul 1969 · Mar de la Tranquilidad',
+        narration:
+          'Cuando los astronautas despegaban, la etapa de descenso del Módulo Lunar quedaba como plataforma de lanzamiento. La del Eagle sigue en la Base Tranquilidad junto a la placa conmemorativa.',
+        scienceFact:
+          'Seis etapas de descenso permanecen en la Luna: Eagle, Intrepid, Antares, Falcon, Orion y Challenger.',
+        target: { kind: 'mission', missionId: 'apollo11' },
+      },
+      {
+        id: 'hw_alsep',
+        title: '1969 · ALSEP · Estaciones científicas Apollo',
+        nasaBadge: 'Lanzado 14 nov 1969 · Apollo 12, Oceanus Procellarum',
+        narration:
+          'Alan Bean desplegó la primera estación ALSEP completa: sismómetro, magnetómetro y espectrómetro de viento solar alimentados por un generador nuclear RTG. Siguió midiendo tras la partida de los astronautas.',
+        scienceFact:
+          'La red ALSEP funcionó hasta el 30 de septiembre de 1977; los retrorreflectores láser aún se usan hoy.',
+        target: { kind: 'mission', missionId: 'alsep_apollo12' },
+      },
+      {
+        id: 'hw_lrv',
+        title: '1971 · Vehículos Lunares Itinerantes (LRV)',
+        nasaBadge: 'Lanzado 26 jul 1971 · Apollo 15, Hadley-Apennine',
+        narration:
+          'El primero de tres "moon buggies" eléctricos llegó con Apollo 15. Los astronautas lo condujeron 27,8 km y lo aparcaron para siempre junto al módulo Falcon.',
+        scienceFact:
+          'Los LRV-2 (Apollo 16, Descartes) y LRV-3 (Apollo 17, Taurus-Littrow) también siguen aparcados en la Luna.',
+        target: { kind: 'mission', missionId: 'apollo15' },
+      },
+      {
+        id: 'hw_pioneer10',
+        title: '1972 · Pioneer 10 · Primera en Júpiter',
+        nasaBadge: 'Lanzado 3 mar 1972 · ≈140 UA hacia Aldebarán',
+        narration:
+          'Primera nave en cruzar el Cinturón de Asteroides y en visitar Júpiter. Hoy flota en silencio más allá de la heliosfera llevando la placa Pioneer.',
+        scienceFact: 'Su última señal llegó el 23 de enero de 2003, desde unos 80 UA.',
+        target: { kind: 'mission', missionId: 'pioneer10' },
+      },
+      {
+        id: 'hw_pioneer11',
+        title: '1973 · Pioneer 11 · Primera en Saturno',
+        nasaBadge: 'Lanzado 6 abr 1973 · ≈119 UA hacia el Águila',
+        narration:
+          'Sobrevoló Júpiter y en 1979 fue la primera en llegar a Saturno, descubriendo el anillo F. Abrió el camino que luego siguieron las Voyager.',
+        scienceFact: 'La NASA perdió contacto con ella el 30 de septiembre de 1995.',
+        target: { kind: 'mission', missionId: 'pioneer11' },
+      },
+      {
+        id: 'hw_viking1',
+        title: '1975 · Viking 1 · Primer éxito en Marte',
+        nasaBadge: 'Lanzado 20 ago 1975 · Chryse Planitia 22,27° N',
+        narration:
+          'El 20 de julio de 1976 Viking 1 se convirtió en el primer módulo estadounidense en operar en Marte. Tomó la primera foto desde la superficie y sigue exactamente donde aterrizó.',
+        scienceFact: 'Funcionó con energía nuclear durante más de 6 años, hasta noviembre de 1982.',
+        target: { kind: 'mission', missionId: 'viking1' },
+      },
+      {
+        id: 'hw_viking2',
+        title: '1975 · Viking 2 · Escarcha en Utopia Planitia',
+        nasaBadge: 'Lanzado 9 sep 1975 · Utopia Planitia 47,64° N',
+        narration:
+          'Su gemelo aterrizó en las llanuras del norte el 3 de septiembre de 1976 y fotografió escarcha de agua sobre el suelo marciano.',
+        scienceFact: 'Operó casi 4 años, hasta que sus baterías fallaron en abril de 1980.',
+        target: { kind: 'mission', missionId: 'viking2' },
+      },
+      {
+        id: 'hw_near',
+        title: '1996 · NEAR Shoemaker · Sobre el asteroide Eros',
+        nasaBadge: 'Lanzado 17 feb 1996 · 433 Eros, 35,8° S',
+        narration:
+          'Primera nave en orbitar un asteroide y en posarse en uno. Tras un año cartografiando Eros, descendió el 12 de febrero de 2001 y descansa al sur de la depresión Himeros.',
+        scienceFact: 'No estaba diseñada para aterrizar, pero transmitió desde la superficie 16 días más.',
+        target: { kind: 'mission', missionId: 'near_shoemaker' },
+      },
+      {
+        id: 'hw_sojourner',
+        title: '1996 · Sojourner · Primer rover en Marte',
+        nasaBadge: 'Lanzado 4 dic 1996 · Ares Vallis',
+        narration:
+          'Entregado por el módulo Pathfinder en julio de 1997, este rover de 10 kg recorrió unos 100 m analizando rocas. Hoy está aparcado para siempre junto a su módulo.',
+        scienceFact: 'Su última comunicación fue el 27 de septiembre de 1997.',
+        target: { kind: 'mission', missionId: 'sojourner' },
+      },
+      {
+        id: 'hw_spirit',
+        title: '2003 · Spirit · Gemelo del cráter Gusev',
+        nasaBadge: 'Lanzado 10 jun 2003 · Cráter Gusev',
+        narration:
+          'Diseñado para 90 soles, operó más de 6 años. Atrapado en arena blanda en "Troy", hoy es un monumento inactivo a la exploración marciana.',
+        scienceFact: 'Encontró sílice casi pura, señal de antiguos sistemas hidrotermales.',
+        target: { kind: 'mission', missionId: 'spirit' },
+      },
+      {
+        id: 'hw_opportunity',
+        title: '2003 · Opportunity · El maratonista',
+        nasaBadge: 'Lanzado 7 jul 2003 · Meridiani Planum',
+        narration:
+          'El gemelo de Spirit recorrió 45 km en casi 15 años. Una tormenta de polvo global lo dejó sin energía en junio de 2018 en el valle Perseverance.',
+        scienceFact: 'Halló esférulas de hematita ("arándanos"), prueba de agua líquida antigua.',
+        target: { kind: 'mission', missionId: 'opportunity' },
+      },
+      {
+        id: 'hw_phoenix',
+        title: '2007 · Phoenix · Hielo de agua en el Ártico',
+        nasaBadge: 'Lanzado 4 ago 2007 · Vastitas Borealis 68° N',
+        narration:
+          'Excavó el suelo ártico de Marte y vio sublimarse trozos de hielo de agua. El invierno polar lo cubrió de hielo de CO₂ y perdió la electricidad.',
+        scienceFact: 'Su última señal fue el 2 de noviembre de 2008.',
+        target: { kind: 'mission', missionId: 'phoenix' },
+      },
+      {
+        id: 'hw_dawn',
+        title: '2007 · Dawn · Órbita perpetua en Ceres',
+        nasaBadge: 'Lanzado 27 sep 2007 · Vesta → Ceres',
+        narration:
+          'Con motores iónicos cartografió Vesta y luego Ceres. Sin combustible desde 2018, permanece en una órbita estable y sin energía alrededor del planeta enano.',
+        scienceFact: 'Es la única nave que ha orbitado dos cuerpos del Cinturón de Asteroides.',
+        target: { kind: 'mission', missionId: 'dawn' },
+      },
+      {
+        id: 'hw_kepler',
+        title: '2009 · Kepler · Cazador de exoplanetas',
+        nasaBadge: 'Lanzado 7 mar 2009 · Órbita solar tras la Tierra',
+        narration:
+          'Vigiló más de 150.000 estrellas y confirmó más de 2.600 planetas. Sin combustible desde 2018, deriva en una órbita alrededor del Sol que sigue a la Tierra.',
+        scienceFact: 'Su órbita dura 372,5 días, por eso se queda cada año un poco más atrás de la Tierra.',
+        target: { kind: 'mission', missionId: 'kepler' },
+      },
+      {
+        id: 'hw_insight',
+        title: '2018 · InSight · Escuchando terremotos marcianos',
+        nasaBadge: 'Lanzado 5 may 2018 · Elysium Planitia',
+        narration:
+          'Su sismómetro registró más de 1.300 martemotos y reveló el núcleo líquido de Marte. El polvo cubrió sus paneles hasta dejarlo sin electricidad.',
+        scienceFact: 'Su último contacto fue el 15 de diciembre de 2022.',
+        target: { kind: 'mission', missionId: 'insight' },
+      },
+      {
+        id: 'hw_ingenuity',
+        title: '2020 · Ingenuity · Primer vuelo en otro planeta',
+        nasaBadge: 'Lanzado 30 jul 2020 · Valinor Hills, Jezero',
+        narration:
+          'Viajó con Perseverance y voló 72 veces. En su último aterrizaje dañó una pala del rotor y quedó como un artefacto estacionario en Valinor Hills.',
+        scienceFact: 'Voló en una atmósfera con solo el 1 % de la densidad de la terrestre.',
+        target: { kind: 'mission', missionId: 'ingenuity' },
+      },
+    ],
+  },
+  {
     id: 'solar_architecture',
     name: 'Gran Tour del Sistema Solar',
     subtitle: 'Escala real 1:215 · Datos abiertos NASA/JPL',

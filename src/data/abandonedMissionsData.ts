@@ -15,6 +15,7 @@ export type MissionDestinationGroup =
   | 'Mercurio'
   | 'Plutón'
   | 'Cometa 67P'
+  | 'Asteroides'
   | 'Espacio Profundo';
 
 export type CraftModelType =
@@ -27,6 +28,9 @@ export type CraftModelType =
   | 'lander_solar'
   | 'lander_phoenix'
   | 'lander_surveyor'
+  | 'lander_viking'
+  | 'package_alsep'
+  | 'heli_ingenuity'
   | 'lander_venera'
   | 'lander_huygens'
   | 'lander_philae'
@@ -39,7 +43,11 @@ export type CraftModelType =
   | 'probe_cassini'
   | 'probe_messenger'
   | 'probe_newhorizons'
-  | 'probe_voyager';
+  | 'probe_voyager'
+  | 'probe_pioneer'
+  | 'probe_dawn'
+  | 'probe_near'
+  | 'sat_kepler';
 
 export interface AbandonedMission {
   id: string;
@@ -70,6 +78,8 @@ export interface AbandonedMission {
   nasaQuery: string;
   accentColor: string;
   hasIngenuity?: boolean;
+  /** Estimated heliocentric distance (AU) for probes beyond the planets (late 2026) */
+  sunDistanceAu?: number;
 }
 
 export const ABANDONED_MISSIONS: AbandonedMission[] = [
@@ -283,6 +293,96 @@ export const ABANDONED_MISSIONS: AbandonedMission[] = [
       'Excavó directamente en el permafrost polar norte marciano y confirmó físicamente la presencia de hielo de agua superficial y percloratos en el suelo.',
     nasaQuery: 'Phoenix Mars Lander polar ice',
     accentColor: '#38BDF8',
+  },
+  {
+    id: 'viking1',
+    name: 'Viking 1 Lander',
+    agency: 'NASA / Langley / JPL',
+    category: 'lander',
+    categoryLabel: 'Lander',
+    missionRole: 'surface',
+    craftType: 'lander_viking',
+    targetBodyId: 'mars',
+    destinationGroup: 'Marte',
+    destinationLabel: 'Marte',
+    region: 'Chryse Planitia · Estación Memorial Thomas Mutch',
+    latDeg: 22.27,
+    lonDeg: 312.05,
+    launchYear: '1975',
+    launchDate: '20 ago 1975',
+    lastContactDate: '11 nov 1982',
+    operationalDuration: '2.245 soles (más de 6 años)',
+    status: 'Inactivo · Récord de duración hasta 2010',
+    whatItDid:
+      'Aterrizó el 20 de julio de 1976, tomó la primera fotografía desde la superficie de Marte, midió el clima diario y ejecutó los primeros experimentos biológicos en busca de vida.',
+    whyImportant:
+      'Primer módulo estadounidense en operar con éxito en Marte; sus datos de atmósfera y suelo guiaron cada misión marciana posterior.',
+    farewellMessage:
+      'Un comando de software erróneo apuntó su antena fuera de la Tierra en noviembre de 1982; MRO lo fotografió intacto donde aterrizó.',
+    legacySummary:
+      'Operó más de seis años con energía nuclear RTG, un récord en Marte que solo Opportunity superó.',
+    nasaQuery: 'Viking Lander 1 Chryse Planitia',
+    accentColor: '#FB923C',
+  },
+  {
+    id: 'viking2',
+    name: 'Viking 2 Lander',
+    agency: 'NASA / Langley / JPL',
+    category: 'lander',
+    categoryLabel: 'Lander',
+    missionRole: 'surface',
+    craftType: 'lander_viking',
+    targetBodyId: 'mars',
+    destinationGroup: 'Marte',
+    destinationLabel: 'Marte',
+    region: 'Utopia Planitia · Estación Memorial Gerald Soffen',
+    latDeg: 47.64,
+    lonDeg: 134.29,
+    launchYear: '1975',
+    launchDate: '9 sep 1975',
+    lastContactDate: '11 abr 1980',
+    operationalDuration: '1.281 soles (casi 4 años)',
+    status: 'Inactivo · Falla de baterías',
+    whatItDid:
+      'Aterrizó el 3 de septiembre de 1976 en las llanuras del norte, fotografió escarcha de agua sobre el suelo en invierno y repitió los experimentos biológicos de Viking 1.',
+    whyImportant:
+      'Junto a su gemelo dio a la ciencia dos estaciones meteorológicas simultáneas en Marte durante años y la primera imagen de hielo de agua en la superficie.',
+    farewellMessage:
+      'Sus baterías fallaron en abril de 1980; permanece exactamente donde aterrizó, a unos 6.500 km de Viking 1.',
+    legacySummary:
+      'Segunda estación de superficie de la era Viking y primera en ver escarcha marciana.',
+    nasaQuery: 'Viking Lander 2 Utopia Planitia frost',
+    accentColor: '#FDBA74',
+  },
+  {
+    id: 'ingenuity',
+    name: 'Helicóptero Ingenuity',
+    agency: 'NASA / JPL',
+    category: 'rover',
+    categoryLabel: 'Rover',
+    missionRole: 'surface',
+    craftType: 'heli_ingenuity',
+    targetBodyId: 'mars',
+    destinationGroup: 'Marte',
+    destinationLabel: 'Marte',
+    region: 'Valinor Hills · Neretva Vallis, cráter Jezero (≈18,5° N 77,3° E)',
+    latDeg: 18.5,
+    lonDeg: 77.32,
+    launchYear: '2020',
+    launchDate: '30 jul 2020',
+    lastContactDate: '18 ene 2024 · Vuelo 72',
+    operationalDuration: '72 vuelos en casi 3 años',
+    status: 'Inactivo · Estación meteorológica estacionaria',
+    whatItDid:
+      'Viajó bajo el vientre de Perseverance y el 19 de abril de 2021 realizó el primer vuelo propulsado y controlado en otro planeta; completó 72 vuelos y más de 17 km recorridos.',
+    whyImportant:
+      'Demostró que se puede volar en una atmósfera con apenas el 1 % de la densidad terrestre, abriendo la puerta a futuros exploradores aéreos.',
+    farewellMessage:
+      'En su vuelo 72 dañó una pala del rotor al aterrizar; sigue erguido en Valinor Hills registrando datos como una pequeña estación fija.',
+    legacySummary:
+      'Primera aeronave de otro mundo; Perseverance la fotografió en su aeródromo final en febrero de 2024.',
+    nasaQuery: 'Ingenuity Mars Helicopter',
+    accentColor: '#A3E635',
   },
   {
     id: 'mro',
@@ -626,6 +726,68 @@ export const ABANDONED_MISSIONS: AbandonedMission[] = [
     nasaQuery: 'Surveyor 3 Apollo 12 Moon',
     accentColor: '#BAE6FD',
   },
+  {
+    id: 'surveyor1',
+    name: 'Surveyor 1',
+    agency: 'NASA / JPL / Hughes',
+    category: 'lander',
+    categoryLabel: 'Lander',
+    missionRole: 'surface',
+    craftType: 'lander_surveyor',
+    targetBodyId: 'earth',
+    targetMoonId: 'luna',
+    destinationGroup: 'Luna',
+    destinationLabel: 'La Luna (Tierra)',
+    region: 'Oceanus Procellarum · Al norte del cráter Flamsteed',
+    latDeg: -2.474,
+    lonDeg: 316.661,
+    launchYear: '1966',
+    launchDate: '30 may 1966',
+    lastContactDate: '7 ene 1967',
+    operationalDuration: 'Más de 7 meses (6 días lunares)',
+    status: 'Inactivo · Primer aterrizaje suave de EE. UU.',
+    whatItDid:
+      'Se posó suavemente el 2 de junio de 1966 en Oceanus Procellarum y transmitió 11.240 fotografías de televisión del suelo y de sus propias patas hundidas apenas unos centímetros.',
+    whyImportant:
+      'Demostró que el regolito lunar podía sostener una nave pesada: la prueba directa que necesitaba el programa Apollo antes de enviar astronautas.',
+    farewellMessage:
+      'La primera nave estadounidense en aterrizar suavemente en otro mundo sigue de pie en el Océano de las Tormentas; LRO fotografió su sombra en 2009.',
+    legacySummary:
+      'Abrió la serie Surveyor (1, 3, 5, 6 y 7 aterrizaron con éxito) que certificó los sitios de aterrizaje de Apollo.',
+    nasaQuery: 'Surveyor 1 moon landing 1966',
+    accentColor: '#7DD3FC',
+  },
+  {
+    id: 'alsep_apollo12',
+    name: 'ALSEP · Estación científica Apollo 12',
+    agency: 'NASA / Bendix',
+    category: 'lander',
+    categoryLabel: 'Lander',
+    missionRole: 'surface',
+    craftType: 'package_alsep',
+    targetBodyId: 'earth',
+    targetMoonId: 'luna',
+    destinationGroup: 'Luna',
+    destinationLabel: 'La Luna (Tierra)',
+    region: 'Oceanus Procellarum · 130 m al noroeste del LM Intrepid',
+    latDeg: -3.0094,
+    lonDeg: 336.5741,
+    launchYear: '1969',
+    launchDate: '14 nov 1969',
+    lastContactDate: '30 sep 1977 · Red ALSEP apagada',
+    operationalDuration: 'Casi 8 años transmitiendo',
+    status: 'Inactivo · Retrorreflectores aún en uso (Apollo 11, 14 y 15)',
+    whatItDid:
+      'Alan Bean desplegó el 19 de noviembre de 1969 la primera estación ALSEP completa: sismómetro pasivo, magnetómetro, espectrómetro de viento solar e instrumentos de ionosfera, alimentados por un generador nuclear RTG.',
+    whyImportant:
+      'La red ALSEP de Apollo 12, 14, 15, 16 y 17 registró miles de sismos lunares y reveló la estructura interna de la Luna; los retrorreflectores láser aún miden la distancia Tierra-Luna al milímetro.',
+    farewellMessage:
+      'El 30 de septiembre de 1977 la NASA apagó las cinco estaciones por presupuesto; sus paneles, cables y el RTG siguen extendidos sobre el regolito.',
+    legacySummary:
+      'Primer observatorio geofísico de largo plazo instalado en otro mundo.',
+    nasaQuery: 'Apollo 12 ALSEP Alan Bean',
+    accentColor: '#FDE68A',
+  },
 
   // ================= TIERRA / ÓRBITA Y TELESCOPIOS ESPACIALES =================
   {
@@ -932,6 +1094,98 @@ export const ABANDONED_MISSIONS: AbandonedMission[] = [
     accentColor: '#E2B48D',
   },
   {
+    id: 'pioneer10',
+    name: 'Pioneer 10',
+    agency: 'NASA / Ames',
+    category: 'probe',
+    categoryLabel: 'Sonda',
+    missionRole: 'deepspace',
+    craftType: 'probe_pioneer',
+    targetBodyId: 'jupiter',
+    destinationGroup: 'Espacio Profundo',
+    destinationLabel: 'Espacio Profundo · ≈140 UA',
+    region: 'Rumbo a Aldebarán (Tauro) · Fuera de la heliosfera',
+    latDeg: 26.0,
+    lonDeg: 70.0,
+    launchYear: '1972',
+    launchDate: '3 mar 1972',
+    lastContactDate: '23 ene 2003',
+    operationalDuration: '30 años transmitiendo',
+    status: 'Inactivo · Deriva silenciosa interestelar',
+    whatItDid:
+      'Primera nave en cruzar el Cinturón de Asteroides y en visitar Júpiter (diciembre de 1973), midiendo sus cinturones de radiación y tomando las primeras imágenes de cerca.',
+    whyImportant:
+      'Abrió la ruta a los planetas exteriores y fue el primer objeto humano en superar la órbita de Neptuno; lleva la placa Pioneer con un mensaje para otras civilizaciones.',
+    farewellMessage:
+      'Su última señal, débil como un susurro, llegó el 23 de enero de 2003; tardará unos 2 millones de años en pasar cerca de Aldebarán.',
+    legacySummary:
+      'Pionera de la exploración del Sistema Solar exterior, hoy a unas 140 UA (estimación 2026).',
+    nasaQuery: 'Pioneer 10 Jupiter plaque',
+    sunDistanceAu: 140,
+    accentColor: '#FCD34D',
+  },
+  {
+    id: 'pioneer11',
+    name: 'Pioneer 11',
+    agency: 'NASA / Ames',
+    category: 'probe',
+    categoryLabel: 'Sonda',
+    missionRole: 'deepspace',
+    craftType: 'probe_pioneer',
+    targetBodyId: 'saturn',
+    destinationGroup: 'Espacio Profundo',
+    destinationLabel: 'Espacio Profundo · ≈119 UA',
+    region: 'Rumbo a la constelación del Águila · Fuera de la heliosfera',
+    latDeg: -8.0,
+    lonDeg: 280.0,
+    launchYear: '1973',
+    launchDate: '6 abr 1973',
+    lastContactDate: '30 sep 1995',
+    operationalDuration: '22 años transmitiendo',
+    status: 'Inactivo · Deriva silenciosa interestelar',
+    whatItDid:
+      'Sobrevoló Júpiter en 1974 y fue la primera nave en visitar Saturno (septiembre de 1979), descubriendo el anillo F y una nueva luna pequeña.',
+    whyImportant:
+      'Comprobó que una nave podía atravesar el plano de los anillos de Saturno de forma segura, despejando el camino para las Voyager.',
+    farewellMessage:
+      'Su generador nuclear se agotó y la NASA perdió contacto el 30 de septiembre de 1995; viaja en silencio hacia el Águila.',
+    legacySummary:
+      'Primera exploradora de Saturno, hoy a unas 119 UA (estimación 2026).',
+    nasaQuery: 'Pioneer 11 Saturn F ring',
+    sunDistanceAu: 119,
+    accentColor: '#FBBF24',
+  },
+  {
+    id: 'kepler',
+    name: 'Telescopio Espacial Kepler',
+    agency: 'NASA / Ames / Ball',
+    category: 'satellite',
+    categoryLabel: 'Satélite',
+    missionRole: 'deepspace',
+    craftType: 'sat_kepler',
+    targetBodyId: 'earth',
+    destinationGroup: 'Espacio Profundo',
+    destinationLabel: 'Órbita solar siguiendo a la Tierra',
+    region: 'Órbita heliocéntrica de 372,5 días · cada vez más atrás de la Tierra',
+    latDeg: -12.0,
+    lonDeg: 200.0,
+    launchYear: '2009',
+    launchDate: '7 mar 2009',
+    lastContactDate: '15 nov 2018 · Último comando',
+    operationalDuration: '9,6 años de observación',
+    status: 'Inactivo · Sin combustible, a la deriva',
+    whatItDid:
+      'Observó sin pausa más de 150.000 estrellas en Cygnus-Lyra y, tras perder dos ruedas de reacción, continuó como misión K2 a lo largo de la eclíptica.',
+    whyImportant:
+      'Confirmó más de 2.600 exoplanetas y demostró que hay más planetas que estrellas en nuestra galaxia, muchos del tamaño de la Tierra en zona habitable.',
+    farewellMessage:
+      'Se quedó sin combustible en octubre de 2018; recibió su última orden el 15 de noviembre y deriva sin energía en una órbita que trae y aleja la Tierra.',
+    legacySummary:
+      'El cazador de planetas que cambió nuestra visión de la galaxia.',
+    nasaQuery: 'Kepler space telescope exoplanets',
+    accentColor: '#C4B5FD',
+  },
+  {
     id: 'voyager1',
     name: 'Voyager 1',
     agency: 'NASA / JPL',
@@ -959,6 +1213,7 @@ export const ABANDONED_MISSIONS: AbandonedMission[] = [
     legacySummary:
       'Emisario interestelar a casi 23 horas-luz de distancia que sigue enviando datos de rayos cósmicos desde fuera de la burbuja solar.',
     nasaQuery: 'Voyager 1 Pale Blue Dot interstellar Golden Record',
+    sunDistanceAu: 172,
     accentColor: '#93C5FD',
   },
   {
@@ -989,6 +1244,68 @@ export const ABANDONED_MISSIONS: AbandonedMission[] = [
     legacySummary:
       'Única exploradora de los cuatro gigantes gaseosos y helados del Sistema Solar exterior.',
     nasaQuery: 'Voyager 2 Neptune Uranus Grand Tour spacecraft',
+    sunDistanceAu: 144,
     accentColor: '#60A5FA',
+  },
+  // ================= ASTEROIDES Y PLANETAS ENANOS =================
+  {
+    id: 'near_shoemaker',
+    name: 'NEAR Shoemaker',
+    agency: 'NASA / APL Johns Hopkins',
+    category: 'probe',
+    categoryLabel: 'Sonda',
+    missionRole: 'surface',
+    craftType: 'probe_near',
+    targetBodyId: 'eros',
+    destinationGroup: 'Asteroides',
+    destinationLabel: 'Asteroide 433 Eros',
+    region: 'Al sur de la depresión Himeros · 35,8° S 80,4° E',
+    latDeg: -35.78,
+    lonDeg: 80.42,
+    launchYear: '1996',
+    launchDate: '17 feb 1996',
+    lastContactDate: '28 feb 2001',
+    operationalDuration: '1 año en órbita + 16 días en la superficie',
+    status: 'Inactivo · Reposa sobre Eros',
+    whatItDid:
+      'Orbitó Eros durante un año desde el 14 de febrero de 2000 cartografiando su forma, composición y gravedad, y el 12 de febrero de 2001 descendió suavemente sobre él.',
+    whyImportant:
+      'Primera nave en orbitar un asteroide y primera en posarse en uno, aunque no fue diseñada para aterrizar; siguió transmitiendo desde la superficie.',
+    farewellMessage:
+      'Tras tocar suelo a 1,6 m/s envió datos de rayos gamma durante dos semanas; su última señal llegó el 28 de febrero de 2001.',
+    legacySummary:
+      'Precursora de las misiones de muestras de asteroides como Hayabusa y OSIRIS-REx.',
+    nasaQuery: 'NEAR Shoemaker Eros landing',
+    accentColor: '#D6B98C',
+  },
+  {
+    id: 'dawn',
+    name: 'Sonda Dawn',
+    agency: 'NASA / JPL / Orbital Sciences',
+    category: 'probe',
+    categoryLabel: 'Sonda',
+    missionRole: 'orbital',
+    craftType: 'probe_dawn',
+    targetBodyId: 'ceres',
+    destinationGroup: 'Asteroides',
+    destinationLabel: 'Órbita de Ceres',
+    region: 'Órbita elíptica estable sobre Ceres · Cinturón de asteroides',
+    latDeg: 20.0,
+    lonDeg: 240.0,
+    launchYear: '2007',
+    launchDate: '27 sep 2007',
+    lastContactDate: '31 oct 2018',
+    operationalDuration: '11 años (Vesta 2011-2012, Ceres 2015-2018)',
+    status: 'Inactivo · Órbita perpetua sin energía',
+    whatItDid:
+      'Con motores iónicos orbitó primero el asteroide Vesta y luego el planeta enano Ceres, cartografiando las sales brillantes del cráter Occator y el criovolcán Ahuna Mons.',
+    whyImportant:
+      'Única nave que ha orbitado dos cuerpos distintos más allá de la Tierra, gracias a su propulsión iónica de xenón.',
+    farewellMessage:
+      'Se quedó sin hidracina para orientarse en octubre de 2018; permanecerá décadas en una órbita estable alrededor de Ceres para no contaminarlo.',
+    legacySummary:
+      'Reveló que Ceres tuvo un océano y aún conserva salmueras bajo su corteza.',
+    nasaQuery: 'Dawn spacecraft Ceres Vesta',
+    accentColor: '#F472B6',
   },
 ];

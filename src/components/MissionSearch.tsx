@@ -79,6 +79,7 @@ const DESTINATIONS: Array<'Todos' | MissionDestinationGroup> = [
   'Mercurio',
   'Plutón',
   'Cometa 67P',
+  'Asteroides',
   'Espacio Profundo',
 ];
 

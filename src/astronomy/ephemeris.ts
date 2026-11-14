@@ -123,6 +123,16 @@ export const PLANET_ELEMENTS_J2000: Record<string, KeplerElementsJ2000> = {
     wBar: 62.9,
     Omega: 50.147,
   },
+  eros: {
+    // 433 Eros, JPL SBDB osculating elements (epoch JD 2461200.5) propagated back to J2000
+    a: 1.458243717,
+    e: 0.222877963,
+    I: 10.828544,
+    L0: 181.469458,
+    n: 0.5597046347,
+    wBar: 123.186103,
+    Omega: 304.267971,
+  },
   ceres: {
     a: 2.7675,
     e: 0.0758,
@@ -242,6 +252,7 @@ const PRIME_MERIDIAN_J2000: Record<string, { w0: number; wDot: number }> = {
   neptune: { w0: 253.18, wDot: 536.3128492 },
   comet67p: { w0: 45.0, wDot: 696.7 },
   ceres: { w0: 95.2, wDot: 952.1532 },
+  eros: { w0: 326.07, wDot: 1639.38864745 }, // IAU WGCCRE
   pluto: { w0: 237.3, wDot: -56.3625 }, // Retrograde 6.39 days
   eris: { w0: 120.0, wDot: 333.59 },
 };

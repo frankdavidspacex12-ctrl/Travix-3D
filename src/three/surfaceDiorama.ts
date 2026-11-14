@@ -154,6 +154,12 @@ const MISSION_GLB_MAP: Partial<Record<string, NasaGlbSpec>> = {
     offset: [1.7, 2.55, -1.35],
     keepFallback: true, // Keep Philae lander sitting on Comet 67P below Rosetta!
   },
+  ingenuity: {
+    path: '/models/ingenuity.glb',
+    targetMaxDim: 1.25,
+    anchor: 'ground',
+    rotY: Math.PI * 0.2,
+  },
   voyager1: {
     path: '/models/voyager.glb',
     targetMaxDim: 5.1,
@@ -476,6 +482,31 @@ function getWorldTheme(mission: AbandonedMission): WorldVisualTheme {
       terrainRoughness: 0.95,
       amplitude: 1.8,
       craterDepth: 2.1,
+      hasTracks: false,
+      isOrbital,
+      isDeepSpace,
+      pbrWorld: 'mercury',
+    };
+  }
+
+  if (mission.targetBodyId === 'eros') {
+    // 433 Eros: airless S-type regolith, boulder fields, black sky, harsh unfiltered sunlight
+    return {
+      terrainBase: 0x8a7458,
+      terrainAccent: 0x5a4a37,
+      rockColor: 0x6e5c46,
+      skyZenith: 0x000000,
+      skyHorizon: 0x000000,
+      fogColor: null,
+      fogDensity: 0,
+      sunColor: 0xfff6e8,
+      sunIntensity: 2.0,
+      ambientSky: 0x221d18,
+      ambientGround: 0x14110e,
+      ambientIntensity: 0.16,
+      terrainRoughness: 0.97,
+      amplitude: 2.4,
+      craterDepth: 1.6,
       hasTracks: false,
       isOrbital,
       isDeepSpace,
@@ -1742,6 +1773,188 @@ function buildSpacecraftModel(
     povOrigin = new THREE.Vector3(0.45, -0.25, -0.82);
     povLook = new THREE.Vector3(0.2, -6.0, -14.0);
     camPos = new THREE.Vector3(-3.2, 1.6, 3.4);
+    camTarget = new THREE.Vector3(0, 0, 0);
+  } else if (craftType === 'lander_viking') {
+    // Viking Lander: hexagonal aluminium body, 3 legs, twin SNAP-19 RTGs with wind covers,
+    // S-band high-gain dish on its mast, twin facsimile cameras, meteorology boom, sampler arm
+    const vk = craftFallbackGroup;
+    addCyl(0.82, 0.82, 0.42, silverMetal, 0, 0.82, 0, 0, 0, 0, 6, vk);
+    addCyl(0.84, 0.84, 0.05, whitePanelMat, 0, 1.05, 0, 0, 0, 0, 6, vk);
+    for (const side of [-1, 1]) {
+      // RTG with finned wind cover
+      addCyl(0.17, 0.17, 0.42, darkTitanium, side * 0.48, 1.3, 0.28, 0, 0, 0, 12, vk);
+      addBox(0.44, 0.38, 0.03, darkTitanium, side * 0.48, 1.3, 0.28, 0, 0, 0, vk);
+    }
+    addCyl(0.035, 0.035, 0.9, silverMetal, -0.36, 1.5, -0.32, 0, 0, 0, 10, vk);
+    addCyl(0.5, 0.06, 0.12, whitePanelMat, -0.36, 1.98, -0.32, 0.6, 0, 0, 22, vk);
+    // Twin facsimile camera turrets
+    for (const cx of [-0.28, 0.3]) {
+      addCyl(0.1, 0.1, 0.42, whitePanelMat, cx, 1.3, -0.62, 0, 0, 0, 14, vk);
+      addCyl(0.04, 0.04, 0.06, lensGlassMat, cx, 1.42, -0.72, Math.PI / 2, 0, 0, 10, vk);
+    }
+    // Meteorology boom
+    addStrut(new THREE.Vector3(0.6, 1.05, 0.1), new THREE.Vector3(1.1, 1.7, 0.3), 0.022, silverMetal, vk, 8);
+    addBox(0.16, 0.06, 0.1, darkTitanium, 1.12, 1.72, 0.3, 0, 0, 0, vk);
+    // Surface sampler arm reaching into its trench
+    addBox(0.07, 0.07, 1.2, silverMetal, 0.12, 0.62, -1.15, 0.38, 0, 0, vk);
+    addBox(0.14, 0.1, 0.2, darkTitanium, 0.12, 0.22, -1.72, 0.3, 0, 0, vk);
+    for (let i = 0; i < 3; i++) {
+      const a = (i * Math.PI * 2) / 3 + Math.PI / 6;
+      const lx = Math.cos(a) * 1.25;
+      const lz = Math.sin(a) * 1.25;
+      addCyl(0.2, 0.22, 0.06, silverMetal, lx, 0.03, lz, 0, 0, 0, 16, vk);
+      addStrut(new THREE.Vector3(lx, 0.06, lz), new THREE.Vector3(Math.cos(a) * 0.7, 0.72, Math.sin(a) * 0.7), 0.04, silverMetal, vk, 10);
+      addStrut(new THREE.Vector3(lx * 0.85, 0.2, lz * 0.85), new THREE.Vector3(Math.cos(a + 0.45) * 0.62, 0.66, Math.sin(a + 0.45) * 0.62), 0.02, darkTitanium, vk, 8);
+    }
+    povOrigin = new THREE.Vector3(-0.28, 1.45, -0.72);
+    camPos = new THREE.Vector3(-3.4, 2.1, 4.0);
+    camTarget = new THREE.Vector3(0, 0.95, -0.4);
+  } else if (craftType === 'package_alsep') {
+    // Apollo 12 ALSEP: Central Station + sunshade + helical antenna, SNAP-27 RTG, Passive Seismic
+    // Experiment under its thermal shroud, Lunar Surface Magnetometer and Solar Wind Spectrometer
+    const al = craftFallbackGroup;
+    addBox(0.62, 0.3, 0.44, goldFoil, 0, 0.2, 0, 0, 0, 0, al);
+    addBox(0.78, 0.02, 0.6, silverMetal, 0, 0.62, 0, 0, 0, 0, al);
+    for (const [sx, sz] of [[-0.36, -0.27], [0.36, -0.27], [-0.36, 0.27], [0.36, 0.27]]) {
+      addCyl(0.012, 0.012, 0.28, silverMetal, sx, 0.48, sz, 0, 0, 0, 6, al);
+    }
+    addCyl(0.03, 0.03, 0.62, silverMetal, 0.2, 0.86, 0.08, 0.5, 0, 0, 8, al);
+    // SNAP-27 RTG with radial cooling fins, 3 m away
+    addCyl(0.16, 0.16, 0.46, darkTitanium, -2.6, 0.23, 0.6, 0, 0, 0, 16, al);
+    for (let f = 0; f < 8; f++) {
+      const a = (f * Math.PI) / 4;
+      addBox(0.28, 0.42, 0.015, darkTitanium, -2.6 + Math.cos(a) * 0.14, 0.23, 0.6 + Math.sin(a) * 0.14, 0, -a, 0, al);
+    }
+    // Passive Seismic Experiment: drum + aluminised mylar skirt laid on the regolith
+    addCyl(0.62, 0.62, 0.012, silverMetal, 1.9, 0.01, -1.3, 0, 0, 0, 28, al);
+    addCyl(0.15, 0.17, 0.36, silverMetal, 1.9, 0.19, -1.3, 0, 0, 0, 16, al);
+    // Lunar Surface Magnetometer: three booms with sensor heads
+    for (let b = 0; b < 3; b++) {
+      const a = (b * Math.PI * 2) / 3;
+      addStrut(new THREE.Vector3(-1.4, 0.32, -1.6), new THREE.Vector3(-1.4 + Math.cos(a) * 0.8, 0.6, -1.6 + Math.sin(a) * 0.8), 0.015, silverMetal, al, 6);
+      addCyl(0.05, 0.05, 0.12, whitePanelMat, -1.4 + Math.cos(a) * 0.8, 0.6, -1.6 + Math.sin(a) * 0.8, 0, 0, Math.PI / 2, 10, al);
+    }
+    addBox(0.26, 0.22, 0.22, goldFoil, -1.4, 0.22, -1.6, 0, 0, 0, al);
+    // Solar Wind Spectrometer on its legs
+    addBox(0.3, 0.24, 0.3, whitePanelMat, 1.3, 0.42, 1.25, 0, 0, 0, al);
+    for (const [lx, lz] of [[-0.12, -0.12], [0.12, -0.12], [-0.12, 0.12], [0.12, 0.12]]) {
+      addCyl(0.012, 0.012, 0.32, silverMetal, 1.3 + lx, 0.16, 1.25 + lz, 0, 0, 0, 6, al);
+    }
+    // Flat ribbon cables running to the Central Station
+    addBox(2.4, 0.006, 0.025, darkTitanium, -1.3, 0.004, 0.3, 0, -0.12, 0, al);
+    addBox(2.2, 0.006, 0.025, darkTitanium, 0.95, 0.004, -0.65, 0, 0.6, 0, al);
+    addBox(1.6, 0.006, 0.025, darkTitanium, 0.65, 0.004, 0.62, 0, -0.75, 0, al);
+    povOrigin = new THREE.Vector3(0, 0.9, 1.2);
+    povLook = new THREE.Vector3(0, 0.4, -10.0);
+    camPos = new THREE.Vector3(-3.6, 2.4, 4.4);
+    camTarget = new THREE.Vector3(-0.2, 0.25, -0.2);
+  } else if (craftType === 'heli_ingenuity') {
+    // Ingenuity parked at Valinor Hills: rotors stopped, one blade tip broken on flight 72
+    const hg = craftFallbackGroup;
+    addBox(0.2, 0.18, 0.2, goldFoil, 0, 0.36, 0, 0, 0, 0, hg);
+    addBox(0.42, 0.02, 0.18, solarArrayMat, 0, 0.66, 0, 0, 0, 0, hg);
+    addCyl(0.02, 0.02, 0.36, darkTitanium, 0, 0.5, 0, 0, 0, 0, 10, hg);
+    for (let i = 0; i < 4; i++) {
+      const a = (i * Math.PI) / 2 + Math.PI / 4;
+      addStrut(new THREE.Vector3(Math.cos(a) * 0.08, 0.3, Math.sin(a) * 0.08), new THREE.Vector3(Math.cos(a) * 0.3, 0.0, Math.sin(a) * 0.3), 0.009, darkTitanium, hg, 6);
+    }
+    addBox(1.2, 0.012, 0.07, darkTitanium, 0, 0.6, 0, 0, 0.4, 0, hg);
+    addBox(0.92, 0.012, 0.07, darkTitanium, -0.14, 0.55, 0.06, 0, -0.9, 0.03, hg);
+    povOrigin = new THREE.Vector3(0, 0.32, -0.12);
+    povLook = new THREE.Vector3(0, 0.2, -10.0);
+    camPos = new THREE.Vector3(-1.5, 0.95, 1.9);
+    camTarget = new THREE.Vector3(0, 0.32, 0);
+  } else if (craftType === 'probe_pioneer') {
+    // Pioneer 10/11: 2.74 m high-gain dish, hexagonal equipment compartment, two RTG trusses,
+    // magnetometer boom and the gold-anodised Pioneer plaque on the antenna struts
+    const pn = craftFallbackGroup;
+    idleFloatGroup = pn;
+    addCyl(1.42, 0.2, 0.36, whitePanelMat, 0, 0, -0.2, -Math.PI / 2, 0, 0, 30, pn);
+    addCyl(0.62, 0.62, 0.38, goldFoil, 0, 0, 0.32, Math.PI / 2, 0, 0, 6, pn);
+    addCyl(0.035, 0.05, 0.62, silverMetal, 0, 0, -0.72, Math.PI / 2, 0, 0, 10, pn);
+    for (const side of [-1, 1]) {
+      const a = side > 0 ? 0.35 : Math.PI + 0.35;
+      const end = new THREE.Vector3(Math.cos(a) * 2.2, Math.sin(a) * 2.2, 0.45);
+      addStrut(new THREE.Vector3(Math.cos(a) * 0.55, Math.sin(a) * 0.55, 0.35), end, 0.025, silverMetal, pn, 8);
+      addCyl(0.12, 0.12, 0.5, darkTitanium, end.x, end.y, end.z, 0, 0, a + Math.PI / 2, 12, pn);
+    }
+    addStrut(new THREE.Vector3(0, -0.55, 0.35), new THREE.Vector3(0, -3.6, 0.6), 0.015, silverMetal, pn, 6);
+    addBox(0.3, 0.2, 0.012, goldFoil, 0.42, 0.42, 0.06, 0, 0, 0, pn);
+    for (let r = 0; r < 3; r++) {
+      const wGeo = new THREE.RingGeometry(0.45, 0.51, 32);
+      const wMat = new THREE.MeshBasicMaterial({
+        color: 0xfcd34d,
+        transparent: true,
+        opacity: 0.4,
+        side: THREE.DoubleSide,
+        depthWrite: false,
+        toneMapped: false,
+      });
+      const wMesh = new THREE.Mesh(wGeo, wMat);
+      wMesh.position.set(0, 0, -0.65);
+      groundExtrasGroup.add(wMesh);
+      disposables.push(wGeo, wMat);
+      rfWaveRings.push({ mesh: wMesh, mat: wMat, phase: r / 3 });
+    }
+    povOrigin = new THREE.Vector3(0, 0.1, -0.9);
+    povLook = new THREE.Vector3(0, 0.1, -16.0);
+    camPos = new THREE.Vector3(3.6, 1.8, 4.2);
+    camTarget = new THREE.Vector3(0, 0, 0);
+  } else if (craftType === 'probe_dawn') {
+    // Dawn: box bus, two 8.3 m solar wings (~20 m span), 1.5 m dish, three xenon ion thrusters
+    const dw = craftFallbackGroup;
+    idleFloatGroup = dw;
+    addBox(1.0, 0.82, 1.1, goldFoil, 0, 0, 0, 0, 0, 0, dw);
+    for (const side of [-1, 1]) {
+      addBox(0.5, 0.03, 0.06, silverMetal, side * 0.75, 0, 0, 0, 0, 0, dw);
+      addBox(3.9, 0.03, 0.95, solarArrayMat, side * 2.95, 0, 0, 0.12, 0, 0, dw);
+    }
+    addCyl(0.62, 0.1, 0.14, whitePanelMat, 0.15, 0.52, 0.1, 0.25, 0, 0, 24, dw);
+    for (const tx of [-0.28, 0, 0.28]) {
+      addCyl(0.13, 0.16, 0.14, copperMat, tx, -0.48, 0.25, 0, 0, 0, 16, dw);
+    }
+    addCyl(0.07, 0.07, 0.22, lensGlassMat, -0.3, -0.1, -0.6, Math.PI / 2, 0, 0, 12, dw);
+    povOrigin = new THREE.Vector3(-0.3, -0.1, -0.75);
+    povLook = new THREE.Vector3(0, -10.0, -8.0);
+    camPos = new THREE.Vector3(-4.6, 2.4, 5.4);
+    camTarget = new THREE.Vector3(0, 0, 0);
+  } else if (craftType === 'probe_near') {
+    // NEAR Shoemaker resting on Eros: octagonal bus, four fixed solar panels, 1.5 m dish;
+    // it settled tilted on two panel edges and the bus, never designed to land
+    const nr = new THREE.Group();
+    nr.position.set(0, 0.55, 0);
+    nr.rotation.set(-0.55, 0.3, 0.18);
+    craftFallbackGroup.add(nr);
+    addCyl(0.62, 0.62, 1.1, goldFoil, 0, 0, 0, 0, 0, 0, 8, nr);
+    addCyl(0.64, 0.64, 0.04, whitePanelMat, 0, 0.56, 0, 0, 0, 0, 8, nr);
+    addCyl(0.62, 0.1, 0.14, whitePanelMat, 0, 0.66, 0, 0, 0, 0, 24, nr);
+    for (let i = 0; i < 4; i++) {
+      const a = (i * Math.PI) / 2;
+      const panel = new THREE.Group();
+      panel.rotation.y = a;
+      nr.add(panel);
+      addBox(1.3, 0.03, 0.95, solarArrayMat, 1.3, 0.48, 0, 0, 0, 0, panel);
+    }
+    addCyl(0.1, 0.1, 0.2, lensGlassMat, 0.35, -0.6, 0.2, 0, 0, 0, 12, nr);
+    povOrigin = new THREE.Vector3(0.35, 0.4, -0.6);
+    povLook = new THREE.Vector3(0.5, 0.2, -10.0);
+    camPos = new THREE.Vector3(-3.4, 2.2, 4.0);
+    camTarget = new THREE.Vector3(0, 0.45, 0);
+  } else if (craftType === 'sat_kepler') {
+    // Kepler: 1.4 m Schmidt photometer barrel with slanted sun shade, fixed solar array on the
+    // sun side, hexagonal spacecraft bus and two medium/low gain antennas
+    const kp = craftFallbackGroup;
+    idleFloatGroup = kp;
+    addCyl(0.85, 0.85, 0.5, darkTitanium, 0, -1.25, 0, 0, 0, 0, 6, kp);
+    addCyl(0.72, 0.72, 2.3, silverMetal, 0, 0.15, 0, 0, 0, 0, 28, kp);
+    addCyl(0.74, 0.74, 0.08, goldFoil, 0, -0.95, 0, 0, 0, 0, 28, kp);
+    addBox(1.6, 0.03, 1.5, silverMetal, 0, 1.42, -0.18, 0.55, 0, 0, kp);
+    addCyl(0.66, 0.66, 0.04, lensGlassMat, 0, 1.2, 0, 0, 0, 0, 28, kp);
+    addBox(2.4, 3.0, 0.04, solarArrayMat, 0, 0.0, 1.05, 0.12, 0, 0, kp);
+    addCyl(0.26, 0.05, 0.08, whitePanelMat, 0.75, -1.45, -0.4, 0.5, 0, 0, 18, kp);
+    povOrigin = new THREE.Vector3(0, 1.5, 0);
+    povLook = new THREE.Vector3(0, 18.0, -4.0);
+    camPos = new THREE.Vector3(-4.6, 1.6, -3.8);
     camTarget = new THREE.Vector3(0, 0, 0);
   } else {
     // Cassini / MESSENGER

@@ -4,6 +4,7 @@ export type CelestialBodyId =
   | 'venus'
   | 'earth'
   | 'mars'
+  | 'eros'
   | 'ceres'
   | 'comet67p'
   | 'jupiter'
@@ -87,6 +88,11 @@ export interface CelestialBodyData {
     ringColorMap?: string;
     ringAlphaMap?: string;
   };
+  /**
+   * Non-spherical bodies: semi-axis multipliers (x, y = spin axis, z) applied to the
+   * visualRadius sphere. Surface beacons are projected onto the same ellipsoid.
+   */
+  shapeScale?: [number, number, number];
   rings?: {
     innerMultiplier: number;
     outerMultiplier: number;
@@ -294,6 +300,37 @@ export const CELESTIAL_BODIES: CelestialBodyData[] = [
         textureUrl: `${MOONS_LOCAL_BASE}/deimos.jpg`,
       },
     ],
+  },
+  {
+    id: 'eros',
+    name: 'Eros',
+    classification: 'Asteroide cercano a la Tierra · Tipo S',
+    description:
+      'El asteroide 433 Eros, una roca alargada de 34 km que cruza la órbita de Marte (1,13–1,78 UA). En febrero de 2001 la sonda NEAR Shoemaker se posó en su superficie, donde aún reposa.',
+    accentColor: '#C8A27A',
+    visualRadius: 0.2,
+    shapeScale: [1, 0.36, 0.38],
+    semiMajorAxisAu: 1.458,
+    axialTiltDeg: 89.0,
+    orbitalPeriodDays: 643.2,
+    rotationPeriodHours: 5.27,
+    cameraDistanceFactor: 4.2,
+    stats: {
+      distanceAu: '1,13–1,78 UA',
+      diameterKm: '34,4 × 11,2 × 11,2 km',
+      orbitalPeriod: '1,76 años',
+      dayLength: '5 h 16 min',
+      temperature: '−150 a +100 °C',
+      moonsCount: '0',
+      gravity: '≈0,006 m/s²',
+      escapeVelocity: '≈0,01 km/s',
+      atmosphere: 'Ninguna',
+    },
+    textures: {
+      // No global Eros mosaic ships with the app: Deimos' cratered regolith is the closest stand-in.
+      map: `${MOONS_LOCAL_BASE}/deimos.jpg`,
+    },
+    moons: [],
   },
   {
     id: 'ceres',

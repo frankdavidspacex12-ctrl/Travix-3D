@@ -1027,6 +1027,250 @@ const OFFLINE_NASA_CATALOG: Record<string, OfflineNasaPhoto[]> = {
       "instrument": "JPL",
       "url": "/nasa-photos/nebula_helix/2.jpg"
     }
+  ],
+  "surveyor1": [
+    {
+      "nasaId": "PIA02976",
+      "title": "Surveyor 1 Shadow",
+      "description": "Image of Surveyor 1 shadow against the lunar surface in the late lunar afternoon, with the horizon at the upper right. Surveyor 1, the first of the Surveyor missions to make a successful soft landing, proved the spacecraft design and landing technique",
+      "dateCreated": "2000-11-04",
+      "instrument": "JPL",
+      "url": "/nasa-photos/surveyor1/0.jpg"
+    }
+  ],
+  "alsep_apollo12": [
+    {
+      "nasaId": "as12-47-6919",
+      "title": "Astronaut Alan Bean deploys ALSEP during first Apollo 12 EVA on moon",
+      "description": "AS12-47-6919 (19 Nov. 1969) --- Astronaut Alan L. Bean, lunar module pilot, deploys components of the Apollo Lunar Surface Experiments Package (ALSEP) during the first Apollo 12 extravehicular activity (EVA) on the moon. The photo was made by astronaut Charles Conrad Jr., command",
+      "dateCreated": "1969-11-19",
+      "instrument": "JSC",
+      "url": "/nasa-photos/alsep_apollo12/0.jpg"
+    },
+    {
+      "nasaId": "as12-47-6918",
+      "title": "Apollo 12 Mission image - View of part of the deployed Apollo Lunar Surface Experiment Package (ALSEP)",
+      "description": "AS12-47-6918 (19 Nov. 1969) --- Astronaut Alan L. Bean, lunar module pilot, took this photograph of three of the components of the Apollo Lunar Surface Experiments Package (ALSEP) which was deployed on the moon during the first Apollo 12 extravehicular activity (EVA). The Passive",
+      "dateCreated": "1969-11-19",
+      "instrument": "JSC",
+      "url": "/nasa-photos/alsep_apollo12/1.jpg"
+    },
+    {
+      "nasaId": "as12-46-6813",
+      "title": "Astronaut Alan Bean deploys Lunar Surface Magnetometer on lunar surface",
+      "description": "Astronaut Alan L. Bean, lunar module pilot, deploys the Lunar Surface Magnetometer (LSM) during the first Apollo 12 extravehicular activity on the Moon. The LSM is a component of the Apollo Lunar Surface Experiments Package (ALSEP). The Lunar Module can be seen in the left backgr",
+      "dateCreated": "1969-11-19",
+      "instrument": "JSC",
+      "url": "/nasa-photos/alsep_apollo12/2.jpg"
+    }
+  ],
+  "pioneer10": [
+    {
+      "nasaId": "ARC-1972-AC72-2135",
+      "title": "ARC-1972-AC72-2135",
+      "description": "PIONEER F (PIONEER-10) SPACECRAFT AT CAPE KENNEDY BEING READIED FOR MISSION (SHOWS THE POSITION OF THE PIONEER INTERSTALLER PLAQUE)",
+      "dateCreated": "1972-02-26",
+      "instrument": "ARC",
+      "url": "/nasa-photos/pioneer10/0.jpg"
+    },
+    {
+      "nasaId": "ARC-1973-AC73-9279",
+      "title": "ARC-1973-AC73-9279",
+      "description": "Photograph by Pioneer 10 Ganymede as seen by Pioneer 10",
+      "dateCreated": "1973-07-01",
+      "instrument": "ARC",
+      "url": "/nasa-photos/pioneer10/1.jpg"
+    },
+    {
+      "nasaId": "ARC-1973-AC73-9019",
+      "title": "ARC-1973-AC73-9019",
+      "description": "PIONEER 10 SPACECRAFT FINAL ASSEMBLY AT TRW (TRW SYSTEMS GROUP, REDONDO BEACH, CALIFORNIA DESIGNED AND FABRICATED THE PIONEER SPACECRAFT)",
+      "dateCreated": "1973-10-19",
+      "instrument": "ARC",
+      "url": "/nasa-photos/pioneer10/2.jpg"
+    }
+  ],
+  "pioneer11": [
+    {
+      "nasaId": "9139575",
+      "title": "Launch Vehicles",
+      "description": "The launch of the Atlas-Centaur carrying the Pioneer G (11) spacecraft on April 5, 1973. The objects of this flight was to explore the planet Jupiter and its environment.",
+      "dateCreated": "1973-04-15",
+      "instrument": "MSFC",
+      "url": "/nasa-photos/pioneer11/0.jpg"
+    },
+    {
+      "nasaId": "ARC-1982-AC82-0178",
+      "title": "ARC-1982-AC82-0178",
+      "description": "Artist: Fornalski Pioneer Spacecraft Composite 'The Pioneer Family' Probes 6-9, 10, 11 and Venus Orbiter and Multiprobe or Bus (12-13)",
+      "dateCreated": "1982-03-11",
+      "instrument": "ARC",
+      "url": "/nasa-photos/pioneer11/1.jpg"
+    },
+    {
+      "nasaId": "ARC-1972-AC72-1338",
+      "title": "ARC-1972-AC72-1338",
+      "description": "Pioneer F/G Plaque: Pioneer 10 the first spacecraft to leave our solar system carries a message to other worlds. The plaque was designed by Drs. Carl Sagan and Frank Drake, the artwork was prepared by Linda Salzman Sagan.",
+      "dateCreated": "1972-01-31",
+      "instrument": "ARC",
+      "url": "/nasa-photos/pioneer11/2.jpg"
+    }
+  ],
+  "viking1": [
+    {
+      "nasaId": "PIA00563",
+      "title": "First Color Image From Viking Lander 1",
+      "description": "First Color Image From Viking Lander 1",
+      "dateCreated": "1997-02-28",
+      "instrument": "JPL",
+      "url": "/nasa-photos/viking1/0.jpg"
+    },
+    {
+      "nasaId": "PIA01881",
+      "title": "Viking Lander 1 Thomas A. Mutch Memorial Station Imaged from Orbit",
+      "description": "Viking Lander 1 Thomas A. Mutch Memorial Station Imaged from Orbit",
+      "dateCreated": "2006-12-05",
+      "instrument": "JPL",
+      "url": "/nasa-photos/viking1/1.jpg"
+    },
+    {
+      "nasaId": "PIA00565",
+      "title": "Viking Lander 1 U.S. Flag on Mars Surface",
+      "description": "Viking Lander 1 U.S. Flag on Mars Surface",
+      "dateCreated": "1997-02-28",
+      "instrument": "JPL",
+      "url": "/nasa-photos/viking1/2.jpg"
+    }
+  ],
+  "viking2": [
+    {
+      "nasaId": "PIA00396",
+      "title": "Viking Lander 2 First Picture On The Surface Of Mars",
+      "description": "Viking Lander 2 First Picture On The Surface Of Mars http://photojournal.jpl.nasa.gov/catalog/PIA00396",
+      "dateCreated": "1996-12-12",
+      "instrument": "JPL",
+      "url": "/nasa-photos/viking2/0.jpg"
+    },
+    {
+      "nasaId": "PIA00573",
+      "title": "Frost at the Viking Lander 2 Site",
+      "description": "Frost at the Viking Lander 2 Site",
+      "dateCreated": "1997-02-28",
+      "instrument": "JPL",
+      "url": "/nasa-photos/viking2/1.jpg"
+    },
+    {
+      "nasaId": "PIA01882",
+      "title": "Viking Lander 2 Gerald A. Soffen Memorial Station Imaged from Orbit",
+      "description": "Viking Lander 2 Gerald A. Soffen Memorial Station Imaged from Orbit",
+      "dateCreated": "2006-12-05",
+      "instrument": "JPL",
+      "url": "/nasa-photos/viking2/2.jpg"
+    }
+  ],
+  "near_shoemaker": [
+    {
+      "nasaId": "PIA02473",
+      "title": "Eros Global Morphology",
+      "description": "This image from NASA NEAR Shoemaker is of processed data showing Eros from slightly different perspectives is combined as anaglyphs or stereo pairs. 3D glasses are necessary to view this image.",
+      "dateCreated": "2000-05-07",
+      "instrument": "JPL",
+      "url": "/nasa-photos/near_shoemaker/0.jpg"
+    },
+    {
+      "nasaId": "PIA02951",
+      "title": "Eros: Closest View Yet! 36 km altitude",
+      "description": "Eros: Closest View Yet! 36 km altitude",
+      "dateCreated": "2000-08-05",
+      "instrument": "JPL",
+      "url": "/nasa-photos/near_shoemaker/1.jpg"
+    },
+    {
+      "nasaId": "PIA03126",
+      "title": "Multiple Horizons",
+      "description": "Multiple Horizons",
+      "dateCreated": "2001-02-17",
+      "instrument": "JPL",
+      "url": "/nasa-photos/near_shoemaker/2.jpg"
+    }
+  ],
+  "dawn": [
+    {
+      "nasaId": "PIA12031",
+      "title": "Dawn Spacecraft Orbiting Ceres Artist Concept",
+      "description": "Artist concept of the Dawn spacecraft orbiting Ceres.",
+      "dateCreated": "2009-05-29",
+      "instrument": "JPL",
+      "url": "/nasa-photos/dawn/0.jpg"
+    },
+    {
+      "nasaId": "PIA19167",
+      "title": "Ceres From Dawn, Processed",
+      "description": "This processed image, taken Jan. 13, 2015, shows the dwarf planet Ceres as seen from the Dawn spacecraft. The image hints at craters on the surface of Ceres. Dawn framing camera took this image at 238,000 miles 383,000 kilometers from Ceres. http://photojournal.jpl.nasa.gov/cata",
+      "dateCreated": "2015-01-19",
+      "instrument": "JPL",
+      "url": "/nasa-photos/dawn/1.jpg"
+    },
+    {
+      "nasaId": "PIA20349",
+      "title": "Ahuna Mons Perspective View",
+      "description": "This side-perspective view of Ceres mysterious mountain Ahuna Mons was made with images from NASA Dawn spacecraft. Dawn took these images in December 2015.",
+      "dateCreated": "2016-03-07",
+      "instrument": "JPL",
+      "url": "/nasa-photos/dawn/2.jpg"
+    }
+  ],
+  "kepler": [
+    {
+      "nasaId": "ACD18-0204-002",
+      "title": "A New View of Our Starry Night",
+      "description": "After nine years in deep space collecting data that revealed our night sky to be filled with billions of hidden planets, more planets even than stars, NASA’s Kepler space telescope has run out of fuel needed for further science operations. Illustration depicting the Kepler spacec",
+      "dateCreated": "2018-10-30",
+      "instrument": "ARC",
+      "url": "/nasa-photos/kepler/0.jpg"
+    },
+    {
+      "nasaId": "KSC-2009-1431",
+      "title": "KSC-2009-1431",
+      "description": "CAPE CANAVERAL, Fla. – NASA's Kepler spacecraft, that will be launched in March aboard a United Launch Alliance Delta II rocket, is ready for the media opportunity Jan. 30. Visible are the solar arrays on top and the high-gain antenna at lower left. The event, being held at th",
+      "dateCreated": "2009-01-30",
+      "instrument": "KSC",
+      "url": "/nasa-photos/kepler/1.jpg"
+    },
+    {
+      "nasaId": "PIA11984",
+      "title": "Kepler Diamond Mine of Stars",
+      "description": "This image from NASA Kepler mission shows the telescope full field of view an expansive star-rich patch of sky in the constellations Cygnus and Lyra stretching across 100 square degrees, or the equivalent of two side-by-side dips of the Big Dipper. A cluster of stars, called NGC",
+      "dateCreated": "2009-04-16",
+      "instrument": "JPL",
+      "url": "/nasa-photos/kepler/2.jpg"
+    }
+  ],
+  "ingenuity": [
+    {
+      "nasaId": "PIA23882",
+      "title": "NASA's Ingenuity Mars Helicopter",
+      "description": "The flight model of NASA's Ingenuity Mars Helicopter. https://photojournal.jpl.nasa.gov/catalog/PIA23882",
+      "dateCreated": "2020-04-29",
+      "instrument": "JPL",
+      "url": "/nasa-photos/ingenuity/0.jpg"
+    },
+    {
+      "nasaId": "PIA24466",
+      "title": "Ingenuity Helicopter on Mars (Illustration)",
+      "description": "An illustration of NASA's Ingenuity Helicopter flying on Mars. Ingenuity, a technology demonstration experiment, will be the first aircraft to attempt powered, controlled flight on another planet. Ingenuity arrived at Mars on Feb. 18, 2021, attached to the belly of NASA's Mars 2",
+      "dateCreated": "2021-03-16",
+      "instrument": "JPL",
+      "url": "/nasa-photos/ingenuity/1.jpg"
+    },
+    {
+      "nasaId": "PIA23969",
+      "title": "Bottom of Ingenuity Mars Helicopter",
+      "description": "An Ingenuity team member inspects NASA's Ingenuity Mars Helicopter in one of the space simulation chambers at the agency's Jet Propulsion Laboratory in Southern California. The helicopter's two cameras are visible in this view of the underside of Ingenuity: one looking straight",
+      "dateCreated": "2021-01-20",
+      "instrument": "JPL",
+      "url": "/nasa-photos/ingenuity/2.jpg"
+    }
   ]
 };
 
