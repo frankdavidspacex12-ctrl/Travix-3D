@@ -31,6 +31,7 @@ import { PWAControls } from './components/PWAControls';
 import { shouldShowWelcome, TEAM_NAME, WelcomeCredits } from './components/WelcomeCredits';
 import { subscribeViewInsets, useViewInset } from './ui/viewInsets';
 import type { WarpRequest } from './components/WarpOverlay';
+import { soundscape } from './audio/soundscape';
 
 // Hyperspace jump of "Modo nave": its own chunk, loaded only when ship mode is turned on
 const WarpOverlay = lazy(() => import('./components/WarpOverlay'));
@@ -174,6 +175,7 @@ export default function App() {
     if (!mount) return;
 
     let engine: SolarSystemEngine | null = null;
+    let lastSurfaceActive = false;
     try {
       engine = new SolarSystemEngine(mount, {
         onSelectTarget: (sel) => {
@@ -190,11 +192,16 @@ export default function App() {
           setIsSiteSunlit(sunlit);
         },
         onCameraModeChange: (mode) => setCameraMode(mode),
+        // Sonido de llegada cuando la cámara termina el viaje
+        onArrive: () => soundscape.arrive(),
         onSurfaceModeChange: (active, viewMode) => {
+          if (active && !lastSurfaceActive) soundscape.appear();
+          lastSurfaceActive = active;
           setIsSurfaceActive(active);
           setSurfaceViewMode(viewMode);
         },
         onDeepSpaceChange: (id) => {
+          if (id) soundscape.appear();
           setActiveDeepSpaceId(id);
           if (id) setIsInfoHidden(false);
         },
@@ -266,11 +273,24 @@ export default function App() {
   /** Runs `go` directly, or wrapped in a hyperspace jump when ship mode is on. */
   const travel = useCallback((label: string, go: () => void) => {
     const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    soundscape.select();
     if (!shipModeRef.current || reducedMotion) {
+      soundscape.travel();
       go();
       return;
     }
+    soundscape.warp();
     setWarpRequest({ id: ++warpIdRef.current, label, go });
+  }, []);
+
+  // Sonido sintetizado (música ambiental + efectos): apagado por defecto, se recuerda la elección
+  const [isSoundOn, setIsSoundOn] = useState(() => soundscape.isEnabled());
+  useEffect(() => {
+    soundscape.resumeOnFirstGesture();
+    return soundscape.subscribe(setIsSoundOn);
+  }, []);
+  const handleToggleSound = useCallback(() => {
+    soundscape.setEnabled(!soundscape.isEnabled());
   }, []);
 
   const handleWarpDone = useCallback((id: number) => {
@@ -636,6 +656,8 @@ export default function App() {
         onToggleOrbits={handleToggleOrbits}
         isShipMode={isShipMode}
         onToggleShipMode={handleToggleShipMode}
+        isSoundOn={isSoundOn}
+        onToggleSound={handleToggleSound}
       />
 
       {isWelcomeOpen && <WelcomeCredits onClose={handleCloseWelcome} />}

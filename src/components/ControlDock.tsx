@@ -13,6 +13,8 @@ import {
   Rocket,
   RotateCcw,
   Search,
+  Volume2,
+  VolumeX,
 } from 'lucide-react';
 import {
   computeBodyTelemetry,
@@ -52,6 +54,9 @@ interface ControlDockProps {
   /** "Modo nave": trips play a hyperspace jump */
   isShipMode?: boolean;
   onToggleShipMode?: () => void;
+  /** Música ambiental y efectos sintetizados */
+  isSoundOn?: boolean;
+  onToggleSound?: () => void;
 }
 
 function formatUtcTimestamp(epochMs: number): string {
@@ -89,6 +94,8 @@ export const ControlDock: React.FC<ControlDockProps> = ({
   onToggleOrbits,
   isShipMode = false,
   onToggleShipMode,
+  isSoundOn = false,
+  onToggleSound,
 }) => {
   const orbitsDisabledInCloseUp = selectedBody !== null;
   const rootRef = useRef<HTMLDivElement | null>(null);
@@ -479,6 +486,28 @@ export const ControlDock: React.FC<ControlDockProps> = ({
           >
             <Rocket className={`w-3.5 h-3.5 ${isShipMode ? 'text-cyan-300' : 'text-slate-200'}`} />
             <span className="hidden sm:inline">Nave</span>
+          </button>
+        )}
+
+        {onToggleSound && (
+          <button
+            type="button"
+            onClick={onToggleSound}
+            aria-label={isSoundOn ? 'Desactivar música y sonidos' : 'Activar música y sonidos'}
+            aria-pressed={isSoundOn}
+            title={isSoundOn ? 'Sonido activo: música ambiental y efectos (toca para silenciar)' : 'Activar música ambiental y efectos de sonido'}
+            className={`inline-flex items-center gap-1.5 p-2.5 sm:px-2.5 sm:py-1 rounded-full text-xs transition-colors whitespace-nowrap shrink-0 cursor-pointer focus-visible:outline-2 focus-visible:outline-amber-400 ${
+              isSoundOn
+                ? 'bg-amber-500/22 border border-amber-300/50 text-amber-50'
+                : 'text-slate-100 hover:text-white hover:bg-white/12 border border-transparent'
+            }`}
+          >
+            {isSoundOn ? (
+              <Volume2 className="w-3.5 h-3.5 text-amber-300" />
+            ) : (
+              <VolumeX className="w-3.5 h-3.5 text-slate-200" />
+            )}
+            <span className="hidden sm:inline">Sonido</span>
           </button>
         )}
 

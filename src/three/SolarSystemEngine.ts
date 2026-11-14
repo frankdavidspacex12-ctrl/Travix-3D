@@ -178,6 +178,8 @@ export interface EngineCallbacks {
   onCameraModeChange: (mode: 'overview' | 'tracking' | 'free') => void;
   onSurfaceModeChange?: (active: boolean, viewMode: SurfaceCameraMode) => void;
   onDeepSpaceChange?: (id: DeepSpaceTargetId | null) => void;
+  /** The camera finished flying to its destination (used for the arrival sound). */
+  onArrive?: () => void;
 }
 
 function detectSoftwareWebGL(): boolean {
@@ -4242,6 +4244,7 @@ export class SolarSystemEngine {
       this.controls.target.distanceTo(this.flightLookTarget) < 0.08
     ) {
       this.isFlying = false;
+      this.callbacks.onArrive?.();
     }
   }
 
