@@ -10,6 +10,7 @@ import {
   Orbit,
   Pause,
   Play,
+  Rocket,
   RotateCcw,
   Search,
 } from 'lucide-react';
@@ -48,6 +49,9 @@ interface ControlDockProps {
   onReleaseCamera: () => void;
   onTogglePause: () => void;
   onToggleOrbits: () => void;
+  /** "Modo nave": trips play a hyperspace jump */
+  isShipMode?: boolean;
+  onToggleShipMode?: () => void;
 }
 
 function formatUtcTimestamp(epochMs: number): string {
@@ -83,6 +87,8 @@ export const ControlDock: React.FC<ControlDockProps> = ({
   onReleaseCamera,
   onTogglePause,
   onToggleOrbits,
+  isShipMode = false,
+  onToggleShipMode,
 }) => {
   const orbitsDisabledInCloseUp = selectedBody !== null;
   const rootRef = useRef<HTMLDivElement | null>(null);
@@ -132,7 +138,7 @@ export const ControlDock: React.FC<ControlDockProps> = ({
   return (
     <div
       ref={rootRef}
-      className="fixed bottom-2 sm:bottom-4 left-1/2 z-20 w-[calc(100vw-1rem)] sm:w-auto sm:max-w-[94vw] pointer-events-none transition-transform duration-300 ease-out flex flex-col items-center"
+      className="fixed bottom-2 sm:bottom-4 left-1/2 z-20 w-[calc(100vw-1rem)] sm:w-max sm:max-w-[94vw] pointer-events-none transition-transform duration-300 ease-out flex flex-col items-center"
       style={{
         transform: isCollapsed
           ? 'translate(-50%, calc(100% + 16px))'
@@ -453,6 +459,28 @@ export const ControlDock: React.FC<ControlDockProps> = ({
           <Orbit className="w-3.5 h-3.5" />
           <span className="hidden sm:inline">Órbitas</span>
         </button>
+
+        {onToggleShipMode && (
+          <button
+            type="button"
+            onClick={onToggleShipMode}
+            aria-label="Modo nave: viajar con hipersalto"
+            aria-pressed={isShipMode}
+            title={
+              isShipMode
+                ? 'Modo nave activo: cada viaje es un hipersalto (toca para desactivar)'
+                : 'Viajar en nave con hipersalto por agujero de gusano'
+            }
+            className={`inline-flex items-center gap-1.5 p-2.5 sm:px-2.5 sm:py-1 rounded-full text-xs transition-colors whitespace-nowrap shrink-0 cursor-pointer focus-visible:outline-2 focus-visible:outline-amber-400 ${
+              isShipMode
+                ? 'bg-cyan-500/22 border border-cyan-300/50 text-cyan-50'
+                : 'text-slate-100 hover:text-white hover:bg-white/12 border border-transparent'
+            }`}
+          >
+            <Rocket className={`w-3.5 h-3.5 ${isShipMode ? 'text-cyan-300' : 'text-slate-200'}`} />
+            <span className="hidden sm:inline">Nave</span>
+          </button>
+        )}
 
         <button
           type="button"
