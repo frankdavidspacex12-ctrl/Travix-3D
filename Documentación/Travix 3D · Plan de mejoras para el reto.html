@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Travix 3D · Plan de mejoras para el reto</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Outfit:wght@500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600&display=swap">
+<style>
+:root{--bg:#f6f4ef;--panel:#fff;--ink:#1b1d24;--mute:#5d6270;--line:#dcd8cd;--acc:#b45309;--accbg:#fdf0d9;--ok:#15803d;
+box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#05070d;--panel:#0d1220;--ink:#e8ebf3;--mute:#98a0b5;--line:#232a3f;--acc:#f59e0b;--accbg:#2a1d06;--ok:#4ade80}}
+:root[data-theme="dark"]{--bg:#05070d;--panel:#0d1220;--ink:#e8ebf3;--mute:#98a0b5;--line:#232a3f;--acc:#f59e0b;--accbg:#2a1d06;--ok:#4ade80}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+*,*::before,*::after{box-sizing:inherit}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.55 "Plus Jakarta Sans",system-ui,"Segoe UI",sans-serif}
+main{max-width:760px;margin:0 auto;padding:28px 18px 64px}
+h1,h2{font-family:Outfit,"Segoe UI",system-ui,sans-serif;line-height:1.15;margin:0}
+h1{font-size:clamp(1.8rem,5vw,2.5rem);font-weight:700}
+h2{font-size:1.3rem;font-weight:600;margin:40px 0 6px}
+p{margin:8px 0}
+.lede{color:var(--mute);max-width:60ch}
+a{color:var(--acc)}
+.box{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px 18px;margin-top:14px}
+dl{display:grid;grid-template-columns:1fr auto;gap:6px 16px;margin:0}
+dt{color:var(--mute)}dd{margin:0;font-weight:600;text-align:right;font-variant-numeric:tabular-nums}
+.bad{color:var(--acc)}.good{color:var(--ok)}
+.bar{position:sticky;top:env(safe-area-inset-top,0px);z-index:5;background:var(--bg);padding:12px 0;border-bottom:1px solid var(--line);margin-top:28px}
+.track{height:8px;background:var(--line);border-radius:99px;overflow:hidden}
+.fill{height:100%;width:0;background:var(--acc);transition:width .25s}
+.row{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:8px;flex-wrap:wrap}
+.chips{display:flex;gap:6px;flex-wrap:wrap}
+.chip{font:inherit;font-size:.85rem;border:1px solid var(--line);background:var(--panel);color:var(--ink);padding:5px 12px;border-radius:99px;cursor:pointer}
+.chip[aria-pressed="true"]{background:var(--acc);border-color:var(--acc);color:#fff}
+.chip:focus-visible,.item input:focus-visible{outline:3px solid var(--acc);outline-offset:2px}
+.item{display:flex;gap:12px;padding:14px 0;border-bottom:1px solid var(--line)}
+.item input{width:22px;height:22px;margin-top:3px;flex:none;accent-color:var(--acc)}
+.item label{cursor:pointer}
+.item b{display:block;font-weight:600}
+.item span{color:var(--mute);font-size:.94rem}
+.item.done b{text-decoration:line-through;color:var(--mute)}
+.tag{display:inline-block;font-size:.75rem;padding:1px 8px;border-radius:99px;background:var(--accbg);color:var(--acc);margin-left:6px;font-weight:600;vertical-align:1px}
+.note{font-size:.9rem;color:var(--mute)}
+@media (prefers-reduced-motion:reduce){.fill{transition:none}}
+</style>
+</head>
+<body>
+<main>
+<h1>Travix 3D y el reto «Abandonados pero no olvidados»</h1>
+<p class="lede">Resultado de revisar tu repositorio y el reto de la NASA Space Apps 2026. Marca lo que vayas resolviendo: el avance queda guardado en este navegador.</p>
+
+<h2>Qué pide el reto</h2>
+<div class="box">
+<p>Desde los años 60 la NASA ha dejado equipo en la Luna, en Marte y en el espacio profundo. El reto es contar la historia de parte de ese equipo a estudiantes de edad escolar, presentando el hardware y la ciencia que hizo posible. Nivel: intermedio y principiante/juvenil.</p>
+<p>Un detalle clave del enunciado: el contenido espacial para jóvenes suele simplificar demasiado las decisiones de ingeniería o presentarlas con un nivel que agota a un estudiante. Hay que encontrar el punto medio.</p>
+<p class="note">Fuentes útiles: <a href="https://www.nasa.gov/wp-content/uploads/2024/02/final-catalogue-of-manmade-material-on-the-moon.pdf">catálogo de la NASA con 796 objetos dejados en la Luna</a>, los datos de los experimentos Apolo (ALSEP) en el archivo NSSDCA de Goddard y las listas oficiales de recursos del sitio de Space Apps. No pude abrir la página oficial del reto (bloquea lectores automáticos), así que esto sale de fuentes secundarias: pégame el texto de su pestaña «Detalles» y lo contrasto.</p>
+</div>
+
+<h2>Cómo está el repositorio hoy</h2>
+<div class="box"><dl>
+<dt>Compila (tsc y vite build)</dt><dd class="good">Sin errores</dd>
+<dt>Código fuente</dt><dd>18.952 líneas, 0 usos de any</dd>
+<dt>Misiones en el catálogo</dt><dd>30 (19 en superficie)</dd>
+<dt>Misiones marcadas «Activo»</dt><dd class="bad">11 de 30</dd>
+<dt>Precache de la PWA</dt><dd class="bad">207 archivos, 79 MB</dd>
+<dt>JavaScript principal</dt><dd class="bad">1,3 MB en un solo archivo</dd>
+<dt>Pruebas, README, LICENSE</dt><dd class="bad">Ninguno</dd>
+</dl></div>
+<p class="note">Lo más importante: el simulador es técnicamente muy sólido, pero cuenta «un viaje por el sistema solar», no «lo que quedó atrás». El mayor salto de puntaje está en reencuadrar la historia, no en más gráficos.</p>
+
+<div class="bar">
+<div class="row"><strong id="count">0 de 0</strong>
+<div class="chips" id="chips"></div></div>
+<div class="track"><div class="fill" id="fill"></div></div>
+</div>
+<div id="list"></div>
+</main>
+<script>
+var G=[
+{id:"A",t:"Primero: acercar la app al reto",tag:"Reto",items:[
+["a1","Cambia el foco a «lo que quedó atrás»","11 de 30 misiones figuran como activas (Curiosity, Perseverance, ISS, Hubble…). Añade una insignia «Dejado atrás» o «Activo», un filtro, y prioriza Luna y Marte."],
+["a2","Amplía el catálogo con hardware realmente abandonado","Faltan Viking 1 y 2, Mars Pathfinder, Surveyor 1, 5, 6 y 7, Ingenuity como pieza propia y los experimentos Apolo (ALSEP, retrorreflectores). Usa el catálogo de 796 objetos como fuente."],
+["a3","Escribe para estudiantes de primaria y secundaria","Términos como UA, vis-viva o J2000 suenan a universidad. Crea un «Modo explorador» con frases cortas y un glosario tocable."],
+["a4","Explica por qué se abandonó cada pieza","Ejemplo: la etapa de descenso del módulo lunar se queda para que el ascenso pese menos. Esa decisión de ingeniería es justo lo que pide el reto."],
+["a5","Modo historia por pieza","Llegada, qué hizo, último contacto y cómo está hoy, con cámara guiada y narración con la voz del navegador en español. Suma un tour nuevo: «Lo que dejamos atrás»."],
+["a6","Muestra fuentes y separa dato de relato","Enlace o ID NASA en cada ficha. Verifica que cada cita de despedida sea textual: la famosa frase de Opportunity es una interpretación poética de su telemetría, no un mensaje literal."],
+["a7","Quiz corto e insignias","Cinco preguntas por destino (Luna, Marte, espacio profundo) y una insignia al terminar. Engancha a la audiencia escolar."],
+["a8","Interruptor español e inglés","El jurado global lee en inglés. Aunque sea solo para títulos, resúmenes y la ficha de cada misión."]]},
+{id:"B",t:"Después: robustez y rendimiento",tag:"Técnico",items:[
+["b1","Activa «strict»: true en tsconfig.json","El encargo original pedía TypeScript estricto y hoy no está activado. Corrige lo que aparezca."],
+["b2","Baja el precache de 79 MB","Precachea solo lo básico y ofrece paquetes («Luna», «Marte»…) con un botón «Guardar para offline». Importa en escuelas con poca conexión."],
+["b3","Divide el JavaScript con import()","Carga bajo demanda el diorama de superficie (~3.000 líneas), el espacio profundo (~2.300) y los workers."],
+["b4","Aloja las tipografías en local","Hoy vienen de Google Fonts: sin internet en la primera visita se ve la letra por defecto. Con @fontsource entran al precache."],
+["b5","Quita lo que sobra del proyecto anterior","@google/genai, express, dotenv, motion, tsx y autoprefixer no se importan en src/. Revisa también .env.example (GEMINI_API_KEY), metadata.json, el nombre «react-example» y el script clean."],
+["b6","Borra archivos sueltos y cachés sin uso","public/assets/aistudio tiene 9 JPEG y un MP4 de WhatsApp (~2,9 MB) sin referencias. Los runtimeCaching hacia jsdelivr, raw.githubusercontent e images-api.nasa.gov tampoco se usan."],
+["b7","Ajusta la PWA para publicar","Pon devOptions.enabled en false (el service worker en desarrollo confunde) y usa rutas relativas: start_url y scope «/» fallan si publicas en GitHub Pages bajo /Travix-3D/."],
+["b8","Controles táctiles y calidad manual","WASD, Esc, Espacio y H solo existen en teclado. Añade joystick y botones en pantalla, y un selector ligera/media/alta para Chromebooks."],
+["b9","Audita el motor 3D en memoria","Hay 44 llamadas a new THREE.* en SolarSystemEngine. Confirma que ninguna corre por frame y graba 60 s en Chrome Performance buscando crecimiento de memoria."],
+["b10","Accesibilidad","Foco visible y trampa de foco en modales, resumen de texto del canvas para lectores de pantalla, contraste del texto pequeño sobre vidrio, y quita select-none de las fichas."],
+["b11","Pruebas mínimas","Vitest para ephemeris (contra valores de JPL Horizons) y para el buscador, más un test de humo con Playwright."]]},
+{id:"C",t:"Antes de enviar al concurso",tag:"Entrega",items:[
+["c1","README y LICENSE","Qué resuelve, captura, cómo ejecutarlo, datos NASA usados y licencia. En español e inglés."],
+["c2","Pantalla de créditos","NASA 3D Resources, JPL y las texturas de terceros con su licencia. Hoy no hay ninguna mención; confirma que cada textura permita su uso."],
+["c3","Publica una demo","Vercel, Netlify o GitHub Pages. Prueba instalar la PWA y abrirla en modo avión en un móvil real."],
+["c4","Video de 30 a 60 segundos","Abre con una pieza concreta en su sitio (Apolo 11 en superficie), no con el menú."],
+["c5","Lee el formulario de envío","Revisa si piden declarar uso de IA, fuentes de datos y miembros del equipo."]]}
+];
+var K="travix-mejoras-v1",S={},F="Todo";
+try{S=JSON.parse(localStorage.getItem(K)||"{}")}catch(e){S={}}
+function save(){try{localStorage.setItem(K,JSON.stringify(S))}catch(e){}}
+function render(){
+var out="",tot=0,dn=0;
+G.forEach(function(g){
+var show=F==="Todo"||F===g.tag;
+g.items.forEach(function(i){tot++;if(S[i[0]])dn++});
+if(!show)return;
+out+='<h2>'+g.t+'</h2>';
+g.items.forEach(function(i){
+var d=!!S[i[0]];
+out+='<div class="item'+(d?' done':'')+'"><input type="checkbox" id="'+i[0]+'"'+(d?' checked':'')+'><label for="'+i[0]+'"><b>'+i[1]+'</b><span>'+i[2]+'</span></label></div>';
+});
+});
+document.getElementById("list").innerHTML=out;
+document.getElementById("count").textContent=dn+" de "+tot+" resueltas";
+document.getElementById("fill").style.width=(tot?dn/tot*100:0)+"%";
+document.getElementById("chips").innerHTML=["Todo","Reto","Técnico","Entrega"].map(function(c){
+return '<button class="chip" data-f="'+c+'" aria-pressed="'+(c===F)+'">'+c+'</button>'}).join("");
+}
+document.addEventListener("change",function(e){
+if(e.target.type==="checkbox"){S[e.target.id]=e.target.checked;save();render();
+var el=document.getElementById(e.target.id);if(el)el.focus()}});
+document.addEventListener("click",function(e){
+var f=e.target.getAttribute&&e.target.getAttribute("data-f");
+if(f){F=f;render()}});
+render();
+</script>
+</body>
+</html>
