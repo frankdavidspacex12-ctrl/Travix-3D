@@ -313,6 +313,23 @@ function createRadialRingGeometry(
  */
 const AURORA_SCREEN_GAIN = 0.35;
 const PLUME_SCREEN_GAIN = 0.8;
+/** Earth's city lights (NASA Black Marble): emitted light, kept at a constant on-screen brightness */
+const CITY_LIGHTS_SCREEN_GAIN = 1.6;
+
+/**
+ * Highest exposure the background sky (stars, Milky Way, nebulae) is shown at. The auto-exposure
+ * reaches ~160x at Uranus and ~290x at Neptune to make up for the weak sunlight; applied to the
+ * sky it turned deep space navy blue and blew the nebulae up. Space stays black at any distance,
+ * and the inner Solar System (exposure below this cap) looks exactly as before.
+ */
+const SKY_MAX_SCREEN_EXPOSURE = 2.0;
+/**
+ * Same idea for the atmospheric limb glow of Uranus, Neptune and Pluto: at their exposure it
+ * saturated into a thick white / cyan ring. Voyager 2 and New Horizons show only a thin hazy limb,
+ * so their glow is shown at most as bright as Earth's limb looks. Other bodies are unchanged.
+ */
+const OUTER_ATMOSPHERE_MAX_SCREEN_EXPOSURE = 2.4;
+const OUTER_ATMOSPHERE_BODIES = new Set(['uranus', 'neptune', 'pluto']);
 
 function createAtmosphereShaderMaterial(
   colorHex: string,
@@ -522,6 +539,13 @@ export class SolarSystemEngine {
   private sunOuterGlowMat: THREE.SpriteMaterial | null = null;
   private sunFocusBoost = 0;
   private auroraMats: THREE.ShaderMaterial[] = [];
+  private cityLightsMat: THREE.ShaderMaterial | null = null;
+  /** Background sky materials and their unscaled colours (see SKY_MAX_SCREEN_EXPOSURE) */
+  private skyMats: Array<{ material: THREE.PointsMaterial | THREE.MeshBasicMaterial; baseColor: THREE.Color }> = [];
+  /** Outer-system atmosphere shells and their intensity (see OUTER_ATMOSPHERE_MAX_SCREEN_EXPOSURE) */
+  private outerAtmosphereMats: Array<{ material: THREE.ShaderMaterial; baseIntensity: number }> = [];
+  private lastSkyComp = -1;
+  private lastAtmoComp = -1;
   private saturnIceRingPoints: THREE.Points | null = null;
   private moonPlumes: Array<{
     points: THREE.Points;
@@ -645,7 +669,8 @@ export class SolarSystemEngine {
     container.appendChild(this.renderer.domElement);
 
     this.scene = new THREE.Scene();
-    this.scene.background = new THREE.Color(0x010204);
+    // Pure black: any tint here gets multiplied by the auto-exposure (up to ~290x at Neptune)
+    this.scene.background = new THREE.Color(0x000000);
     this.scene.add(this.spaceRoot);
 
     // Initialize RoomEnvironment per spec but keep intensity strictly 0.0 so night hemispheres stay pitch-black
@@ -849,6 +874,7 @@ export class SolarSystemEngine {
     const stars = new THREE.Points(starGeo, starMat);
     this.scene.add(stars);
     this.disposables.push(starGeo, starMat);
+    this.skyMats.push({ material: starMat, baseColor: starMat.color.clone() });
 
     // 2. Subtle Milky Way galactic band (inclined ~60.2 deg to ecliptic)
     const mwCount = 3800;
@@ -895,6 +921,7 @@ export class SolarSystemEngine {
       toneMapped: false,
     });
 
+    this.skyMats.push({ material: mwMat, baseColor: mwMat.color.clone() });
     const mwPoints = new THREE.Points(mwGeo, mwMat);
     mwGroup.add(mwPoints);
     this.scene.add(mwGroup);
@@ -906,7 +933,9 @@ export class SolarSystemEngine {
     const nebPlaneGeo = new THREE.PlaneGeometry(1, 1);
     this.disposables.push(nebPlaneGeo);
 
-    const mwNebulaTints = [0xec4899, 0x38bdf8, 0xfbbf24, 0x2dd4bf, 0x818cf8];
+    // Natural Milky Way tones: H-alpha emission reds / pinks, warm star clouds and dust (as in
+    // NASA / ESA all-sky mosaics) instead of saturated cyan and indigo that read as a blue sky.
+    const mwNebulaTints = [0xd9536f, 0xc9a27e, 0xe6d3b3, 0xb04a5a, 0xa89a8a];
     const mwNebulaCount = 36;
     for (let i = 0; i < mwNebulaCount; i++) {
       const lon = (i / mwNebulaCount) * Math.PI * 2 + (i % 3) * 0.14;
@@ -927,6 +956,7 @@ export class SolarSystemEngine {
         side: THREE.DoubleSide,
         toneMapped: false,
       });
+      this.skyMats.push({ material: nMat, baseColor: nMat.color.clone() });
       const nMesh = new THREE.Mesh(nebPlaneGeo, nMat);
       nMesh.position.set(nx, ny, nz);
       nMesh.lookAt(0, 0, 0);
@@ -1642,6 +1672,9 @@ export class SolarSystemEngine {
           data.atmosphereColor,
           data.atmosphereIntensity,
         );
+        if (OUTER_ATMOSPHERE_BODIES.has(data.id)) {
+          this.outerAtmosphereMats.push({ material: atmoMat, baseIntensity: data.atmosphereIntensity });
+        }
         atmosphereMesh = new THREE.Mesh(atmoGeo, atmoMat);
         tiltGroup.add(atmosphereMesh);
         this.disposables.push(atmoGeo, atmoMat);
@@ -1713,6 +1746,7 @@ export class SolarSystemEngine {
           uniforms: {
             // Black = no city lights until the real NASA night-lights texture loads
             uLightsMap: { value: blackColor as THREE.Texture },
+            uExposureComp: { value: CITY_LIGHTS_SCREEN_GAIN },
           },
           vertexShader: `
             varying vec2 vUv;
@@ -1728,22 +1762,28 @@ export class SolarSystemEngine {
           `,
           fragmentShader: `
             uniform sampler2D uLightsMap;
+            uniform float uExposureComp;
             varying vec2 vUv;
             varying vec3 vWorldNormal;
             varying vec3 vWorldPos;
             void main() {
               vec3 sunDir = normalize(-vWorldPos);
               float sunDot = dot(normalize(vWorldNormal), sunDir);
-              float nightMask = smoothstep(0.1, -0.22, sunDot);
+              // Lights come on through civil twilight and are fully on past the terminator
+              float nightMask = smoothstep(0.06, -0.16, sunDot);
               vec3 col = texture2D(uLightsMap, vUv).rgb;
-              float lum = dot(col, vec3(0.3, 0.59, 0.11));
-              gl_FragColor = vec4(col * vec3(1.45, 1.2, 0.8), nightMask * smoothstep(0.06, 0.5, lum) * 0.92);
+              // Linear response (small towns stay visible), minus a floor that hides compression noise
+              col = max(col - vec3(0.012), vec3(0.0));
+              // Sodium / LED mix seen from orbit (warm amber, NASA Black Marble)
+              vec3 lit = col * vec3(1.18, 0.96, 0.66) * uExposureComp * nightMask;
+              gl_FragColor = vec4(lit, 1.0);
             }
           `,
           transparent: true,
           depthWrite: false,
           blending: THREE.AdditiveBlending,
         });
+        this.cityLightsMat = lightsMat;
         const lightsMesh = new THREE.Mesh(lightsGeo, lightsMat);
         mesh.add(lightsMesh);
         this.disposables.push(lightsGeo, lightsMat);
@@ -3377,7 +3417,7 @@ export class SolarSystemEngine {
     this.sunMarkerState = { shown: null, transform: '', arrow: '', text: '', w: 0, h: 0 };
   }
 
-  private formatSunDistance(au: number): string {
+  private formatSunDistance(au: number): { dist: string; light: string } {
     const fmt = (v: number, d: number) =>
       v.toLocaleString('es-ES', { minimumFractionDigits: d, maximumFractionDigits: d });
     const lightMin = au * 8.3167;
@@ -3388,7 +3428,7 @@ export class SolarSystemEngine {
           ? `${fmt(lightMin, 1)} min luz`
           : `${fmt(lightMin / 60, 1)} h luz`;
     const dist = au < 0.05 ? `${fmt(au * 149.6, 1)} M km` : `${fmt(au, au < 10 ? 2 : 1)} UA`;
-    return `${dist} · ${light}`;
+    return { dist, light };
   }
 
   /** Heliocentric distance (AU) of whatever the user is looking at right now. */
@@ -3440,16 +3480,23 @@ export class SolarSystemEngine {
     const now = performance.now();
     if (now - this.lastSunTextAt > 400 || !state.text) {
       this.lastSunTextAt = now;
+      // Compact on screen (Sun icon + distance); the full detail goes in the tooltip / label
       let text: string;
+      let detail: string;
       if (this.deepSpaceDiorama) {
         const t = DEEP_SPACE_TARGETS.find((d) => d.id === this.activeDeepSpaceId);
-        text = t ? `Sol · ${t.distanceLabel}` : 'Sol · Brazo de Orión';
+        text = t ? t.distanceLabel : 'Brazo de Orión';
+        detail = `Sol · ${text}`;
       } else {
-        text = `Sol · ${this.formatSunDistance(this.currentSunDistanceAu())}`;
+        const d = this.formatSunDistance(this.currentSunDistanceAu());
+        text = d.dist;
+        detail = `Sol · ${d.dist} · ${d.light}`;
       }
       if (text !== state.text) {
         state.text = text;
         if (this.sunMarkerText) this.sunMarkerText.textContent = text;
+        el.title = `${detail}. Toca para ir al Sol.`;
+        el.setAttribute('aria-label', `Ir al Sol (${detail})`);
         state.w = el.offsetWidth;
         state.h = el.offsetHeight;
       }
@@ -3457,8 +3504,8 @@ export class SolarSystemEngine {
 
     const w = this.viewportW || window.innerWidth;
     const h = this.viewportH || window.innerHeight;
-    const mw = state.w || 180;
-    const mh = state.h || 34;
+    const mw = state.w || 90;
+    const mh = state.h || 20;
     const top = Math.max(64, this.viewInsetTop + 10) + mh / 2;
     const bottom = h - Math.max(104, this.viewInsetBottom + 10) - mh / 2;
     const left = 10 + mw / 2;
@@ -3762,9 +3809,28 @@ export class SolarSystemEngine {
     for (const aMat of this.auroraMats) {
       aMat.uniforms.uExposureComp.value = auroraComp;
     }
+    if (this.cityLightsMat) {
+      this.cityLightsMat.uniforms.uExposureComp.value = CITY_LIGHTS_SCREEN_GAIN * inv;
+    }
     const plumeComp = PLUME_SCREEN_GAIN * inv;
     for (const plume of this.moonPlumes) {
       plume.material.color.copy(plume.baseColor).multiplyScalar(plumeComp);
+    }
+
+    // Background sky and atmosphere glows: only capped from above, never brightened
+    const skyComp = Math.min(1, SKY_MAX_SCREEN_EXPOSURE * inv);
+    if (Math.abs(skyComp - this.lastSkyComp) > 1e-4) {
+      this.lastSkyComp = skyComp;
+      for (const sky of this.skyMats) {
+        sky.material.color.copy(sky.baseColor).multiplyScalar(skyComp);
+      }
+    }
+    const atmoComp = Math.min(1, OUTER_ATMOSPHERE_MAX_SCREEN_EXPOSURE * inv);
+    if (Math.abs(atmoComp - this.lastAtmoComp) > 1e-4) {
+      this.lastAtmoComp = atmoComp;
+      for (const atmo of this.outerAtmosphereMats) {
+        atmo.material.uniforms.uIntensity.value = atmo.baseIntensity * atmoComp;
+      }
     }
   }
 
