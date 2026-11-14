@@ -329,6 +329,26 @@ const SKY_MAX_SCREEN_EXPOSURE = 2.0;
  * so their glow is shown at most as bright as Earth's limb looks. Other bodies are unchanged.
  */
 const OUTER_ATMOSPHERE_MAX_SCREEN_EXPOSURE = 2.4;
+/**
+ * The Sun's geometry is at true scale (radius 4.65 units = 696,000 km at 1000 units / AU), so its
+ * apparent size already shrinks as 1/distance. But beyond Mars the auto-exposure (up to ~290x at
+ * Neptune) also multiplied its corona sprites and bloom, blowing it up into a huge disc. Its own
+ * light is shown at most as bright as from Mars (exposure ~1.25): from Neptune or Pluto it becomes
+ * the small, intense point seen in Voyager 1 / New Horizons images. Mars and inward are unchanged.
+ */
+const SUN_MAX_SCREEN_EXPOSURE = 1.3;
+const SUN_INNER_GLOW_COLOR = new THREE.Color(0xffdf94);
+/**
+ * Seen from the outer planets the true-size Sun is far below one pixel (0.17 px from Neptune), but
+ * it is still by far the brightest object in the sky (mag -21 from Neptune): it shows as a
+ * brilliant star, as in Voyager 1's Family Portrait. Its inner glow never shrinks below this
+ * radius in CSS px; from Mars inward the true size is larger, so nothing changes there.
+ */
+const SUN_MIN_GLOW_RADIUS_PX = 4.5;
+const STAR_WHITE = new THREE.Color(0xfff8ec);
+/** Comet 67P's coma and tails (scattered sunlight): capped like the sky beyond ~3 AU exposure */
+const COMET_MAX_SCREEN_EXPOSURE = 6;
+const SUN_OUTER_GLOW_COLOR = new THREE.Color(0xf97316);
 const OUTER_ATMOSPHERE_BODIES = new Set(['uranus', 'neptune', 'pluto']);
 
 function createAtmosphereShaderMaterial(
@@ -408,6 +428,7 @@ function createSunSurfaceMaterial(initialTexture: THREE.Texture): THREE.ShaderMa
       uTexture: { value: initialTexture },
       uTime: { value: 0 },
       uFocusBoost: { value: 0 },
+      uExposureComp: { value: 1 },
     },
     vertexShader: `
       varying vec2 vUv;
@@ -427,6 +448,7 @@ function createSunSurfaceMaterial(initialTexture: THREE.Texture): THREE.ShaderMa
       uniform sampler2D uTexture;
       uniform float uTime;
       uniform float uFocusBoost;
+      uniform float uExposureComp;
       varying vec2 vUv;
       varying vec3 vNormalView;
       varying vec3 vPosView;
@@ -506,7 +528,7 @@ function createSunSurfaceMaterial(initialTexture: THREE.Texture): THREE.ShaderMa
         vec3 coreOut = plasmaCol * (0.62 + 0.58 * limbDark) * boost;
         vec3 fireRim = vec3(3.4, 0.95, 0.14) * chromoRim * mix(0.95, 1.85, uFocusBoost);
 
-        gl_FragColor = vec4(coreOut + fireRim, 1.0);
+        gl_FragColor = vec4((coreOut + fireRim) * uExposureComp, 1.0);
       }
     `,
   });
@@ -536,6 +558,11 @@ export class SolarSystemEngine {
   private sunChromoMat: THREE.ShaderMaterial | null = null;
   private sunProminenceMats: THREE.ShaderMaterial[] = [];
   private sunInnerGlowMat: THREE.SpriteMaterial | null = null;
+  private sunInnerGlow: THREE.Sprite | null = null;
+  private sunOuterGlow: THREE.Sprite | null = null;
+  private sunGlowBaseScale = { inner: 1, outer: 1 };
+  private cometMats: Array<{ material: THREE.MeshBasicMaterial | THREE.PointsMaterial; baseColor: THREE.Color }> = [];
+  private lastCometComp = -1;
   private sunOuterGlowMat: THREE.SpriteMaterial | null = null;
   private sunFocusBoost = 0;
   private auroraMats: THREE.ShaderMaterial[] = [];
@@ -1152,6 +1179,7 @@ export class SolarSystemEngine {
           uniforms: {
             uColor: { value: new THREE.Color(0xffae38) },
             uFocusBoost: { value: 0 },
+      uExposureComp: { value: 1 },
           },
           vertexShader: `
             varying vec3 vNormalView;
@@ -1166,12 +1194,13 @@ export class SolarSystemEngine {
           fragmentShader: `
             uniform vec3 uColor;
             uniform float uFocusBoost;
+            uniform float uExposureComp;
             varying vec3 vNormalView;
             varying vec3 vPosView;
             void main() {
               vec3 viewDir = normalize(-vPosView);
               float rim = pow(clamp(1.0 + dot(viewDir, vNormalView), 0.0, 1.0), 2.2);
-              gl_FragColor = vec4(uColor * mix(1.18, 2.35, uFocusBoost), rim * mix(0.5, 0.94, uFocusBoost));
+              gl_FragColor = vec4(uColor * mix(1.18, 2.35, uFocusBoost) * uExposureComp, rim * mix(0.5, 0.94, uFocusBoost));
             }
           `,
           side: THREE.BackSide,
@@ -1197,6 +1226,8 @@ export class SolarSystemEngine {
         });
         this.sunInnerGlowMat = innerGlowMat;
         const innerGlow = new THREE.Sprite(innerGlowMat);
+        this.sunInnerGlow = innerGlow;
+        this.sunGlowBaseScale.inner = data.visualRadius * 3.8;
         innerGlow.scale.set(
           data.visualRadius * 3.8,
           data.visualRadius * 3.8,
@@ -1215,6 +1246,8 @@ export class SolarSystemEngine {
         });
         this.sunOuterGlowMat = outerGlowMat;
         const outerGlow = new THREE.Sprite(outerGlowMat);
+        this.sunOuterGlow = outerGlow;
+        this.sunGlowBaseScale.outer = data.visualRadius * 6.8;
         outerGlow.scale.set(
           data.visualRadius * 6.8,
           data.visualRadius * 6.8,
@@ -1245,6 +1278,7 @@ export class SolarSystemEngine {
             uniforms: {
               uTime: { value: 0 },
               uFocusBoost: { value: 0 },
+      uExposureComp: { value: 1 },
               uSeed: { value: p * 1.9 },
             },
             vertexShader: `
@@ -1257,6 +1291,7 @@ export class SolarSystemEngine {
             fragmentShader: `
               uniform float uTime;
               uniform float uFocusBoost;
+              uniform float uExposureComp;
               uniform float uSeed;
               varying vec2 vUv;
               void main() {
@@ -1264,7 +1299,7 @@ export class SolarSystemEngine {
                 float edgeFade = sin(vUv.x * 3.14159);
                 vec3 col = mix(vec3(1.0, 0.42, 0.12), vec3(1.0, 0.86, 0.42), flow);
                 float alpha = edgeFade * (0.38 + 0.42 * flow) * mix(0.75, 1.5, uFocusBoost);
-                gl_FragColor = vec4(col * mix(1.35, 2.55, uFocusBoost), alpha);
+                gl_FragColor = vec4(col * mix(1.35, 2.55, uFocusBoost) * uExposureComp, alpha);
               }
             `,
             transparent: true,
@@ -1423,6 +1458,9 @@ export class SolarSystemEngine {
           tailGrp.add(comaPts);
           this.cometComaPoints = comaPts;
           this.disposables.push(tailGeo, tailMat, dustTailGeo, dustTailMat, comaGeo, comaMat);
+          for (const m of [tailMat, dustTailMat, comaMat]) {
+            this.cometMats.push({ material: m, baseColor: m.color.clone() });
+          }
         }
 
         const activePlanetMat = planetMat;
@@ -3739,11 +3777,22 @@ export class SolarSystemEngine {
     for (const pMat of this.sunProminenceMats) {
       pMat.uniforms.uFocusBoost.value = this.sunFocusBoost;
     }
+    // Sun's own light capped at its Mars-distance screen brightness (see SUN_MAX_SCREEN_EXPOSURE)
+    const sunComp = this.composer
+      ? Math.min(1, SUN_MAX_SCREEN_EXPOSURE / Math.max(this.currentExposure, 1e-3))
+      : 1;
+    if (this.sunSurfaceMat) this.sunSurfaceMat.uniforms.uExposureComp.value = sunComp;
+    if (this.sunChromoMat) this.sunChromoMat.uniforms.uExposureComp.value = sunComp;
+    for (const pMat of this.sunProminenceMats) {
+      pMat.uniforms.uExposureComp.value = sunComp;
+    }
     if (this.sunInnerGlowMat) {
       this.sunInnerGlowMat.opacity = THREE.MathUtils.lerp(0.56, 1.0, this.sunFocusBoost);
+      this.sunInnerGlowMat.color.copy(SUN_INNER_GLOW_COLOR).multiplyScalar(sunComp);
     }
     if (this.sunOuterGlowMat) {
       this.sunOuterGlowMat.opacity = THREE.MathUtils.lerp(0.22, 0.58, this.sunFocusBoost);
+      this.sunOuterGlowMat.color.copy(SUN_OUTER_GLOW_COLOR).multiplyScalar(sunComp);
     }
     if (this.bloomPass) {
       if (this.deepSpaceDiorama) {
@@ -3753,8 +3802,29 @@ export class SolarSystemEngine {
         this.bloomPass.strength = 0.14;
         this.bloomPass.threshold = 1.12;
       } else {
-        this.bloomPass.strength = THREE.MathUtils.lerp(0.32, 0.66, this.sunFocusBoost);
+        // Bloom runs before the exposure is applied, so beyond Mars the auto-exposure blew the
+        // glare of self-lit things (Sun, comet 67P's coma) up into large halos. Same cap as the Sun.
+        this.bloomPass.strength =
+          THREE.MathUtils.lerp(0.32, 0.66, this.sunFocusBoost) * sunComp;
         this.bloomPass.threshold = THREE.MathUtils.lerp(0.94, 0.78, this.sunFocusBoost);
+      }
+    }
+
+    // Star-like minimum size for the Sun when its true disc is sub-pixel (outer Solar System)
+    if (this.sunInnerGlow && this.sunOuterGlow) {
+      const camDist = this.camera.position.length();
+      const fovRad = THREE.MathUtils.degToRad(this.camera.fov);
+      const pxPerUnit = (this.viewportH || window.innerHeight) / (2 * Math.tan(fovRad / 2) * camDist);
+      const minDiameter = (2 * SUN_MIN_GLOW_RADIUS_PX) / Math.max(pxPerUnit, 1e-9);
+      const inner = Math.max(this.sunGlowBaseScale.inner, minDiameter);
+      const outer = Math.max(this.sunGlowBaseScale.outer, minDiameter * 1.6);
+      if (this.sunInnerGlow.scale.x !== inner) this.sunInnerGlow.scale.set(inner, inner, 1);
+      if (this.sunOuterGlow.scale.x !== outer) this.sunOuterGlow.scale.set(outer, outer, 1);
+      // As a point source the Sun reads as a brilliant white star, not an orange disc
+      const star = THREE.MathUtils.clamp(minDiameter / this.sunGlowBaseScale.inner - 1, 0, 1);
+      if (star > 0 && this.sunInnerGlowMat && this.sunOuterGlowMat) {
+        this.sunInnerGlowMat.color.lerp(_color.copy(STAR_WHITE).multiplyScalar(sunComp * 2.2), star);
+        this.sunOuterGlowMat.color.multiplyScalar(1 - 0.6 * star);
       }
     }
   }
@@ -3830,6 +3900,13 @@ export class SolarSystemEngine {
       this.lastSkyComp = skyComp;
       for (const sky of this.skyMats) {
         sky.material.color.copy(sky.baseColor).multiplyScalar(skyComp);
+      }
+    }
+    const cometComp = Math.min(1, COMET_MAX_SCREEN_EXPOSURE * inv);
+    if (Math.abs(cometComp - this.lastCometComp) > 1e-4) {
+      this.lastCometComp = cometComp;
+      for (const c of this.cometMats) {
+        c.material.color.copy(c.baseColor).multiplyScalar(cometComp);
       }
     }
     const atmoComp = Math.min(1, OUTER_ATMOSPHERE_MAX_SCREEN_EXPOSURE * inv);
