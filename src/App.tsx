@@ -3,8 +3,9 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { lazy, memo, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowRight, FileText, Search, Sun } from 'lucide-react';
+import { MemoNearbyObjects } from './components/NearbyObjects';
 import {
   ABANDONED_MISSIONS,
   AbandonedMission,
@@ -27,7 +28,25 @@ import {
   SearchTab,
 } from './components/MissionSearch';
 import { PWAControls } from './components/PWAControls';
+import { shouldShowWelcome, TEAM_NAME, WelcomeCredits } from './components/WelcomeCredits';
 import { subscribeViewInsets, useViewInset } from './ui/viewInsets';
+import type { WarpRequest } from './components/WarpOverlay';
+
+// Hyperspace jump of "Modo nave": its own chunk, loaded only when ship mode is turned on
+const WarpOverlay = lazy(() => import('./components/WarpOverlay'));
+const SHIP_MODE_KEY = 'travix-ship-mode';
+
+function readShipMode(): boolean {
+  try {
+    return window.localStorage.getItem(SHIP_MODE_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
+function bodyName(id: CelestialBodyId): string {
+  return CELESTIAL_BODIES.find((b) => b.id === id)?.name ?? id;
+}
 
 // The engine pushes the simulation clock to React ~8×/s. Only ControlDock shows the clock, so
 // everything else is memoized and skips those re-renders (props below are kept referentially stable).
@@ -89,7 +108,7 @@ const SunMarker = memo(function SunMarker({ onGo, markerRef }: SunMarkerProps) {
       aria-label="Ir al Sol, referencia del Sistema Solar"
       title="El Sol: referencia universal del Sistema Solar. Toca para ir."
       style={{ opacity: 0, pointerEvents: 'none' }}
-      className="fixed top-0 left-0 z-[15] inline-flex items-center gap-1 pl-1.5 pr-2 py-0.5 rounded-full border border-amber-300/25 bg-black/45 text-[10px] font-medium text-slate-100 whitespace-nowrap cursor-pointer transition-opacity duration-300 hover:bg-black/70 hover:text-white focus-visible:outline-2 focus-visible:outline-amber-400"
+      className="fixed top-0 left-0 z-[15] inline-flex items-center gap-1 pl-1.5 pr-2 py-0.5 rounded-full travix-chip border-amber-300/30 text-[10px] font-medium text-slate-100 whitespace-nowrap cursor-pointer transition-opacity duration-300 hover:text-white focus-visible:outline-2 focus-visible:outline-amber-400"
     >
       <span data-sun-arrow className="inline-flex shrink-0">
         <ArrowRight className="w-3 h-3 text-amber-300/90" />
@@ -222,40 +241,80 @@ export default function App() {
     };
   }, []);
 
+  const [isWelcomeOpen, setIsWelcomeOpen] = useState(shouldShowWelcome);
+  const handleCloseWelcome = useCallback(() => setIsWelcomeOpen(false), []);
+
+  // "Modo nave": every trip goes through a hyperspace jump (WarpOverlay)
+  const [isShipMode, setIsShipMode] = useState(readShipMode);
+  const [warpRequest, setWarpRequest] = useState<WarpRequest | null>(null);
+  const shipModeRef = useRef(isShipMode);
+  shipModeRef.current = isShipMode;
+  const warpIdRef = useRef(0);
+
+  const handleToggleShipMode = useCallback(() => {
+    setIsShipMode((prev) => {
+      const next = !prev;
+      try {
+        window.localStorage.setItem(SHIP_MODE_KEY, next ? '1' : '0');
+      } catch {
+        // storage unavailable: the choice just isn't remembered
+      }
+      return next;
+    });
+  }, []);
+
+  /** Runs `go` directly, or wrapped in a hyperspace jump when ship mode is on. */
+  const travel = useCallback((label: string, go: () => void) => {
+    const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (!shipModeRef.current || reducedMotion) {
+      go();
+      return;
+    }
+    setWarpRequest({ id: ++warpIdRef.current, label, go });
+  }, []);
+
+  const handleWarpDone = useCallback((id: number) => {
+    setWarpRequest((cur) => (cur && cur.id === id ? null : cur));
+  }, []);
+
   const handleSelectBody = useCallback(
     (id: CelestialBodyId, context?: ActiveSearchAnswer) => {
       setSearchAnswer(context ?? null);
       setIsPlanetInfoOpen(Boolean(context));
-      engineRef.current?.flyToBody(id);
+      travel(bodyName(id), () => engineRef.current?.flyToBody(id));
     },
-    [],
+    [travel],
   );
 
   const handleSelectMoon = useCallback(
     (bodyId: CelestialBodyId, moonId: string, context?: ActiveSearchAnswer) => {
       setSearchAnswer(context ?? null);
       setIsPlanetInfoOpen(Boolean(context));
-      engineRef.current?.flyToMoon(bodyId, moonId);
+      const moonName =
+        CELESTIAL_BODIES.find((b) => b.id === bodyId)?.moons.find((m) => m.id === moonId)?.name ??
+        moonId;
+      travel(moonName, () => engineRef.current?.flyToMoon(bodyId, moonId));
     },
-    [],
+    [travel],
   );
 
   const handleSelectMission = useCallback(
     (mission: AbandonedMission, context?: ActiveSearchAnswer) => {
       setSearchAnswer(context ?? null);
       setIsInfoHidden(false);
-      engineRef.current?.flyToMission(mission);
+      travel(mission.name, () => engineRef.current?.flyToMission(mission));
     },
-    [],
+    [travel],
   );
 
   const handleSelectDeepSpace = useCallback(
     (id: DeepSpaceTargetId, context?: ActiveSearchAnswer) => {
       setSearchAnswer(context ?? null);
       setIsInfoHidden(false);
-      engineRef.current?.flyToDeepSpace(id);
+      const name = DEEP_SPACE_TARGETS.find((d) => d.id === id)?.name ?? id;
+      travel(name, () => engineRef.current?.flyToDeepSpace(id));
     },
-    [],
+    [travel],
   );
 
   const handleSelectTourStep = useCallback(
@@ -450,6 +509,12 @@ export default function App() {
 
       {/* The Sun as universal reference, visible from every view */}
       <SunMarker onGo={handleGoToSun} markerRef={registerSunMarker} />
+      <MemoNearbyObjects
+        selection={activeDeepSpaceId ? null : selection}
+        onGoBody={handleSelectBody}
+        onGoMoon={handleSelectMoon}
+        onGoMission={handleSelectMission}
+      />
 
       {/* Minimalist Top-Left Brand Logo + Guided NASA Tours Trigger */}
       <header
@@ -457,12 +522,20 @@ export default function App() {
         className="fixed top-2.5 left-2 sm:left-4 z-20 flex items-center gap-2 sm:gap-3 pointer-events-none"
       >
         <h1 className="m-0 flex items-center shrink-0">
-          <img
-            src="/travix-logo.png"
-            alt="Travix 3D"
-            className="h-9 sm:h-10 w-auto object-contain select-none drop-shadow-[0_2px_12px_rgba(255,255,255,0.22)]"
-            draggable={false}
-          />
+          <button
+            type="button"
+            onClick={() => setIsWelcomeOpen(true)}
+            aria-label={`Travix 3D · Acerca del equipo ${TEAM_NAME}`}
+            title={`Creado por el equipo ${TEAM_NAME}`}
+            className="pointer-events-auto rounded-lg cursor-pointer focus-visible:outline-2 focus-visible:outline-amber-400"
+          >
+            <img
+              src="/travix-logo.png"
+              alt="Travix 3D"
+              className="h-9 sm:h-10 w-auto object-contain select-none drop-shadow-[0_2px_12px_rgba(255,255,255,0.22)]"
+              draggable={false}
+            />
+          </button>
         </h1>
         <MemoGuidedTourBar
           onSelectStep={handleSelectTourStep}
@@ -561,7 +634,17 @@ export default function App() {
         onReleaseCamera={handleReleaseCamera}
         onTogglePause={handleTogglePause}
         onToggleOrbits={handleToggleOrbits}
+        isShipMode={isShipMode}
+        onToggleShipMode={handleToggleShipMode}
       />
+
+      {isWelcomeOpen && <WelcomeCredits onClose={handleCloseWelcome} />}
+
+      {isShipMode && (
+        <Suspense fallback={null}>
+          <WarpOverlay request={warpRequest} onDone={handleWarpDone} />
+        </Suspense>
+      )}
     </main>
   );
 }
