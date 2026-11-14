@@ -4,6 +4,7 @@
 // y la preferencia se recuerda en este navegador.
 
 const STORAGE_KEY = 'travix-sound';
+const MUSIC_LEVEL = 0.8; // volumen normal de la música (baja durante los viajes)
 
 // Pentatónica menor de Re: suena «espacial» y nunca desafina entre notas.
 const PAD_CHORD_HZ = [73.42, 110.0, 146.83, 174.61, 220.0]; // D2 A2 D3 F3 A3
@@ -109,11 +110,28 @@ class Soundscape {
     [1174.66, 1396.91, 1760.0].forEach((f, i) => this.tone(f, t + i * 0.06, 0.9, 0.06, 'triangle'));
   }
 
-  /** Viento suave mientras la cámara viaja hacia un destino. */
+  /**
+   * Viaje normal (~2,6 s): encendido con golpe grave, rugido de motores con vibración de
+   * propulsores que sube de tono y viento de velocidad. La música baja mientras tanto.
+   */
   travel(): void {
     const ctx = this.ready();
     if (!ctx) return;
-    this.noiseSweep(ctx.currentTime, 1.6, 250, 1800, 0.12);
+    const t = ctx.currentTime;
+    this.duckMusic(t, 2.8, 0.35);
+    this.kick(t, 95, 38, 0.45, 0.45); // ignición
+    this.engineRumble(t, 2.6, {
+      baseFrom: 42,
+      baseTo: 68,
+      peak: 0.6,
+      attack: 0.3,
+      release: 0.9,
+      tremoloFrom: 14,
+      tremoloTo: 24,
+      cutoffFrom: 520,
+      cutoffTo: 1800,
+    });
+    this.noiseSweep(t + 0.15, 2.3, 300, 2600, 0.35); // viento de velocidad
   }
 
   /** Tono grave y cálido al llegar al destino. */
@@ -126,28 +144,74 @@ class Soundscape {
     this.tone(880.0, t + 0.12, 1.1, 0.03, 'triangle');
   }
 
-  /** Hipersalto del «Modo nave»: subida de ruido y tono, y un golpe suave al salir. */
+  /**
+   * Hipersalto del «Modo nave», sincronizado con WarpOverlay (3,2 s):
+   * 0–0,5 s carga (zumbido que sube) · 0,5 s estallido de arranque · 0,75–2,5 s rugido de
+   * hipervelocidad que acelera · 2,5 s caída de tono al salir · 2,72 s golpe grave del destello.
+   */
   warp(): void {
     const ctx = this.ready();
     if (!ctx || !this.sfxBus) return;
     const t = ctx.currentTime;
-    this.noiseSweep(t, 2.4, 120, 6000, 0.22);
-    const osc = ctx.createOscillator();
-    const g = ctx.createGain();
-    osc.type = 'sawtooth';
-    osc.frequency.setValueAtTime(55, t);
-    osc.frequency.exponentialRampToValueAtTime(880, t + 2.2);
-    const lp = ctx.createBiquadFilter();
-    lp.type = 'lowpass';
-    lp.frequency.setValueAtTime(400, t);
-    lp.frequency.exponentialRampToValueAtTime(4000, t + 2.2);
-    g.gain.setValueAtTime(0.0001, t);
-    g.gain.exponentialRampToValueAtTime(0.06, t + 1.8);
-    g.gain.exponentialRampToValueAtTime(0.0001, t + 2.5);
-    osc.connect(lp).connect(g).connect(this.sfxBus);
-    osc.start(t);
-    osc.stop(t + 2.6);
-    this.tone(73.42, t + 2.3, 1.8, 0.2, 'sine');
+    this.duckMusic(t, 3.6, 0.2);
+
+    // 1) Carga de los motores: zumbido agudo que sube + rugido que crece
+    const whine = ctx.createOscillator();
+    const whineGain = ctx.createGain();
+    whine.type = 'sine';
+    whine.frequency.setValueAtTime(180, t);
+    whine.frequency.exponentialRampToValueAtTime(1400, t + 0.55);
+    whineGain.gain.setValueAtTime(0.0001, t);
+    whineGain.gain.exponentialRampToValueAtTime(0.09, t + 0.45);
+    whineGain.gain.exponentialRampToValueAtTime(0.0001, t + 0.75);
+    whine.connect(whineGain).connect(this.sfxBus);
+    whine.start(t);
+    whine.stop(t + 0.8);
+
+    // 2) Estallido de arranque
+    this.kick(t + 0.5, 120, 32, 0.7, 0.55);
+    this.noiseSweep(t + 0.48, 0.5, 2500, 500, 0.3);
+
+    // 3) Rugido de hipervelocidad: motores graves que aceleran y vibran cada vez más rápido
+    this.engineRumble(t + 0.05, 2.7, {
+      baseFrom: 38,
+      baseTo: 120,
+      peak: 0.75,
+      attack: 0.7,
+      release: 0.35,
+      tremoloFrom: 10,
+      tremoloTo: 38,
+      cutoffFrom: 420,
+      cutoffTo: 3600,
+    });
+    // Ráfaga de aire que sube durante el tránsito
+    this.noiseSweep(t + 0.7, 1.9, 400, 7000, 0.5);
+    // Dos tonos que suben como una turbina a máxima velocidad
+    for (const [from, to, peak] of [
+      [110, 660, 0.05],
+      [165, 990, 0.035],
+    ] as const) {
+      const osc = ctx.createOscillator();
+      const g = ctx.createGain();
+      const lp = ctx.createBiquadFilter();
+      osc.type = 'sawtooth';
+      osc.frequency.setValueAtTime(from, t + 0.75);
+      osc.frequency.exponentialRampToValueAtTime(to, t + 2.45);
+      lp.type = 'lowpass';
+      lp.frequency.setValueAtTime(900, t + 0.75);
+      lp.frequency.exponentialRampToValueAtTime(5000, t + 2.45);
+      g.gain.setValueAtTime(0.0001, t + 0.75);
+      g.gain.exponentialRampToValueAtTime(peak, t + 1.6);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + 2.6);
+      osc.connect(lp).connect(g).connect(this.sfxBus);
+      osc.start(t + 0.75);
+      osc.stop(t + 2.65);
+    }
+
+    // 4) Salida: caída de tono (efecto Doppler) y golpe grave en el destello
+    this.noiseSweep(t + 2.4, 0.6, 5000, 300, 0.22);
+    this.kick(t + 2.72, 90, 26, 1.3, 0.6);
+    this.tone(73.42, t + 2.75, 2.2, 0.12, 'sine');
   }
 
   /** Confirmación al activar el sonido. */
@@ -252,8 +316,12 @@ class Soundscape {
     this.master = ctx.createGain();
     this.master.gain.value = 0.0001;
     const limiter = ctx.createDynamicsCompressor();
-    limiter.threshold.value = -12;
-    limiter.ratio.value = 6;
+    // Limitador firme: los motores pueden sonar fuertes sin pasar del máximo (sin distorsión)
+    limiter.threshold.value = -8;
+    limiter.knee.value = 4;
+    limiter.ratio.value = 20;
+    limiter.attack.value = 0.002;
+    limiter.release.value = 0.2;
     this.master.connect(limiter).connect(ctx.destination);
 
     this.reverb = ctx.createConvolver();
@@ -263,7 +331,7 @@ class Soundscape {
     this.reverb.connect(wet).connect(this.master);
 
     this.musicBus = ctx.createGain();
-    this.musicBus.gain.value = 0.8;
+    this.musicBus.gain.value = MUSIC_LEVEL;
     this.musicBus.connect(this.master);
     this.musicBus.connect(this.reverb);
 
@@ -309,6 +377,132 @@ class Soundscape {
     osc.connect(g).connect(bus);
     osc.start(at);
     osc.stop(at + decay + 0.05);
+  }
+
+  /** Golpe grave (bombo) que cae de tono: ignición, arranque y salida del hipersalto. */
+  private kick(at: number, fromHz: number, toHz: number, decay: number, peak: number): void {
+    const ctx = this.ctx;
+    if (!ctx || !this.sfxBus) return;
+    const osc = ctx.createOscillator();
+    const g = ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(fromHz, at);
+    osc.frequency.exponentialRampToValueAtTime(toHz, at + decay * 0.6);
+    g.gain.setValueAtTime(0.0001, at);
+    g.gain.exponentialRampToValueAtTime(peak, at + 0.012);
+    g.gain.exponentialRampToValueAtTime(0.0001, at + decay);
+    osc.connect(g).connect(this.sfxBus);
+    osc.start(at);
+    osc.stop(at + decay + 0.05);
+  }
+
+  /**
+   * Rugido de motor: dos sierras graves desafinadas y una sub-octava cuadrada, con algo de
+   * saturación, un filtro que se abre y un trémolo que acelera (la vibración de los propulsores),
+   * más ruido grave tipo «retumbe».
+   */
+  private engineRumble(
+    at: number,
+    seconds: number,
+    o: {
+      baseFrom: number;
+      baseTo: number;
+      peak: number;
+      attack: number;
+      release: number;
+      tremoloFrom: number;
+      tremoloTo: number;
+      cutoffFrom: number;
+      cutoffTo: number;
+    },
+  ): void {
+    const ctx = this.ctx;
+    if (!ctx || !this.sfxBus) return;
+    const end = at + seconds;
+
+    const filter = ctx.createBiquadFilter();
+    filter.type = 'lowpass';
+    filter.Q.value = 2.5;
+    filter.frequency.setValueAtTime(o.cutoffFrom, at);
+    filter.frequency.exponentialRampToValueAtTime(o.cutoffTo, end - o.release * 0.5);
+
+    const drive = ctx.createWaveShaper();
+    drive.curve = this.saturationCurve(2.2);
+
+    // Trémolo: la ganancia oscila alrededor de 1 cada vez más rápido
+    const tremolo = ctx.createGain();
+    tremolo.gain.value = 1;
+    const lfo = ctx.createOscillator();
+    const lfoDepth = ctx.createGain();
+    lfo.frequency.setValueAtTime(o.tremoloFrom, at);
+    lfo.frequency.exponentialRampToValueAtTime(o.tremoloTo, end);
+    lfoDepth.gain.value = 0.35;
+    lfo.connect(lfoDepth).connect(tremolo.gain);
+
+    const env = ctx.createGain();
+    env.gain.setValueAtTime(0.0001, at);
+    env.gain.exponentialRampToValueAtTime(o.peak, at + o.attack);
+    env.gain.setValueAtTime(o.peak, end - o.release);
+    env.gain.exponentialRampToValueAtTime(0.0001, end);
+
+    drive.connect(filter).connect(tremolo).connect(env).connect(this.sfxBus);
+
+    const voices: Array<[OscillatorType, number, number]> = [
+      ['sawtooth', 1, -9],
+      ['sawtooth', 1, 9],
+      ['square', 0.5, 0],
+    ];
+    const oscs: OscillatorNode[] = [lfo];
+    for (const [type, ratio, detune] of voices) {
+      const osc = ctx.createOscillator();
+      const g = ctx.createGain();
+      osc.type = type;
+      osc.detune.value = detune;
+      osc.frequency.setValueAtTime(o.baseFrom * ratio, at);
+      osc.frequency.exponentialRampToValueAtTime(o.baseTo * ratio, end);
+      g.gain.value = type === 'square' ? 0.45 : 0.32;
+      osc.connect(g).connect(drive);
+      oscs.push(osc);
+    }
+
+    // Retumbe: ruido filtrado muy grave
+    const noise = ctx.createBufferSource();
+    noise.buffer = this.makeNoise(seconds + 0.2);
+    const noiseLp = ctx.createBiquadFilter();
+    noiseLp.type = 'lowpass';
+    noiseLp.frequency.value = 160;
+    const noiseGain = ctx.createGain();
+    noiseGain.gain.value = 1.4;
+    noise.connect(noiseLp).connect(noiseGain).connect(tremolo);
+
+    for (const osc of oscs) {
+      osc.start(at);
+      osc.stop(end + 0.05);
+    }
+    noise.start(at);
+    noise.stop(end + 0.05);
+  }
+
+  /** Baja la música durante un efecto fuerte y la recupera al terminar. */
+  private duckMusic(at: number, seconds: number, level: number): void {
+    const ctx = this.ctx;
+    if (!ctx || !this.musicBus) return;
+    const g = this.musicBus.gain;
+    g.cancelScheduledValues(at);
+    g.setValueAtTime(Math.max(g.value, 0.0001), at);
+    g.linearRampToValueAtTime(level, at + 0.25);
+    g.setValueAtTime(level, at + seconds - 0.8);
+    g.linearRampToValueAtTime(MUSIC_LEVEL, at + seconds);
+  }
+
+  private saturationCurve(amount: number): Float32Array<ArrayBuffer> {
+    const n = 1024;
+    const curve = new Float32Array(new ArrayBuffer(n * 4));
+    for (let i = 0; i < n; i++) {
+      const x = (i / (n - 1)) * 2 - 1;
+      curve[i] = Math.tanh(x * amount) / Math.tanh(amount);
+    }
+    return curve;
   }
 
   private noiseSweep(at: number, seconds: number, fromHz: number, toHz: number, peak: number): void {
