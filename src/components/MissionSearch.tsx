@@ -433,7 +433,7 @@ export const MissionSearch: React.FC<MissionSearchProps> = ({
               <div className="mt-1 text-xs font-semibold text-white">
                 {smartAnswer.headline}
               </div>
-              <p className="mt-0.5 text-xs text-slate-100 leading-relaxed line-clamp-3">
+              <p className="mt-0.5 text-xs text-slate-100 leading-relaxed max-h-40 overflow-y-auto overscroll-contain">
                 {smartAnswer.answer}
               </p>
             </button>
@@ -470,22 +470,22 @@ export const MissionSearch: React.FC<MissionSearchProps> = ({
                             style={{ backgroundColor: mission.accentColor }}
                             aria-hidden="true"
                           />
-                          <span className="text-xs font-semibold text-white truncate">
+                          <span className="text-xs font-semibold text-white break-words min-w-0">
                             {mission.name}
                           </span>
                         </div>
-                        <div className="mt-0.5 flex items-center gap-1.5 text-xs text-slate-200 truncate">
+                        <div className="mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs text-slate-200">
                           <span>{mission.categoryLabel}</span>
                           <span aria-hidden="true">·</span>
                           <span className="text-slate-200">
                             {mission.destinationLabel}
                           </span>
                           <span aria-hidden="true">·</span>
-                          <span className="truncate">{mission.launchYear}</span>
+                          <span>{mission.launchYear}</span>
                         </div>
-                        <div className="mt-0.5 flex items-center gap-1 text-xs text-slate-200 truncate">
-                          <MapPin className="w-3 h-3 shrink-0" />
-                          <span className="truncate">{mission.region}</span>
+                        <div className="mt-0.5 flex items-start gap-1 text-xs text-slate-200">
+                          <MapPin className="w-3 h-3 shrink-0 mt-0.5" />
+                          <span className="break-words min-w-0">{mission.region}</span>
                         </div>
                       </div>
                       <ChevronRight className="w-4 h-4 text-slate-200 shrink-0" />
@@ -522,11 +522,11 @@ export const MissionSearch: React.FC<MissionSearchProps> = ({
                             style={{ backgroundColor: body.accentColor }}
                             aria-hidden="true"
                           />
-                          <span className="text-xs font-semibold text-white truncate">
+                          <span className="text-xs font-semibold text-white break-words min-w-0">
                             {body.name}
                           </span>
                         </div>
-                        <div className="mt-0.5 flex items-center gap-1.5 text-xs text-slate-200 truncate">
+                        <div className="mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs text-slate-200">
                           <Globe className="w-3 h-3 shrink-0" />
                           <span>{body.stats.distanceAu}</span>
                           <span aria-hidden="true">·</span>
@@ -570,19 +570,19 @@ export const MissionSearch: React.FC<MissionSearchProps> = ({
                           style={{ backgroundColor: target.accentColor }}
                           aria-hidden="true"
                         />
-                        <span className="text-xs font-semibold text-white truncate">
+                        <span className="text-xs font-semibold text-white break-words min-w-0">
                           {target.name}
                         </span>
                       </div>
-                      <div className="mt-0.5 flex items-center gap-1.5 text-xs text-slate-200 truncate">
+                      <div className="mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs text-slate-200">
                         <Orbit className="w-3 h-3 shrink-0" />
                         <span className="text-slate-200 shrink-0">
                           {target.categoryLabel}
                         </span>
                         <span aria-hidden="true">·</span>
-                        <span className="truncate">{target.classification}</span>
+                        <span className="break-words min-w-0">{target.classification}</span>
                       </div>
-                      <div className="mt-0.5 text-[11px] text-slate-200 truncate">
+                      <div className="mt-0.5 text-[11px] text-slate-200 break-words">
                         {target.distanceLabel} · {target.nasaObservatories}
                       </div>
                     </div>

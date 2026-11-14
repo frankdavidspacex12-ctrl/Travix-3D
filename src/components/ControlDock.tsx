@@ -147,18 +147,18 @@ export const ControlDock: React.FC<ControlDockProps> = ({
               isInfoMinimized ? '' : 'border-b border-white/12'
             }`}
           >
-            <div className="min-w-0 flex items-center gap-2">
+            <div className="min-w-0 flex flex-wrap items-center gap-x-2 gap-y-0.5">
               <span
                 className="w-2 h-2 rounded-full shrink-0"
                 style={{ backgroundColor: selectedBody.accentColor }}
                 aria-hidden="true"
               />
-              <h2 className="font-display text-sm sm:text-base font-semibold text-white tracking-tight truncate">
+              <h2 className="font-display text-sm sm:text-base font-semibold text-white tracking-tight break-words min-w-0">
                 {selectedMoon
                   ? `${selectedMoon.name} · Luna de ${selectedBody.name}`
                   : selectedBody.name}
               </h2>
-              <span className="hidden sm:inline text-xs text-slate-200 truncate">
+              <span className="hidden sm:inline text-xs text-slate-200 break-words min-w-0">
                 {selectedBody.classification}
               </span>
             </div>
@@ -263,7 +263,7 @@ export const ControlDock: React.FC<ControlDockProps> = ({
                   <Activity className="w-3 h-3" />
                   <span>Telemetría orbital J2000 en tiempo real</span>
                 </span>
-                <span className="text-[11px] text-slate-200 truncate max-w-[55%]">
+                <span className="text-[11px] text-slate-200 break-words text-right max-w-[55%]">
                   Atmósfera: {selectedBody.stats.atmosphere}
                 </span>
               </div>

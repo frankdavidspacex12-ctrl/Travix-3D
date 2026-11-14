@@ -89,17 +89,14 @@ const SunMarker = memo(function SunMarker({ onGo, markerRef }: SunMarkerProps) {
       aria-label="Ir al Sol, referencia del Sistema Solar"
       title="El Sol: referencia universal del Sistema Solar. Toca para ir."
       style={{ opacity: 0, pointerEvents: 'none' }}
-      className="fixed top-0 left-0 z-[15] inline-flex items-center gap-1.5 pl-2 pr-1.5 py-1.5 rounded-full travix-glass-bar border-amber-400/50 text-xs font-semibold text-white whitespace-nowrap cursor-pointer transition-opacity duration-300 focus-visible:outline-2 focus-visible:outline-amber-400"
+      className="fixed top-0 left-0 z-[15] inline-flex items-center gap-1 pl-1.5 pr-2 py-0.5 rounded-full border border-amber-300/25 bg-black/45 text-[10px] font-medium text-slate-100 whitespace-nowrap cursor-pointer transition-opacity duration-300 hover:bg-black/70 hover:text-white focus-visible:outline-2 focus-visible:outline-amber-400"
     >
       <span data-sun-arrow className="inline-flex shrink-0">
-        <ArrowRight className="w-3.5 h-3.5 text-amber-300" />
+        <ArrowRight className="w-3 h-3 text-amber-300/90" />
       </span>
-      <Sun className="w-4 h-4 text-amber-300 shrink-0" />
+      <Sun className="w-3 h-3 text-amber-300 shrink-0" />
       <span data-sun-text className="font-mono-tabular">
         Sol
-      </span>
-      <span className="ml-0.5 px-2 py-0.5 rounded-full bg-amber-500/25 text-amber-100 text-xs font-bold">
-        Ir
       </span>
     </button>
   );

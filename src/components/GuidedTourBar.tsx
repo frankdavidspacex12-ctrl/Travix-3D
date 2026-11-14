@@ -117,11 +117,11 @@ export const GuidedTourBar: React.FC<GuidedTourBarProps> = ({
             }`}
           >
             <div className="min-w-0">
-              <div className="text-xs font-semibold text-white truncate">
+              <div className="text-xs font-semibold text-white break-words">
                 Guías Interactivas NASA
               </div>
               {!menuMinimized && (
-                <div className="text-[11px] text-slate-200 truncate">
+                <div className="text-[11px] text-slate-200 break-words">
                   Recorridos científicos guiados 100% offline
                 </div>
               )}
@@ -169,11 +169,11 @@ export const GuidedTourBar: React.FC<GuidedTourBarProps> = ({
                           style={{ backgroundColor: tour.accentColor }}
                           aria-hidden="true"
                         />
-                        <span className="text-xs font-semibold text-white truncate">
+                        <span className="text-xs font-semibold text-white break-words min-w-0">
                           {tour.name}
                         </span>
                       </div>
-                      <div className="mt-0.5 text-xs text-slate-200 truncate">
+                      <div className="mt-0.5 text-xs text-slate-200 break-words">
                         {tour.subtitle}
                       </div>
                     </div>
@@ -201,12 +201,12 @@ export const GuidedTourBar: React.FC<GuidedTourBarProps> = ({
             }`}
           >
             <div className="min-w-0">
-              <div className="flex items-center gap-1.5 text-[11px] font-mono-tabular text-amber-300">
+              <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[11px] font-mono-tabular text-amber-300">
                 <span className="shrink-0">
                   Parada {stepIdx + 1}/{activeTour.steps.length}
                 </span>
                 <span aria-hidden="true">·</span>
-                <span className="truncate text-slate-200">
+                <span className="break-words min-w-0 text-slate-200">
                   {activeTour.name}
                 </span>
                 {autoPlay && (
@@ -216,7 +216,7 @@ export const GuidedTourBar: React.FC<GuidedTourBarProps> = ({
                   />
                 )}
               </div>
-              <h3 className="mt-0.5 font-display text-xs sm:text-sm font-semibold text-white truncate">
+              <h3 className="mt-0.5 font-display text-xs sm:text-sm font-semibold text-white break-words">
                 {currentStep.title}
               </h3>
             </div>

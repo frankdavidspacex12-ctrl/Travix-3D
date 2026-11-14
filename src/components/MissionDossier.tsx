@@ -131,8 +131,8 @@ export const MissionDossier: React.FC<MissionDossierProps> = ({
           }`}
         >
           <div className="min-w-0">
-            <div className="flex items-center gap-1.5 text-xs text-slate-100">
-              <span className="truncate">
+            <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs text-slate-100">
+              <span className="break-words min-w-0">
                 {mission ? mission.destinationLabel : deepSpaceTarget?.distanceLabel}
               </span>
               <span aria-hidden="true">·</span>
@@ -142,7 +142,7 @@ export const MissionDossier: React.FC<MissionDossierProps> = ({
                   : deepSpaceTarget?.discoveryYear}
               </span>
             </div>
-            <h2 className="mt-0.5 font-display text-sm font-semibold text-white tracking-tight truncate">
+            <h2 className="mt-0.5 font-display text-sm font-semibold text-white tracking-tight break-words">
               {activeName}
             </h2>
           </div>
@@ -289,7 +289,7 @@ export const MissionDossier: React.FC<MissionDossierProps> = ({
           {mission && (
             <>
               <div className="pt-2 border-t border-white/12 flex items-center justify-between gap-2 text-xs text-slate-200">
-                <span className="font-mono-tabular truncate">
+                <span className="font-mono-tabular break-words min-w-0">
                   {mission.launchDate} — {mission.lastContactDate}
                 </span>
                 {isSunlit !== null && mission.missionRole === 'surface' && (
@@ -399,8 +399,8 @@ export const MissionDossier: React.FC<MissionDossierProps> = ({
           >
             <div className="px-4 py-3 border-b border-white/12 flex items-center justify-between gap-3">
               <div className="min-w-0">
-                <div className="flex items-center gap-2">
-                  <h3 className="font-display text-sm font-semibold text-white truncate">
+                <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                  <h3 className="font-display text-sm font-semibold text-white break-words min-w-0">
                     Archivo Fotográfico NASA · {activeName}
                   </h3>
                   <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-emerald-500/18 border border-emerald-400/35 text-[11px] font-medium text-emerald-200 shrink-0">
@@ -408,7 +408,7 @@ export const MissionDossier: React.FC<MissionDossierProps> = ({
                     <span>Sin internet</span>
                   </span>
                 </div>
-                <div className="text-xs text-slate-200 truncate">
+                <div className="text-xs text-slate-200 break-words">
                   {activeQuote}
                 </div>
               </div>
@@ -485,7 +485,7 @@ export const MissionDossier: React.FC<MissionDossierProps> = ({
                         <div className="text-[11px] font-mono-tabular text-amber-300">
                           {photo.nasaId} · {photo.instrument}
                         </div>
-                        <div className="text-xs text-slate-100 truncate font-medium">
+                        <div className="text-xs text-slate-100 line-clamp-2 font-medium" title={photo.title}>
                           {photo.title}
                         </div>
                       </div>

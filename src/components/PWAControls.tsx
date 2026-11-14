@@ -53,7 +53,7 @@ export const PWAControls: React.FC = () => {
                   isOnline ? 'text-emerald-300' : 'text-amber-400'
                 }`}
               />
-              <span className="font-semibold text-white truncate">
+              <span className="font-semibold text-white break-words min-w-0">
                 {isOnline ? 'Modo Offline Listo' : 'Modo sin internet'}
               </span>
             </div>
