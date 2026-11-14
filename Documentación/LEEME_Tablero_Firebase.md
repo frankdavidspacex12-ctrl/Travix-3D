@@ -11,7 +11,7 @@ Las versiones anteriores se conservan sin cambios, como pide la bitácora: `ARTE
 ## Uso
 
 1. Abran **https://artemis-spaceapps-2026.web.app**, en computador o celular. Sin sesión, la página es de solo lectura.
-2. Pulsen **Iniciar sesión con Google** con su cuenta del equipo y elijan su nombre en **«Soy»**. Solo pueden editar las tres cuentas del equipo, y cada cuenta solo puede firmar con su propio nombre: si alguien elige otro nombre, Firebase rechaza el cambio.
+2. Elijan su nombre en **«Soy»**. No hace falta iniciar sesión: con eso ya pueden editar el Tablero, la Bitácora y el GDD. Cada cambio queda registrado con ese nombre y la hora del servidor.
 3. **Tablero**: cambien estado, responsable o evidencia. El indicador de arriba muestra *Sincronizado*, *Guardando…* o *Sin conexión*.
 4. **Bitácora · nueva entrada**: en «3. Cronología de actividades», pulsen **+ Nueva entrada**. El número (E15, E16…) se asigna solo y no se repite aunque dos personas guarden a la vez. Los campos siguen el formato de la sección 5:
    - fecha y participantes;
@@ -49,8 +49,8 @@ Las versiones anteriores se conservan sin cambios, como pide la bitácora: `ARTE
 ## Seguridad
 
 - **Lectura**: abierta. La página tiene `noindex` para que no aparezca en buscadores. Cualquiera con el enlace puede leerla, así que no escriban ahí datos privados.
-- **Escritura**: solo con las tres cuentas Google del equipo, con correo verificado y firmando con el nombre que corresponde a cada cuenta.
+- **Escritura**: por decisión del equipo, cualquiera con el enlace puede editar eligiendo uno de los cinco nombres del equipo, sin iniciar sesión. La autoría es autodeclarada, así que compartan el enlace solo dentro del equipo.
 - **Validación**: las reglas validan IDs, estados, tamaños y la hora del servidor.
 - **Historial**: nadie puede borrar elementos, secciones ni entradas, y nadie puede modificar ni borrar el historial o las versiones.
 - **Correos**: `firestore.rules` contiene los correos del equipo. **No lo suban a repositorios públicos.**
-- **V12**: desde que se activó el inicio de sesión, el `ARTEMIS_Tablero_V12_Firebase.html` solo puede leer; para editar se usa el portal V13.
+- **V12**: el `ARTEMIS_Tablero_V12_Firebase.html` quedó como versión histórica; para trabajar se usa el portal V13.
