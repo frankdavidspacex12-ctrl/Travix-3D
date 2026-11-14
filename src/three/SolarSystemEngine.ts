@@ -386,7 +386,9 @@ function createAtmosphereShaderMaterial(
         float sunDot = dot(N, sunDir);
         // Sunlit day-side Rayleigh scatter + warm golden-amber twilight terminator ring
         float dayFactor = smoothstep(-0.22, 0.48, sunDot);
-        float terminatorBand = exp(-pow(sunDot / 0.16, 2.0));
+        // Explicit square (same result): pow() of a negative base is undefined on some GPUs
+        float tb = sunDot / 0.16;
+        float terminatorBand = exp(-tb * tb);
         vec3 scatterCol = mix(uColor, vec3(1.0, 0.56, 0.28), terminatorBand * 0.42);
         float alpha = rim * uIntensity * (dayFactor + terminatorBand * 0.24);
         gl_FragColor = vec4(scatterCol * (0.95 + 0.55 * dayFactor), clamp(alpha, 0.0, 1.0));
@@ -644,6 +646,10 @@ export class SolarSystemEngine {
   private labelsAllHidden = false;
   /** Always-on Sun reference marker (see updateSunMarker) */
   private sunMarkerEl: HTMLElement | null = null;
+  private companionLabelEl: HTMLElement | null = null;
+  private companionLabelText: HTMLElement | null = null;
+  private companionLabelState = { shown: null as boolean | null, transform: '', text: '' };
+  private lastCompanionTextAt = 0;
   private sunMarkerArrow: HTMLElement | null = null;
   private sunMarkerText: HTMLElement | null = null;
   private sunMarkerState = { shown: null as boolean | null, transform: '', arrow: '', text: '', w: 0, h: 0 };
@@ -2851,6 +2857,7 @@ export class SolarSystemEngine {
         id === 'sun',
         id === 'saturn',
         _vec3B,
+        this.getFramingCompanion(id),
       );
       this.camera.position.copy(runtime.currentWorldPos).add(_vec3B);
       this.controls.target.copy(runtime.currentWorldPos);
@@ -2865,6 +2872,7 @@ export class SolarSystemEngine {
         id === 'sun',
         id === 'saturn',
         _vec3B,
+        this.getFramingCompanion(id),
       );
       this.camera.position.copy(runtime.currentWorldPos).add(_vec3B);
       this.controls.target.copy(runtime.currentWorldPos);
@@ -3556,6 +3564,69 @@ export class SolarSystemEngine {
    * from any planet, moon, spacecraft diorama or deep-space view. Elements inside `el`:
    * [data-sun-arrow] (rotated toward the Sun when it is off-screen) and [data-sun-text].
    */
+  /** Small "Luna" label pointing at the Moon when looking at the Earth (see updateCompanionLabel). */
+  public registerCompanionLabel(el: HTMLElement | null): void {
+    this.companionLabelEl = el;
+    this.companionLabelText = el?.querySelector<HTMLElement>('[data-companion-text]') ?? null;
+    this.companionLabelState = { shown: null, transform: '', text: '' };
+    this.lastCompanionTextAt = 0;
+  }
+
+  /**
+   * The Moon at its real size is a ~10 px disc (often a thin crescent) next to the Earth: a small
+   * label right under it, with the real Earth-Moon distance, makes it easy to spot and to visit.
+   */
+  private updateCompanionLabel(): void {
+    const el = this.companionLabelEl;
+    if (!el) return;
+    const state = this.companionLabelState;
+    const setShown = (shown: boolean) => {
+      if (state.shown === shown) return;
+      state.shown = shown;
+      el.style.opacity = shown ? '1' : '0';
+      el.style.pointerEvents = shown ? 'auto' : 'none';
+    };
+    const inSpace = !this.surfaceDiorama && !this.deepSpaceDiorama;
+    const companion =
+      inSpace && this.focusedBodyId && !this.focusedMoonId && !this.focusedMissionId && !this.isFlying
+        ? this.getFramingCompanion(this.focusedBodyId)
+        : null;
+    if (!companion || !this.focusedBodyId) {
+      setShown(false);
+      return;
+    }
+    _projVec.copy(companion).project(this.camera);
+    const w = this.viewportW || window.innerWidth;
+    const h = this.viewportH || window.innerHeight;
+    const sx = (_projVec.x * 0.5 + 0.5) * w;
+    const sy = (-_projVec.y * 0.5 + 0.5) * h;
+    if (_projVec.z > 1 || sx < 24 || sx > w - 24 || sy < 70 || sy > h - 110) {
+      setShown(false);
+      return;
+    }
+    const now = performance.now();
+    if (now - this.lastCompanionTextAt > 500 || !state.text) {
+      this.lastCompanionTextAt = now;
+      const planet = this.bodies.get(this.focusedBodyId);
+      const moon = this.moonsById.get('luna');
+      if (planet && moon) {
+        // Moon orbit in the scene is 55.5 units for the real 384,400 km mean distance
+        const km = (planet.currentWorldPos.distanceTo(companion) / moon.data.orbitRadius) * 384400;
+        const text = `Luna · ${(Math.round(km / 100) * 100).toLocaleString('es-ES')} km`;
+        if (text !== state.text) {
+          state.text = text;
+          if (this.companionLabelText) this.companionLabelText.textContent = text;
+        }
+      }
+    }
+    const transform = `translate3d(${sx.toFixed(1)}px, ${(sy + 9).toFixed(1)}px, 0) translateX(-50%)`;
+    if (transform !== state.transform) {
+      state.transform = transform;
+      el.style.transform = transform;
+    }
+    setShown(true);
+  }
+
   public registerSunMarker(el: HTMLElement | null): void {
     this.sunMarkerEl = el;
     this.sunMarkerArrow = el?.querySelector<HTMLElement>('[data-sun-arrow]') ?? null;
@@ -3727,6 +3798,67 @@ export class SolarSystemEngine {
     this.labelsAllHidden = false;
   }
 
+  /**
+   * Object kept in frame next to a focused planet, at its real position (the Moon for the Earth).
+   * Returns its world position, or null.
+   */
+  private getFramingCompanion(bodyId: CelestialBodyId): THREE.Vector3 | null {
+    if (bodyId !== 'earth') return null;
+    return this.moonsById.get('luna')?.currentWorldPos ?? null;
+  }
+
+  /**
+   * Camera direction that shows the planet and its companion together, without moving either:
+   * the camera sits on the far side of the planet, looking almost toward the companion, which
+   * then appears beside the planet (to the side on wide screens, above on tall ones) at its real
+   * position and real angular size.
+   */
+  private companionViewOffset(
+    worldPos: THREE.Vector3,
+    radius: number,
+    dist: number,
+    companion: THREE.Vector3,
+    out: THREE.Vector3,
+  ): boolean {
+    const u = _vec3C.subVectors(companion, worldPos);
+    const dM = u.length();
+    if (dM < dist * 1.5) return false;
+    u.divideScalar(dM);
+    const aspect = this.camera.aspect;
+    const halfV = THREE.MathUtils.degToRad(this.camera.fov / 2);
+    const halfH = Math.atan(Math.tan(halfV) * aspect);
+    const wide = aspect >= 1;
+    const halfAxis = wide ? halfH : halfV;
+    // Clear of the planet's disc (and its glow), well inside the frame
+    const planetHalf = Math.asin(Math.min(0.99, radius / dist));
+    const alpha = Math.min(planetHalf * 1.45 + THREE.MathUtils.degToRad(3), halfAxis * 0.72);
+    if (alpha <= planetHalf) return false;
+    // Angle between the view direction and the planet -> companion line
+    const theta = alpha + Math.asin(Math.min(1, (dist * Math.sin(alpha)) / dM));
+
+    const up = _vec3D.set(0, 1, 0);
+    const w = new THREE.Vector3();
+    if (wide) {
+      // Horizontal offset; pick the side that puts the camera more toward the Sun (lit faces)
+      w.crossVectors(u, up);
+      if (w.lengthSq() < 1e-8) w.set(1, 0, 0);
+      w.normalize();
+      const sun = new THREE.Vector3().copy(worldPos).negate().normalize();
+      const vA = new THREE.Vector3().copy(u).multiplyScalar(Math.cos(theta)).addScaledVector(w, Math.sin(theta));
+      const vB = new THREE.Vector3().copy(u).multiplyScalar(Math.cos(theta)).addScaledVector(w, -Math.sin(theta));
+      if (vB.dot(sun) < vA.dot(sun)) w.negate();
+    } else {
+      // Companion above the planet: the view direction tilts below the planet -> companion line
+      w.copy(up).addScaledVector(u, -up.dot(u));
+      if (w.lengthSq() < 1e-8) w.set(0, 0, 1);
+      w.normalize().negate();
+    }
+    const v = new THREE.Vector3().copy(u).multiplyScalar(Math.cos(theta)).addScaledVector(w, Math.sin(theta)).normalize();
+    // Camera behind the planet along -v
+    out.copy(v).multiplyScalar(-dist);
+    return true;
+  }
+
   private computeIdealCameraOffset(
     worldPos: THREE.Vector3,
     radius: number,
@@ -3734,12 +3866,14 @@ export class SolarSystemEngine {
     isSun: boolean,
     isSaturn: boolean,
     out: THREE.Vector3,
+    companion: THREE.Vector3 | null = null,
   ): void {
     const dist = radius * distanceFactor * this.getFramingFitFactor();
     if (isSun) {
       out.set(dist * 0.45, dist * 0.32, dist * 0.85);
       return;
     }
+    if (companion && this.companionViewOffset(worldPos, radius, dist, companion, out)) return;
 
     _vec3C.copy(worldPos).normalize();
     const tangentX = -_vec3C.z;
@@ -4265,6 +4399,7 @@ export class SolarSystemEngine {
               targetPlanet.data.id === 'sun',
               targetPlanet.data.id === 'saturn',
               _vec3B,
+              this.getFramingCompanion(targetPlanet.data.id),
             );
             this.flightLookTarget.copy(targetPlanet.currentWorldPos);
             this.flightTargetPos.copy(targetPlanet.currentWorldPos).add(_vec3B);
@@ -4281,6 +4416,7 @@ export class SolarSystemEngine {
     }
 
     this.updateSunMarker();
+    this.updateCompanionLabel();
 
     const now = performance.now();
     if (now - this.lastHudSync > 120) {

@@ -135,12 +135,38 @@ const SunMarker = memo(function SunMarker({ onGo, markerRef }: SunMarkerProps) {
   );
 });
 
+interface CompanionLabelProps {
+  onGo: () => void;
+  labelRef: (el: HTMLButtonElement | null) => void;
+}
+
+/** "Luna" tag pointing at the Moon while looking at the Earth; positioned by the engine. */
+const CompanionLabel = memo(function CompanionLabel({ onGo, labelRef }: CompanionLabelProps) {
+  return (
+    <button
+      ref={labelRef}
+      type="button"
+      onClick={onGo}
+      aria-label="Ir a la Luna"
+      title="La Luna en su posición real. Toca para ir."
+      style={{ opacity: 0, pointerEvents: 'none' }}
+      className="fixed top-0 left-0 z-[15] inline-flex flex-col items-center gap-0 text-[10px] font-medium text-slate-100 whitespace-nowrap cursor-pointer transition-opacity duration-300 focus-visible:outline-2 focus-visible:outline-amber-400"
+    >
+      <span aria-hidden="true" className="block w-px h-2.5 bg-slate-200/70" />
+      <span className="travix-chip rounded-full px-2 py-0.5 hover:text-white">
+        ☾ <span data-companion-text>Luna</span>
+      </span>
+    </button>
+  );
+});
+
 export default function App() {
   const canvasMountRef = useRef<HTMLDivElement | null>(null);
   const engineRef = useRef<SolarSystemEngine | null>(null);
   const labelElementsRef = useRef(new Map<CelestialBodyId, HTMLElement>());
   const headerRef = useRef<HTMLElement | null>(null);
   const sunMarkerRef = useRef<HTMLButtonElement | null>(null);
+  const companionLabelRef = useRef<HTMLButtonElement | null>(null);
   useViewInset('app-header', headerRef, 'top');
 
   const [selection, setSelection] = useState<FocusSelection | null>(null);
@@ -227,6 +253,7 @@ export default function App() {
         engine?.registerLabelElement(id, el),
       );
       engine.registerSunMarker(sunMarkerRef.current);
+      engine.registerCompanionLabel(companionLabelRef.current);
       engine.setShipMode(shipModeRef.current);
     } catch {
       setWebglError(true);
@@ -412,6 +439,15 @@ export default function App() {
     engineRef.current?.registerSunMarker(el);
   }, []);
 
+  const registerCompanionLabel = useCallback((el: HTMLButtonElement | null) => {
+    companionLabelRef.current = el;
+    engineRef.current?.registerCompanionLabel(el);
+  }, []);
+
+  const handleGoToMoon = useCallback(() => {
+    handleSelectMoon('earth', 'luna');
+  }, [handleSelectMoon]);
+
   const handleGoToSun = useCallback(() => {
     setIsInfoHidden(false);
     handleSelectBody('sun');
@@ -568,6 +604,7 @@ export default function App() {
 
       {/* The Sun as universal reference, visible from every view */}
       <SunMarker onGo={handleGoToSun} markerRef={registerSunMarker} />
+      <CompanionLabel onGo={handleGoToMoon} labelRef={registerCompanionLabel} />
       <MemoNearbyObjects
         selection={activeDeepSpaceId ? null : selection}
         onGoBody={handleSelectBody}
