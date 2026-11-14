@@ -4,7 +4,7 @@
  */
 
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { FileText, Search } from 'lucide-react';
+import { ArrowRight, FileText, Search, Sun } from 'lucide-react';
 import {
   ABANDONED_MISSIONS,
   AbandonedMission,
@@ -71,11 +71,46 @@ const PlanetLabels = memo(function PlanetLabels({
   );
 });
 
+interface SunMarkerProps {
+  onGo: () => void;
+  markerRef: (el: HTMLButtonElement | null) => void;
+}
+
+/**
+ * Universal Sun reference: positioned every frame by the engine (registerSunMarker). It shows
+ * where the Sun is (arrow toward it when off-screen) and how far, and flies there on click.
+ */
+const SunMarker = memo(function SunMarker({ onGo, markerRef }: SunMarkerProps) {
+  return (
+    <button
+      ref={markerRef}
+      type="button"
+      onClick={onGo}
+      aria-label="Ir al Sol, referencia del Sistema Solar"
+      title="El Sol: referencia universal del Sistema Solar. Toca para ir."
+      style={{ opacity: 0, pointerEvents: 'none' }}
+      className="fixed top-0 left-0 z-[15] inline-flex items-center gap-1.5 pl-2 pr-1.5 py-1.5 rounded-full travix-glass-bar border-amber-400/50 text-xs font-semibold text-white whitespace-nowrap cursor-pointer transition-opacity duration-300 focus-visible:outline-2 focus-visible:outline-amber-400"
+    >
+      <span data-sun-arrow className="inline-flex shrink-0">
+        <ArrowRight className="w-3.5 h-3.5 text-amber-300" />
+      </span>
+      <Sun className="w-4 h-4 text-amber-300 shrink-0" />
+      <span data-sun-text className="font-mono-tabular">
+        Sol
+      </span>
+      <span className="ml-0.5 px-2 py-0.5 rounded-full bg-amber-500/25 text-amber-100 text-xs font-bold">
+        Ir
+      </span>
+    </button>
+  );
+});
+
 export default function App() {
   const canvasMountRef = useRef<HTMLDivElement | null>(null);
   const engineRef = useRef<SolarSystemEngine | null>(null);
   const labelElementsRef = useRef(new Map<CelestialBodyId, HTMLElement>());
   const headerRef = useRef<HTMLElement | null>(null);
+  const sunMarkerRef = useRef<HTMLButtonElement | null>(null);
   useViewInset('app-header', headerRef, 'top');
 
   const [selection, setSelection] = useState<FocusSelection | null>(null);
@@ -154,6 +189,7 @@ export default function App() {
       labelElementsRef.current.forEach((el, id) =>
         engine?.registerLabelElement(id, el),
       );
+      engine.registerSunMarker(sunMarkerRef.current);
     } catch {
       setWebglError(true);
     }
@@ -257,6 +293,16 @@ export default function App() {
     },
     [],
   );
+
+  const registerSunMarker = useCallback((el: HTMLButtonElement | null) => {
+    sunMarkerRef.current = el;
+    engineRef.current?.registerSunMarker(el);
+  }, []);
+
+  const handleGoToSun = useCallback(() => {
+    setIsInfoHidden(false);
+    handleSelectBody('sun');
+  }, [handleSelectBody]);
 
   const handleViewMilkyWay = useCallback(() => {
     handleSelectDeepSpace('milkyway');
@@ -404,6 +450,9 @@ export default function App() {
         onSelect={handleSelectBody}
         registerLabel={registerLabel}
       />
+
+      {/* The Sun as universal reference, visible from every view */}
+      <SunMarker onGo={handleGoToSun} markerRef={registerSunMarker} />
 
       {/* Minimalist Top-Left Brand Logo + Guided NASA Tours Trigger */}
       <header

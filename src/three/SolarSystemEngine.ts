@@ -20,6 +20,7 @@ import {
 } from '../data/abandonedMissionsData';
 import {
   CELESTIAL_BODIES,
+  DEEP_SPACE_TARGETS,
   CelestialBodyData,
   CelestialBodyId,
   DeepSpaceTargetId,
@@ -580,6 +581,14 @@ export class SolarSystemEngine {
   /** Last style written per label, so the per-frame projection only touches the DOM on change */
   private labelStyleCache = new WeakMap<HTMLElement, { shown: boolean | null; transform: string }>();
   private labelsAllHidden = false;
+  /** Always-on Sun reference marker (see updateSunMarker) */
+  private sunMarkerEl: HTMLElement | null = null;
+  private sunMarkerArrow: HTMLElement | null = null;
+  private sunMarkerText: HTMLElement | null = null;
+  private sunMarkerState = { shown: null as boolean | null, transform: '', arrow: '', text: '', w: 0, h: 0 };
+  private lastSunTextAt = 0;
+  /** Sun direction in the active surface / mission diorama (diorama root is world-aligned) */
+  private surfaceSunLocal = new THREE.Vector3(0, 1, 0);
   private viewportW = 0;
   private viewportH = 0;
   /** Screen area covered by UI panels (CSS px), reported by the React layer on phones */
@@ -3065,6 +3074,7 @@ export class SolarSystemEngine {
     const sy = sunDirWorld.dot(up);
     const sz = -sunDirWorld.dot(north);
     const sunLocal = new THREE.Vector3(sx, sy, sz).normalize();
+    this.surfaceSunLocal.copy(sunLocal);
     this.surfaceDiorama.updateSun(sunLocal);
   }
 
@@ -3353,6 +3363,162 @@ export class SolarSystemEngine {
     return out
       .copy(OVERVIEW_CAM_POS)
       .multiplyScalar(Math.min(this.getFramingFitFactor(), 1.9));
+  }
+
+  /**
+   * The Sun is the universal reference: a marker that always says where it is and how far,
+   * from any planet, moon, spacecraft diorama or deep-space view. Elements inside `el`:
+   * [data-sun-arrow] (rotated toward the Sun when it is off-screen) and [data-sun-text].
+   */
+  public registerSunMarker(el: HTMLElement | null): void {
+    this.sunMarkerEl = el;
+    this.sunMarkerArrow = el?.querySelector<HTMLElement>('[data-sun-arrow]') ?? null;
+    this.sunMarkerText = el?.querySelector<HTMLElement>('[data-sun-text]') ?? null;
+    this.sunMarkerState = { shown: null, transform: '', arrow: '', text: '', w: 0, h: 0 };
+  }
+
+  private formatSunDistance(au: number): string {
+    const fmt = (v: number, d: number) =>
+      v.toLocaleString('es-ES', { minimumFractionDigits: d, maximumFractionDigits: d });
+    const lightMin = au * 8.3167;
+    const light =
+      lightMin < 1
+        ? `${Math.max(1, Math.round(lightMin * 60))} s luz`
+        : lightMin < 60
+          ? `${fmt(lightMin, 1)} min luz`
+          : `${fmt(lightMin / 60, 1)} h luz`;
+    const dist = au < 0.05 ? `${fmt(au * 149.6, 1)} M km` : `${fmt(au, au < 10 ? 2 : 1)} UA`;
+    return `${dist} · ${light}`;
+  }
+
+  /** Heliocentric distance (AU) of whatever the user is looking at right now. */
+  private currentSunDistanceAu(): number {
+    const mission = this.surfaceMission ?? (this.focusedMissionId
+      ? this.beaconsByMissionId.get(this.focusedMissionId)?.mission
+      : undefined);
+    if (mission?.sunDistanceAu) return mission.sunDistanceAu;
+    if (this.focusedMissionId) {
+      const b = this.beaconsByMissionId.get(this.focusedMissionId);
+      if (b) return b.currentWorldPos.length() / AU_TO_UNITS;
+    }
+    if (this.focusedMoonId) {
+      const m = this.moonsById.get(this.focusedMoonId);
+      if (m) return m.currentWorldPos.length() / AU_TO_UNITS;
+    }
+    if (this.focusedBodyId) {
+      const b = this.bodies.get(this.focusedBodyId);
+      if (b) return b.currentWorldPos.length() / AU_TO_UNITS;
+    }
+    return this.camera.position.length() / AU_TO_UNITS;
+  }
+
+  private setSunMarkerShown(shown: boolean): void {
+    const el = this.sunMarkerEl;
+    if (!el || this.sunMarkerState.shown === shown) return;
+    this.sunMarkerState.shown = shown;
+    el.style.opacity = shown ? '1' : '0';
+    el.style.pointerEvents = shown ? 'auto' : 'none';
+  }
+
+  private updateSunMarker(): void {
+    const el = this.sunMarkerEl;
+    if (!el) return;
+    const inSpace = !this.surfaceDiorama && !this.deepSpaceDiorama;
+    // Overview already shows the "Sol" label (clickable); at the Sun itself no marker is needed.
+    const overviewLabels =
+      inSpace && !this.focusedBodyId && this.showLabels && !this.isFlying;
+    const atSun =
+      inSpace && this.focusedBodyId === 'sun' && !this.focusedMoonId && !this.focusedMissionId;
+    if (overviewLabels || atSun) {
+      this.setSunMarkerShown(false);
+      return;
+    }
+    this.setSunMarkerShown(true);
+    const state = this.sunMarkerState;
+
+    // Text (throttled: distances change slowly)
+    const now = performance.now();
+    if (now - this.lastSunTextAt > 400 || !state.text) {
+      this.lastSunTextAt = now;
+      let text: string;
+      if (this.deepSpaceDiorama) {
+        const t = DEEP_SPACE_TARGETS.find((d) => d.id === this.activeDeepSpaceId);
+        text = t ? `Sol · ${t.distanceLabel}` : 'Sol · Brazo de Orión';
+      } else {
+        text = `Sol · ${this.formatSunDistance(this.currentSunDistanceAu())}`;
+      }
+      if (text !== state.text) {
+        state.text = text;
+        if (this.sunMarkerText) this.sunMarkerText.textContent = text;
+        state.w = el.offsetWidth;
+        state.h = el.offsetHeight;
+      }
+    }
+
+    const w = this.viewportW || window.innerWidth;
+    const h = this.viewportH || window.innerHeight;
+    const mw = state.w || 180;
+    const mh = state.h || 34;
+    const top = Math.max(64, this.viewInsetTop + 10) + mh / 2;
+    const bottom = h - Math.max(104, this.viewInsetBottom + 10) - mh / 2;
+    const left = 10 + mw / 2;
+    const right = w - 10 - mw / 2;
+
+    let cx: number;
+    let cy: number;
+    let arrow = 'none';
+
+    if (this.deepSpaceDiorama) {
+      // Thousands of light-years away: no on-screen direction, keep it pinned under the header.
+      cx = w / 2;
+      cy = top;
+    } else {
+      if (this.surfaceDiorama) {
+        _projVec.copy(this.surfaceSunLocal).multiplyScalar(420);
+      } else {
+        _projVec.set(0, 0, 0);
+      }
+      _projVec.project(this.camera);
+      const behind = _projVec.z > 1;
+      let nx = _projVec.x;
+      let ny = _projVec.y;
+      if (behind) {
+        nx = -nx;
+        ny = -ny;
+      }
+      const sx = (nx * 0.5 + 0.5) * w;
+      const sy = (-ny * 0.5 + 0.5) * h;
+      const onScreen = !behind && sx >= left && sx <= right && sy - mh >= top - mh / 2 && sy <= bottom + mh;
+      if (onScreen) {
+        cx = THREE.MathUtils.clamp(sx, left, right);
+        cy = THREE.MathUtils.clamp(sy - mh, top, bottom);
+        arrow = 'rotate(90deg)';
+      } else {
+        // Pin to the edge of the free area, on the line from its centre toward the Sun
+        const ox = w / 2;
+        const oy = (top + bottom) / 2;
+        let dx = sx - ox;
+        let dy = sy - oy;
+        if (Math.abs(dx) < 1e-3 && Math.abs(dy) < 1e-3) dy = -1;
+        const tx = dx !== 0 ? (dx > 0 ? right - ox : left - ox) / dx : Infinity;
+        const ty = dy !== 0 ? (dy > 0 ? bottom - oy : top - oy) / dy : Infinity;
+        const t = Math.max(0, Math.min(tx, ty));
+        cx = ox + dx * t;
+        cy = oy + dy * t;
+        arrow = `rotate(${Math.atan2(dy, dx).toFixed(3)}rad)`;
+      }
+    }
+
+    const transform = `translate3d(${(cx - mw / 2).toFixed(1)}px, ${(cy - mh / 2).toFixed(1)}px, 0)`;
+    if (transform !== state.transform) {
+      state.transform = transform;
+      el.style.transform = transform;
+    }
+    if (arrow !== state.arrow && this.sunMarkerArrow) {
+      state.arrow = arrow;
+      this.sunMarkerArrow.style.display = arrow === 'none' ? 'none' : '';
+      if (arrow !== 'none') this.sunMarkerArrow.style.transform = arrow;
+    }
   }
 
   public registerLabelElement(
@@ -3861,6 +4027,8 @@ export class SolarSystemEngine {
       this.updateOrbitVisibility(dt);
       this.updateProjectedLabels();
     }
+
+    this.updateSunMarker();
 
     const now = performance.now();
     if (now - this.lastHudSync > 120) {
