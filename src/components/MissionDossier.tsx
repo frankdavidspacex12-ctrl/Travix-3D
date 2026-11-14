@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import {
   Box,
   Camera,
+  ExternalLink,
   Eye,
   HardDrive,
   Moon,
@@ -13,6 +14,7 @@ import {
 } from 'lucide-react';
 import { formatCoordinates } from '../astronomy/ephemeris';
 import { AbandonedMission } from '../data/abandonedMissionsData';
+import { getLeftBehindNote } from '../data/leftBehindNotes';
 import {
   OfflineNasaPhoto,
   getOfflineNasaPhotos,
@@ -55,8 +57,13 @@ export const MissionDossier: React.FC<MissionDossierProps> = ({
 
   const activeKey = mission?.id ?? deepSpaceTarget?.id ?? '';
   const activeName = mission?.name ?? deepSpaceTarget?.name ?? '';
-  const activeQuote =
-    mission?.farewellMessage ?? deepSpaceTarget?.classification ?? '';
+  const leftBehindNote = mission ? getLeftBehindNote(mission.id) : undefined;
+  // En la galería, una frase que no es transmisión literal se marca como interpretación.
+  const activeQuote = mission
+    ? leftBehindNote?.farewellNote
+      ? `${mission.farewellMessage} (frase atribuida, no transmitida)`
+      : mission.farewellMessage
+    : deepSpaceTarget?.classification ?? '';
 
   useEffect(() => {
     setShowGalleryModal(false);
@@ -154,6 +161,69 @@ export const MissionDossier: React.FC<MissionDossierProps> = ({
               {mission ? mission.whyImportant : deepSpaceTarget?.whyImportant}
             </p>
           </div>
+
+          {mission && (
+            <div>
+              <div className="text-[11px] font-medium text-amber-300/95">
+                Estado hoy
+              </div>
+              <p className="mt-0.5 text-slate-100 leading-relaxed">
+                {mission.status}
+              </p>
+            </div>
+          )}
+
+          {leftBehindNote && (
+            <div>
+              <div className="text-[11px] font-medium text-amber-300/95">
+                {mission?.id === 'perseverance'
+                  ? 'Qué pasó con Ingenuity'
+                  : 'Por qué se quedó allí'}
+              </div>
+              <p className="mt-0.5 text-slate-100 leading-relaxed">
+                {leftBehindNote.leftBehind}
+              </p>
+            </div>
+          )}
+
+          {mission?.farewellMessage && (
+            <div className="p-2.5 rounded-lg travix-glass-subcard">
+              <div className="text-[11px] font-medium text-amber-300/95">
+                {leftBehindNote?.farewellNote ? 'Frase que se le atribuye' : 'Su historia en una frase'}
+              </div>
+              <p className="mt-0.5 text-slate-100 leading-relaxed italic">
+                {mission.farewellMessage}
+              </p>
+              {leftBehindNote?.farewellNote && (
+                <p className="mt-1 text-[10.5px] text-amber-100/90 leading-relaxed">
+                  ⚠ {leftBehindNote.farewellNote}
+                </p>
+              )}
+            </div>
+          )}
+
+          {leftBehindNote && leftBehindNote.sources.length > 0 && (
+            <div>
+              <div className="text-[11px] font-medium text-amber-300/95">
+                Fuentes NASA <span className="text-slate-300/75 font-normal">(requieren internet)</span>
+              </div>
+              <ul className="mt-0.5 space-y-0.5">
+                {leftBehindNote.sources.map((source) => (
+                  <li key={source.url}>
+                    <a
+                      href={source.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 text-cyan-300 hover:text-cyan-200 underline underline-offset-2"
+                    >
+                      <ExternalLink className="w-3 h-3 shrink-0" />
+                      <span>{source.label}</span>
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
 
           {deepSpaceTarget && (
             <div className="pt-2 border-t border-white/12 space-y-1 text-[11px]">

@@ -92,13 +92,13 @@ export const ABANDONED_MISSIONS: AbandonedMission[] = [
     launchDate: '30 jul 2020',
     lastContactDate: 'Activo · Operación continua',
     operationalDuration: 'Más de 1.400 soles activos',
-    status: 'Activo · Búsqueda de biofirmas',
+    status: 'Perseverance: activo · Ingenuity: inactivo desde enero de 2024',
     whatItDid:
       'Explora el antiguo delta del lago Jezero, perfora y sella tubos de muestras para futuro retorno a la Tierra, produce oxígeno con MOXIE y voló 72 veces junto al helicóptero Ingenuity.',
     whyImportant:
       'Llevó el primer vuelo aerodinámico controlado en otro planeta (Ingenuity) y recogió testigos sedimentarios clave para determinar si existió vida microbiana antigua en Marte.',
     farewellMessage:
-      '"It has been an honor to explore the Red Planet alongside Perseverance." — Ingenuity (72 vuelos)',
+      'Ingenuity hizo su vuelo número 72 el 18 de enero de 2024; el daño en sus palas lo dejó en tierra para siempre en el cráter Jezero.',
     legacySummary:
       'Laboratorio astrobiológico de última generación acompañado por el primer helicóptero extraterrestre de la historia.',
     nasaQuery: 'Perseverance rover Ingenuity Jezero Crater Mars',
