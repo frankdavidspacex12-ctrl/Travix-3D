@@ -18,6 +18,30 @@ export const SHIP_ENGINES: Array<{ pos: THREE.Vector3; size: number }> = [
 
 let templatePromise: Promise<THREE.Group> | null = null;
 
+/**
+ * A zero-length (or non-finite) normal turns into NaN in the lighting shader; the bloom then
+ * spreads that NaN over the whole frame and the screen flashes black. Replace any such normal.
+ */
+function sanitizeNormals(geometry: THREE.BufferGeometry): void {
+  const normals = geometry.getAttribute('normal') as THREE.BufferAttribute | undefined;
+  if (!normals) {
+    geometry.computeVertexNormals();
+    return;
+  }
+  let fixed = 0;
+  for (let i = 0; i < normals.count; i++) {
+    const x = normals.getX(i);
+    const y = normals.getY(i);
+    const z = normals.getZ(i);
+    const l = Math.hypot(x, y, z);
+    if (!Number.isFinite(l) || l < 1e-6) {
+      normals.setXYZ(i, 0, 1, 0);
+      fixed++;
+    }
+  }
+  if (fixed) normals.needsUpdate = true;
+}
+
 /** Loads (once) and normalizes the ship model. */
 export function loadShipTemplate(): Promise<THREE.Group> {
   if (!templatePromise) {
@@ -39,6 +63,7 @@ export function loadShipTemplate(): Promise<THREE.Group> {
         model.traverse((o) => {
           const mesh = o as THREE.Mesh;
           if (!mesh.isMesh) return;
+          sanitizeNormals(mesh.geometry);
           const mat = mesh.material as THREE.MeshStandardMaterial;
           if (mat.map) {
             mat.map.anisotropy = 4;
@@ -109,9 +134,12 @@ export function createShipRig(template: THREE.Group, glowTex: THREE.Texture): Sh
       uniform float uGain;
       varying vec2 vUv;
       void main() {
-        // Cone uv.y is 1 at the tip and 0 at the base (nozzle)
-        float along = 1.0 - vUv.y;
-        float flicker = 0.85 + 0.15 * sin(uTime * 38.0 + vUv.x * 40.0);
+        // Cone uv.y is 1 at the tip and 0 at the base (nozzle). Clamped: interpolation can dip a
+        // hair below 0 at the tip, and pow() of a negative number is NaN on the GPU; the bloom then
+        // smeared that NaN over the whole frame, which went black (screen blinking in ship mode).
+        float along = clamp(1.0 - vUv.y, 0.0, 1.0);
+        // Gentle, slow shimmer (no strobe)
+        float flicker = 0.94 + 0.06 * sin(uTime * 7.0 + vUv.x * 12.0);
         vec3 col = mix(vec3(0.55, 0.3, 1.0), vec3(0.45, 0.55, 1.0), smoothstep(0.0, 0.55, along));
         col = mix(col, vec3(0.95, 0.97, 1.0), smoothstep(0.7, 1.0, along));
         float a = pow(along, 1.6) * flicker * uPower;
@@ -159,7 +187,8 @@ export function createShipRig(template: THREE.Group, glowTex: THREE.Texture): Sh
       plumeMat.uniforms.uPower.value = 0.45 + 0.55 * power;
       plumeMat.uniforms.uGain.value = gain;
       glowMat.color.copy(baseGlow).multiplyScalar(gain);
-      const flick = 1 + Math.sin(time * 31) * 0.05;
+      // Slow breathing of the thrust, not a strobe
+      const flick = 1 + Math.sin(time * 5) * 0.025;
       for (const p of plumes) {
         const r = p.size * 0.5;
         p.mesh.scale.set(r, r, p.size * (2.2 + power * 6) * flick);
