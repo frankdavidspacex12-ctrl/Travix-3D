@@ -16,6 +16,7 @@ import {
 import { formatCoordinates } from '../astronomy/ephemeris';
 import { AbandonedMission } from '../data/abandonedMissionsData';
 import { getLeftBehindNote } from '../data/leftBehindNotes';
+import { LinkedText, LinkTarget } from './LinkedText';
 import {
   OfflineNasaPhoto,
   getOfflineNasaPhotos,
@@ -40,6 +41,8 @@ interface MissionDossierProps {
   onClose: () => void;
   /** Phones with the guide card open: the guide already narrates, so start as a slim bar */
   startMinimized?: boolean;
+  /** Names of planets, moons and spacecraft in the texts link straight to them */
+  onNavigateLink?: (target: LinkTarget) => void;
 }
 
 export const MissionDossier: React.FC<MissionDossierProps> = ({
@@ -55,7 +58,15 @@ export const MissionDossier: React.FC<MissionDossierProps> = ({
   onOpenSearch,
   onClose,
   startMinimized = false,
+  onNavigateLink,
 }) => {
+  const linkKey = mission ? `mission:${mission.id}` : null;
+  const linked = (text: string | undefined) =>
+    text && onNavigateLink ? (
+      <LinkedText text={text} onNavigate={onNavigateLink} currentKey={linkKey} />
+    ) : (
+      text
+    );
   const [showGalleryModal, setShowGalleryModal] = useState(false);
   /** Gallery kept alive (open photo included) but hidden; restored from the dossier */
   const [isGalleryMinimized, setIsGalleryMinimized] = useState(false);
@@ -199,7 +210,7 @@ export const MissionDossier: React.FC<MissionDossierProps> = ({
               {mission ? 'Qué misiones hizo' : 'Qué es y estructura'}
             </div>
             <p className="mt-0.5 text-slate-100 leading-relaxed">
-              {mission ? mission.whatItDid : deepSpaceTarget?.whatItIs}
+              {linked(mission ? mission.whatItDid : deepSpaceTarget?.whatItIs)}
             </p>
           </div>
 
@@ -208,7 +219,7 @@ export const MissionDossier: React.FC<MissionDossierProps> = ({
               Por qué es tan importante
             </div>
             <p className="mt-0.5 text-slate-100 leading-relaxed">
-              {mission ? mission.whyImportant : deepSpaceTarget?.whyImportant}
+              {linked(mission ? mission.whyImportant : deepSpaceTarget?.whyImportant)}
             </p>
           </div>
 
@@ -218,7 +229,7 @@ export const MissionDossier: React.FC<MissionDossierProps> = ({
                 Estado hoy
               </div>
               <p className="mt-0.5 text-slate-100 leading-relaxed">
-                {mission.status}
+                {linked(mission.status)}
               </p>
             </div>
           )}
@@ -231,7 +242,7 @@ export const MissionDossier: React.FC<MissionDossierProps> = ({
                   : 'Por qué se quedó allí'}
               </div>
               <p className="mt-0.5 text-slate-100 leading-relaxed">
-                {leftBehindNote.leftBehind}
+                {linked(leftBehindNote.leftBehind)}
               </p>
             </div>
           )}
@@ -242,7 +253,7 @@ export const MissionDossier: React.FC<MissionDossierProps> = ({
                 {leftBehindNote?.farewellNote ? 'Frase que se le atribuye' : 'Su historia en una frase'}
               </div>
               <p className="mt-0.5 text-slate-100 leading-relaxed italic">
-                {mission.farewellMessage}
+                {linked(mission.farewellMessage)}
               </p>
               {leftBehindNote?.farewellNote && (
                 <p className="mt-1 text-[11px] text-amber-100/90 leading-relaxed">

@@ -28,6 +28,7 @@ import {
 } from '../data/solarSystemData';
 import type { SearchTab } from './MissionSearch';
 import { PanelControls } from './PanelControls';
+import { LinkedText, LinkTarget } from './LinkedText';
 import { setViewInsetSource } from '../ui/viewInsets';
 
 interface ControlDockProps {
@@ -51,6 +52,8 @@ interface ControlDockProps {
   onReleaseCamera: () => void;
   onTogglePause: () => void;
   onToggleOrbits: () => void;
+  /** Names of planets, moons and spacecraft in the panel texts link straight to them */
+  onNavigateLink?: (target: LinkTarget) => void;
   /** "Modo nave": trips play a hyperspace jump */
   isShipMode?: boolean;
   onToggleShipMode?: () => void;
@@ -96,6 +99,7 @@ export const ControlDock: React.FC<ControlDockProps> = ({
   onToggleShipMode,
   isSoundOn = false,
   onToggleSound,
+  onNavigateLink,
 }) => {
   const orbitsDisabledInCloseUp = selectedBody !== null;
   const rootRef = useRef<HTMLDivElement | null>(null);
@@ -216,7 +220,15 @@ export const ControlDock: React.FC<ControlDockProps> = ({
                 Respuesta · {searchContext.headline}
               </div>
               <p className="mt-0.5 text-xs text-slate-100 leading-relaxed">
-                {searchContext.answer}
+                {onNavigateLink ? (
+                  <LinkedText
+                    text={searchContext.answer}
+                    onNavigate={onNavigateLink}
+                    currentKey={selectedMoon ? `moon:${selectedBody.id}:${selectedMoon.id}` : `body:${selectedBody.id}`}
+                  />
+                ) : (
+                  searchContext.answer
+                )}
               </p>
             </div>
           )}
@@ -225,7 +237,15 @@ export const ControlDock: React.FC<ControlDockProps> = ({
             {selectedBody.classification}
           </div>
           <p className="mt-1 sm:mt-0 text-xs text-slate-100 leading-relaxed">
-            {selectedBody.description}
+            {onNavigateLink ? (
+              <LinkedText
+                text={selectedBody.description}
+                onNavigate={onNavigateLink}
+                currentKey={selectedMoon ? `moon:${selectedBody.id}:${selectedMoon.id}` : `body:${selectedBody.id}`}
+              />
+            ) : (
+              selectedBody.description
+            )}
           </p>
 
           {/* Core Physical NASA Parameters */}
