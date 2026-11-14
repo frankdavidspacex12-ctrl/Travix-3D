@@ -1748,7 +1748,11 @@ export class SolarSystemEngine {
             uLightsMap: { value: blackColor as THREE.Texture },
             uExposureComp: { value: CITY_LIGHTS_SCREEN_GAIN },
           },
+          // The renderer uses a logarithmic depth buffer: without these chunks this shell wrote
+          // depth on a different scale than the Earth below it and was always hidden.
           vertexShader: `
+            #include <common>
+            #include <logdepthbuf_pars_vertex>
             varying vec2 vUv;
             varying vec3 vWorldNormal;
             varying vec3 vWorldPos;
@@ -1758,15 +1762,18 @@ export class SolarSystemEngine {
               vWorldPos = wp.xyz;
               vWorldNormal = normalize(mat3(modelMatrix) * normal);
               gl_Position = projectionMatrix * viewMatrix * wp;
+              #include <logdepthbuf_vertex>
             }
           `,
           fragmentShader: `
+            #include <logdepthbuf_pars_fragment>
             uniform sampler2D uLightsMap;
             uniform float uExposureComp;
             varying vec2 vUv;
             varying vec3 vWorldNormal;
             varying vec3 vWorldPos;
             void main() {
+              #include <logdepthbuf_fragment>
               vec3 sunDir = normalize(-vWorldPos);
               float sunDot = dot(normalize(vWorldNormal), sunDir);
               // Lights come on through civil twilight and are fully on past the terminator
