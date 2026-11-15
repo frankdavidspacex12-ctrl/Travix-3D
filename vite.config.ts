@@ -10,7 +10,10 @@ export default defineConfig(() => {
       react(),
       tailwindcss(),
       VitePWA({
-        registerType: 'autoUpdate',
+        // 'prompt' + no skipWaiting: a new deploy is downloaded in the background and used the next
+        // time the app is opened. With 'autoUpdate' every deploy reloaded open sessions mid-use
+        // (back to the welcome screen), on phones and computers alike.
+        registerType: 'prompt',
         includeAssets: [
           'travix-logo.png',
           'apple-touch-icon.png',
@@ -60,7 +63,7 @@ export default defineConfig(() => {
           maximumFileSizeToCacheInBytes: 8 * 1024 * 1024,
           cleanupOutdatedCaches: true,
           clientsClaim: true,
-          skipWaiting: true,
+          skipWaiting: false,
           // B6: solo la caché de las tipografías de Google; las de jsdelivr, raw.githubusercontent e
           // images-api.nasa.gov se quitaron porque la app no pide nada a esos sitios (todo es local)
           runtimeCaching: [

@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { isMemoryConstrained } from './deviceProfile';
 import type {
   Craft8KJobRequest,
   CraftPbrProfile,
@@ -29,11 +30,14 @@ export function getPbr8KCapabilities(
   isSoftwareGl: boolean,
 ): Pbr8KCapabilities {
   const nav = navigator as Navigator & { deviceMemory?: number };
+  // iOS never reports deviceMemory: phones / tablets are capped like a ≤4 GB device (2048 px
+  // HD maps instead of 4096, a quarter of the memory)
+  const reported = nav.deviceMemory ?? 8;
   return {
     maxTextureSize: renderer.capabilities.maxTextureSize || 4096,
     anisotropy: renderer.capabilities.getMaxAnisotropy(),
     isSoftwareGl,
-    deviceMemoryGb: nav.deviceMemory ?? 8,
+    deviceMemoryGb: isMemoryConstrained() ? Math.min(reported, 2) : reported,
   };
 }
 
@@ -160,8 +164,30 @@ function readPixelsInWorker(
   });
 }
 
-/** Pixels already read from a source image (weak: freed with the image). */
-const extractedPixelsCache = new WeakMap<object, { key: string; data: Uint8ClampedArray }>();
+/**
+ * Pixels already read from recently visited bodies' images (8 MB each at 2048x1024). Kept small:
+ * the last 3 on computers, none on phones / tablets.
+ */
+const PIXEL_CACHE_SIZE = isMemoryConstrained() ? 0 : 3;
+const pixelCacheMap = new Map<object, { key: string; data: Uint8ClampedArray }>();
+const extractedPixelsCache = {
+  get(src: object) {
+    const hit = pixelCacheMap.get(src);
+    if (hit) {
+      pixelCacheMap.delete(src);
+      pixelCacheMap.set(src, hit);
+    }
+    return hit;
+  },
+  set(src: object, value: { key: string; data: Uint8ClampedArray }) {
+    if (PIXEL_CACHE_SIZE <= 0) return;
+    pixelCacheMap.delete(src);
+    pixelCacheMap.set(src, value);
+    while (pixelCacheMap.size > PIXEL_CACHE_SIZE) {
+      pixelCacheMap.delete(pixelCacheMap.keys().next().value as object);
+    }
+  },
+};
 
 /**
  * Same result as extractImagePixels, but for a loaded image the decode, resize and pixel read run

@@ -65,6 +65,7 @@ import type {
 } from './surfaceDiorama';
 import { locale, tr } from '../i18n';
 import { keepPmremMaterials } from './pmremWarmup';
+import { isMemoryConstrained } from './deviceProfile';
 import { cometActivity, createCometEffects, getSoftDotTexture, type CometEffects } from './cometEffects';
 
 // surfaceDiorama.ts used to enable this as an import side effect at startup; keep it identical now
@@ -819,8 +820,9 @@ export class SolarSystemEngine {
     // production builds (errors are still reported in development).
     this.renderer.debug.checkShaderErrors = !import.meta.env.PROD;
     this.renderer.toneMappingExposure = this.currentExposure;
+    // Phones: 1.5x (a 3x screen at 2x needs ~1.8x the memory of the bloom buffers)
     this.renderer.setPixelRatio(
-      this.isSoftwareGl ? 1 : Math.min(window.devicePixelRatio, 2),
+      this.isSoftwareGl ? 1 : Math.min(window.devicePixelRatio, isMemoryConstrained() ? 1.5 : 2),
     );
     this.renderer.setSize(width, height);
     this.viewportW = width;
@@ -1078,6 +1080,9 @@ export class SolarSystemEngine {
    * per idle slice. Nothing is drawn differently; the work just moves out of the flights.
    */
   private runTexturePreupload(): void {
+    // Phones / tablets: uploading every planet's maps ahead of time would hold hundreds of MB of
+    // GPU memory (the browser then kills the tab); they keep three.js' upload-on-first-draw.
+    if (isMemoryConstrained()) return;
     if (this.disposed || this.texturePreuploadRunning) return;
     this.texturePreuploadRunning = true;
     const MAP_KEYS = [
@@ -1343,8 +1348,9 @@ export class SolarSystemEngine {
 
     // Focused Sun-aligned high-resolution DirectionalLight ShadowMap (4096x4096) for crisp planet-on-ring, ring-on-planet & eclipse shadows
     if (!this.isSoftwareGl) {
+      // 2048 on phones / tablets: a 4096² shadow map alone takes 64 MB of GPU memory
       const shadowRes = Math.min(
-        4096,
+        isMemoryConstrained() ? 2048 : 4096,
         this.renderer.capabilities.maxTextureSize || 4096,
       );
       const dir = new THREE.DirectionalLight(0xfff7ea, 0);
@@ -3326,13 +3332,21 @@ export class SolarSystemEngine {
     };
 
     const onContextLost = (e: Event) => {
+      // Lets the browser restore the context (GPU reset, memory pressure) instead of a dead canvas
       e.preventDefault();
+    };
+    const onContextRestored = () => {
+      // three.js re-uploads its own textures and programs; the HD maps uploaded by hand (and whose
+      // CPU copy was freed) are gone, so fall back to the regular maps
+      this.active8KAbort?.abort();
+      this.clearActive8KUpgrade();
     };
 
     dom.addEventListener('pointerdown', onPointerDown);
     dom.addEventListener('pointerup', onPointerUp);
     dom.addEventListener('pointermove', onPointerMove);
     dom.addEventListener('webglcontextlost', onContextLost);
+    dom.addEventListener('webglcontextrestored', onContextRestored);
     window.addEventListener('keydown', onKeyDown);
     window.addEventListener('keyup', onKeyUp);
     window.addEventListener('resize', onResize);
@@ -3343,6 +3357,7 @@ export class SolarSystemEngine {
         dom.removeEventListener('pointerup', onPointerUp);
         dom.removeEventListener('pointermove', onPointerMove);
         dom.removeEventListener('webglcontextlost', onContextLost);
+        dom.removeEventListener('webglcontextrestored', onContextRestored);
         window.removeEventListener('keydown', onKeyDown);
         window.removeEventListener('keyup', onKeyUp);
         window.removeEventListener('resize', onResize);
@@ -3770,6 +3785,8 @@ export class SolarSystemEngine {
       if (result) {
         uploaded.push(result);
         out.push(result.texture);
+        // The pixels now live on the GPU: free the CPU copy (tens of MB per map)
+        (tex.image as { data: unknown }).data = null;
       } else {
         out.push(tex); // regular upload on first use, as before
       }

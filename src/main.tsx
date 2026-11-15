@@ -14,6 +14,10 @@ if ('serviceWorker' in navigator) {
       onOfflineReady() {
         // Offline precache ready silently without noisy UI toasts
       },
+      onNeedRefresh() {
+        // A newer version is installed and waiting: it takes over the next time the app is
+        // opened. Never reload here: that threw people out of what they were exploring.
+      },
     });
 
   const registerWhenIdle = () => {

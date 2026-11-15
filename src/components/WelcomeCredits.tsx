@@ -15,6 +15,25 @@ const TEAM_MEMBERS = [
   'Ivan Molina',
 ];
 
+const WELCOME_SESSION_KEY = 'travix-welcome-session';
+
+/** Once per opening of the app: a reload of the same tab (sessionStorage survives it) skips it. */
+export function shouldShowWelcomeThisSession(): boolean {
+  try {
+    return window.sessionStorage.getItem(WELCOME_SESSION_KEY) !== '1';
+  } catch {
+    return true;
+  }
+}
+
+export function markWelcomeShownThisSession(): void {
+  try {
+    window.sessionStorage.setItem(WELCOME_SESSION_KEY, '1');
+  } catch {
+    // storage unavailable: it will simply show again
+  }
+}
+
 /** Créditos de datos, modelos, imágenes, sonido, código y uso de IA (ver también README.md). */
 const CREDITS: Array<{ what: string; from: string }> = [
   {
