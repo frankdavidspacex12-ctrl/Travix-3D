@@ -31,6 +31,36 @@ function markWelcomeSeen(): void {
   }
 }
 
+/** Créditos de datos, modelos, imágenes, sonido, código y uso de IA (ver también README.md). */
+const CREDITS: Array<{ what: string; from: string }> = [
+  {
+    what: 'Datos de las misiones',
+    from: 'NASA Space Science Data Coordinated Archive (NSSDCA) y páginas de misión de NASA Science (science.nasa.gov). Cada ficha enlaza su fuente.',
+  },
+  {
+    what: 'Modelos 3D de las naves',
+    from: 'NASA 3D Resources (github.com/nasa/NASA-3D-Resources), según las pautas de uso de medios de la NASA.',
+  },
+  { what: 'Fotos', from: 'NASA Image and Video Library (images.nasa.gov), con su identificador NASA en cada foto.' },
+  {
+    what: 'Mapas de planetas y lunas',
+    from: 'Derivados de imágenes de NASA/JPL-Caltech/USGS (conjuntos de mapas de los ejemplos de three.js y Planet Pixel Emporium).',
+  },
+  {
+    what: 'Posiciones y tiempo real',
+    from: 'Elementos orbitales de JPL (J2000) y modelos de rotación de la IAU; órbita de la ISS con datos de CelesTrak.',
+  },
+  { what: 'Sonido', from: 'Sintetizado en tiempo real con Web Audio (sin archivos de audio). La voz del tutorial es la del dispositivo.' },
+  {
+    what: 'Código abierto',
+    from: 'React, three.js, Vite, Tailwind CSS y vite-plugin-pwa (MIT), lucide-react (ISC), decodificador Draco de Google (Apache 2.0). Tipografías Outfit, Plus Jakarta Sans y JetBrains Mono (SIL OFL).',
+  },
+  {
+    what: 'Uso de inteligencia artificial',
+    from: 'Parte del código y de los textos se escribió con asistentes de IA (Claude) y fue revisada y dirigida por el equipo; los datos se verificaron con fuentes de la NASA.',
+  },
+];
+
 function initials(name: string): string {
   const parts = name.split(' ').filter(Boolean);
   return (parts[0][0] + (parts[parts.length > 2 ? 2 : 1]?.[0] ?? '')).toUpperCase();
@@ -159,6 +189,23 @@ export const WelcomeCredits: React.FC<WelcomeCreditsProps> = ({ onClose }) => {
             </p>
           </div>
         </div>
+
+        {/* C2 / D08: aviso de no afiliación y créditos de todo lo que usa la app */}
+        <p className="mt-4 text-center text-[10px] leading-snug text-slate-400">
+          Proyecto educativo independiente. No está afiliado, respaldado ni patrocinado por la NASA.
+        </p>
+        <details className="mt-2 rounded-lg travix-glass-subcard px-3 py-2 text-[11px] leading-snug text-slate-200">
+          <summary className="cursor-pointer select-none font-semibold text-slate-100 focus-visible:outline-2 focus-visible:outline-amber-400">
+            Créditos y fuentes
+          </summary>
+          <ul className="mt-2 space-y-1.5 list-disc pl-4">
+            {CREDITS.map((c) => (
+              <li key={c.what}>
+                <span className="font-semibold text-white">{c.what}:</span> {c.from}
+              </li>
+            ))}
+          </ul>
+        </details>
       </section>
     </div>
   );

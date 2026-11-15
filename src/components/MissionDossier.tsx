@@ -11,11 +11,15 @@ import {
   Search,
   Sparkles,
   Sun,
+  Volume2,
+  VolumeX,
   X,
 } from 'lucide-react';
 import { formatCoordinates } from '../astronomy/ephemeris';
 import { AbandonedMission } from '../data/abandonedMissionsData';
 import { getLeftBehindNote } from '../data/leftBehindNotes';
+import { getMissionState, MISSION_STATE_LABEL, MISSION_STATE_STYLE } from '../data/missionState';
+import { canNarrate, narrate, stopNarration } from '../audio/narration';
 import { LinkedText, LinkTarget } from './LinkedText';
 import {
   OfflineNasaPhoto,
@@ -71,6 +75,7 @@ export const MissionDossier: React.FC<MissionDossierProps> = ({
   /** Gallery kept alive (open photo included) but hidden; restored from the dossier */
   const [isGalleryMinimized, setIsGalleryMinimized] = useState(false);
   const [isMinimized, setIsMinimized] = useState(false);
+  const [isNarrating, setIsNarrating] = useState(false);
   const [lightboxPhoto, setLightboxPhoto] = useState<OfflineNasaPhoto | null>(
     null,
   );
@@ -94,6 +99,12 @@ export const MissionDossier: React.FC<MissionDossierProps> = ({
       ? `${mission.farewellMessage} (frase atribuida, no transmitida)`
       : mission.farewellMessage
     : deepSpaceTarget?.classification ?? '';
+
+  // Al cambiar de misión o cerrar la ficha, se detiene la narración
+  useEffect(() => {
+    setIsNarrating(false);
+    return () => stopNarration();
+  }, [activeKey]);
 
   useEffect(() => {
     setShowGalleryModal(false);
@@ -121,6 +132,30 @@ export const MissionDossier: React.FC<MissionDossierProps> = ({
   }, [showGalleryModal, activeKey, activeName]);
 
   if (!mission && !deepSpaceTarget) return null;
+
+  const storyText = mission
+    ? [
+        mission.name + '.',
+        'Primer acto: su misión. ' + mission.whatItDid,
+        'Segundo acto: lo que nos enseñó. ' + mission.whyImportant,
+        leftBehindNote ? 'Tercer acto: por qué se quedó allí. ' + leftBehindNote.leftBehind : '',
+        'Último acto: hoy y su legado. ' + mission.status,
+      ]
+        .filter(Boolean)
+        .join(' ')
+    : deepSpaceTarget
+      ? [deepSpaceTarget.name + '.', deepSpaceTarget.whatItIs, deepSpaceTarget.whyImportant].join(' ')
+      : '';
+
+  const toggleNarration = () => {
+    if (isNarrating) {
+      stopNarration();
+      setIsNarrating(false);
+      return;
+    }
+    setIsNarrating(true);
+    narrate(storyText, () => setIsNarrating(false));
+  };
 
   const preferredSearchTab: SearchTab = mission
     ? mission.missionRole === 'orbital'
@@ -156,6 +191,13 @@ export const MissionDossier: React.FC<MissionDossierProps> = ({
             <h2 className="mt-0.5 font-display text-sm font-semibold text-white tracking-tight break-words">
               {activeName}
             </h2>
+            {mission && (
+              <span
+                className={`mt-1 inline-flex items-center px-1.5 py-px rounded-full border text-[10px] font-semibold ${MISSION_STATE_STYLE[getMissionState(mission)]}`}
+              >
+                {MISSION_STATE_LABEL[getMissionState(mission)]}
+              </span>
+            )}
           </div>
 
           <div className="flex items-center gap-1 shrink-0">
@@ -168,6 +210,18 @@ export const MissionDossier: React.FC<MissionDossierProps> = ({
                 className={`${PANEL_ICON_BUTTON} travix-glass-control text-amber-300`}
               >
                 <Camera className="w-4 h-4" />
+              </button>
+            )}
+            {canNarrate && (
+              <button
+                type="button"
+                onClick={toggleNarration}
+                aria-pressed={isNarrating}
+                aria-label={isNarrating ? 'Detener la narración' : `Escuchar la historia de ${activeName}`}
+                title={isNarrating ? 'Detener la narración' : 'Escuchar su historia'}
+                className={`${PANEL_ICON_BUTTON} travix-glass-control ${isNarrating ? 'text-cyan-300' : 'text-amber-300 hover:text-amber-200'}`}
+              >
+                {isNarrating ? <VolumeX className="w-3.5 h-3.5" /> : <Volume2 className="w-3.5 h-3.5" />}
               </button>
             )}
             {onOpenSearch && (
@@ -207,7 +261,7 @@ export const MissionDossier: React.FC<MissionDossierProps> = ({
 
           <div>
             <div className="text-xs font-medium text-amber-300/95">
-              {mission ? 'Qué misiones hizo' : 'Qué es y estructura'}
+              {mission ? '1 · Su misión' : 'Qué es y estructura'}
             </div>
             <p className="mt-0.5 text-slate-100 leading-relaxed">
               {linked(mission ? mission.whatItDid : deepSpaceTarget?.whatItIs)}
@@ -216,33 +270,33 @@ export const MissionDossier: React.FC<MissionDossierProps> = ({
 
           <div>
             <div className="text-xs font-medium text-amber-300/95">
-              Por qué es tan importante
+              {mission ? '2 · Lo que nos enseñó' : 'Por qué es tan importante'}
             </div>
             <p className="mt-0.5 text-slate-100 leading-relaxed">
               {linked(mission ? mission.whyImportant : deepSpaceTarget?.whyImportant)}
             </p>
           </div>
 
-          {mission && (
-            <div>
-              <div className="text-xs font-medium text-amber-300/95">
-                Estado hoy
-              </div>
-              <p className="mt-0.5 text-slate-100 leading-relaxed">
-                {linked(mission.status)}
-              </p>
-            </div>
-          )}
-
           {leftBehindNote && (
             <div>
               <div className="text-xs font-medium text-amber-300/95">
                 {mission?.id === 'perseverance'
-                  ? 'Qué pasó con Ingenuity'
-                  : 'Por qué se quedó allí'}
+                  ? '3 · Qué pasó con Ingenuity'
+                  : '3 · Por qué se quedó allí'}
               </div>
               <p className="mt-0.5 text-slate-100 leading-relaxed">
                 {linked(leftBehindNote.leftBehind)}
+              </p>
+            </div>
+          )}
+
+          {mission && (
+            <div>
+              <div className="text-xs font-medium text-amber-300/95">
+                {leftBehindNote ? '4 · Hoy y su legado' : '3 · Hoy y su legado'}
+              </div>
+              <p className="mt-0.5 text-slate-100 leading-relaxed">
+                {linked(mission.status)}
               </p>
             </div>
           )}

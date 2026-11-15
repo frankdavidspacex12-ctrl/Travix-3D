@@ -31,6 +31,7 @@ import {
   resolveSpaceQuery,
 } from '../data/spaceKnowledgeSearch';
 import { PanelControls } from './PanelControls';
+import { getMissionState, MISSION_STATE_LABEL, MISSION_STATE_STYLE } from '../data/missionState';
 
 export type SearchTab = 'surface' | 'orbitals' | 'planets' | 'galaxy';
 
@@ -103,6 +104,8 @@ export const MissionSearch: React.FC<MissionSearchProps> = ({
     'Todos' | MissionDestinationGroup
   >('Todos');
 
+  // A1 / D03: por defecto se ve todo; «Dejado atrás» deja solo el equipo que ya no funciona
+  const [stateFilter, setStateFilter] = useState<'all' | 'leftBehind' | 'active'>('all');
   const [isMinimized, setIsMinimized] = useState(false);
 
   // Reopening the search always shows it expanded.
@@ -167,13 +170,17 @@ export const MissionSearch: React.FC<MissionSearchProps> = ({
       if (destination !== 'Todos' && m.destinationGroup !== destination) {
         return false;
       }
+      if (stateFilter !== 'all') {
+        const st = getMissionState(m);
+        if (stateFilter === 'active' ? st !== 'active' : st === 'active') return false;
+      }
       if (!q) return true;
       const hay = normalizeSearchText(
         `${m.name} ${m.destinationLabel} ${m.region} ${m.agency} ${m.launchYear}`,
       );
       return hay.includes(q);
     });
-  }, [activeTab, query, category, destination]);
+  }, [activeTab, query, category, destination, stateFilter]);
 
   const filteredBodies = useMemo(() => {
     const q = normalizeSearchText(query);
@@ -375,6 +382,30 @@ export const MissionSearch: React.FC<MissionSearchProps> = ({
                   </div>
                 )}
 
+                <div className="flex items-center gap-1 overflow-x-auto no-scrollbar pb-0.5" role="group" aria-label="Estado de la misión">
+                  {(
+                    [
+                      ['all', 'Todas'],
+                      ['leftBehind', 'Dejado atrás'],
+                      ['active', 'Activas'],
+                    ] as const
+                  ).map(([id, label]) => (
+                    <button
+                      key={id}
+                      type="button"
+                      aria-pressed={stateFilter === id}
+                      onClick={() => setStateFilter(id)}
+                      className={`px-2 py-0.5 rounded text-xs transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+                        stateFilter === id
+                          ? 'bg-white/10 text-amber-200 border border-white/25'
+                          : 'text-slate-200 hover:text-white hover:bg-white/[0.06] border border-transparent'
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+
                 <div className="flex items-center gap-1 overflow-x-auto no-scrollbar pb-0.5">
                   {DESTINATIONS.map((dest) => (
                     <button
@@ -473,6 +504,11 @@ export const MissionSearch: React.FC<MissionSearchProps> = ({
                           />
                           <span className="text-xs font-semibold text-white break-words min-w-0">
                             {mission.name}
+                          </span>
+                          <span
+                            className={`shrink-0 px-1 py-px rounded-full border text-[9px] font-semibold ${MISSION_STATE_STYLE[getMissionState(mission)]}`}
+                          >
+                            {MISSION_STATE_LABEL[getMissionState(mission)]}
                           </span>
                         </div>
                         <div className="mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs text-slate-200">
