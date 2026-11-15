@@ -89,17 +89,109 @@ function extractImagePixels(
   const w = targetW ?? Math.max(32, Math.round(rawW * scale));
   const h = targetH ?? Math.max(32, Math.round(rawH * scale));
 
+  // Revisiting a body reuses the pixels read last time (the buffer sent to the worker is a copy,
+  // since it gets transferred)
+  const key = `${w}x${h}`;
+  const cached = extractedPixelsCache.get(source as object);
+  if (cached && cached.key === key) {
+    return { width: w, height: h, buffer: new Uint8ClampedArray(cached.data).buffer };
+  }
+
   const canvas = document.createElement('canvas');
   canvas.width = w;
   canvas.height = h;
-  const ctx = canvas.getContext('2d');
+  // CPU-backed canvas: getImageData no longer waits for a GPU readback (the main-thread stall
+  // seen when arriving at a planet)
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
   if (!ctx) return null;
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = 'high';
   ctx.drawImage(source, 0, 0, w, h);
   const data = ctx.getImageData(0, 0, w, h).data;
+  extractedPixelsCache.set(source as object, { key, data });
   const copy = new Uint8ClampedArray(data);
   return { width: w, height: h, buffer: copy.buffer };
+}
+
+let pixelsWorker: Worker | null = null;
+let pixelsWorkerFailed = false;
+let pixelsJobId = 0;
+const pixelsJobs = new Map<number, (buffer: ArrayBuffer | null) => void>();
+
+/**
+ * Pixels of an image URL read in imagePixels.worker (decode, resize and getImageData off the main
+ * thread). Null when workers / OffscreenCanvas are unavailable or the read fails: the caller then
+ * uses the main-thread path, as before.
+ */
+function readPixelsInWorker(
+  url: string,
+  width: number,
+  height: number,
+  srcWidth: number,
+  srcHeight: number,
+): Promise<ArrayBuffer | null> {
+  if (pixelsWorkerFailed || typeof Worker === 'undefined' || typeof OffscreenCanvas === 'undefined') {
+    return Promise.resolve(null);
+  }
+  if (!pixelsWorker) {
+    try {
+      pixelsWorker = new Worker(new URL('./imagePixels.worker.ts', import.meta.url), { type: 'module' });
+      pixelsWorker.onmessage = (event: MessageEvent<{ id: number; buffer: ArrayBuffer | null }>) => {
+        const done = pixelsJobs.get(event.data.id);
+        pixelsJobs.delete(event.data.id);
+        done?.(event.data.buffer);
+      };
+      pixelsWorker.onerror = () => {
+        pixelsWorkerFailed = true;
+        pixelsJobs.forEach((done) => done(null));
+        pixelsJobs.clear();
+        pixelsWorker?.terminate();
+        pixelsWorker = null;
+      };
+    } catch {
+      pixelsWorkerFailed = true;
+      return Promise.resolve(null);
+    }
+  }
+  const id = ++pixelsJobId;
+  return new Promise((resolve) => {
+    pixelsJobs.set(id, resolve);
+    pixelsWorker!.postMessage({ id, url, width, height, srcWidth, srcHeight });
+  });
+}
+
+/** Pixels already read from a source image (weak: freed with the image). */
+const extractedPixelsCache = new WeakMap<object, { key: string; data: Uint8ClampedArray }>();
+
+/**
+ * Same result as extractImagePixels, but for a loaded image the decode, resize and pixel read run
+ * in a worker (same canvas resampling): on the main thread they blocked the click that starts a
+ * flight for 100-250 ms on a phone. Anything else, or a failed read, takes the original path.
+ */
+async function extractImagePixelsAsync(
+  source: CanvasImageSource,
+): Promise<{ width: number; height: number; buffer: ArrayBuffer } | null> {
+  if (!(source instanceof HTMLImageElement) || !source.complete || !source.naturalWidth) {
+    return extractImagePixels(source);
+  }
+  const rawW = source.naturalWidth;
+  const rawH = source.naturalHeight || source.height || 256;
+  const scale = Math.min(1, 2048 / Math.max(rawW, rawH));
+  const w = Math.max(32, Math.round(rawW * scale));
+  const h = Math.max(32, Math.round(rawH * scale));
+  // Only 1:1 reads go to the worker (bit-identical); a resized read keeps the original path
+  if (w !== rawW || h !== rawH) return extractImagePixels(source);
+  const key = `${w}x${h}`;
+  const cached = extractedPixelsCache.get(source);
+  if (cached && cached.key === key) {
+    return { width: w, height: h, buffer: new Uint8ClampedArray(cached.data).buffer };
+  }
+  const url = source.currentSrc || source.src;
+  const fromWorker = url ? await readPixelsInWorker(url, w, h, rawW, rawH) : null;
+  if (!fromWorker) return extractImagePixels(source);
+  const data = new Uint8ClampedArray(fromWorker);
+  extractedPixelsCache.set(source, { key, data });
+  return { width: w, height: h, buffer: new Uint8ClampedArray(data).buffer };
 }
 
 function buildDataTexture(
@@ -228,8 +320,8 @@ export interface Surface8KProcessOptions {
 export async function processSurface8KPBR(
   opts: Surface8KProcessOptions,
 ): Promise<FullPbrTextureSet | null> {
-  const albedo = extractImagePixels(opts.albedoSource);
-  if (!albedo) return null;
+  const albedo = await extractImagePixelsAsync(opts.albedoSource);
+  if (!albedo || opts.signal?.aborted) return null;
 
   const target = resolveTargetDimensions(
     albedo.width,
@@ -238,8 +330,9 @@ export async function processSurface8KPBR(
     opts.maxWidth ?? 4096,
   );
 
-  const bump = opts.bumpSource ? extractImagePixels(opts.bumpSource) : null;
-  const spec = opts.specSource ? extractImagePixels(opts.specSource) : null;
+  const bump = opts.bumpSource ? await extractImagePixelsAsync(opts.bumpSource) : null;
+  const spec = opts.specSource ? await extractImagePixelsAsync(opts.specSource) : null;
+  if (opts.signal?.aborted) return null;
 
   const res = await jobManager.runJob((jobId) => {
     const transfers: Transferable[] = [albedo.buffer];

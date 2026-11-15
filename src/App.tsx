@@ -463,6 +463,11 @@ export default function App() {
     setDescent((cur) => (cur && cur.id === id ? null : cur));
   }, []);
 
+  // While the jump covers the whole screen the 3D view skips drawing (it keeps simulating)
+  const handleWarpCover = useCallback((covered: boolean) => {
+    engineRef.current?.setRenderSuspended(covered);
+  }, []);
+
   const handleWarpDone = useCallback((id: number) => {
     setWarpRequest((cur) => (cur && cur.id === id ? null : cur));
   }, []);
@@ -920,7 +925,11 @@ export default function App() {
 
       {isShipMode && (
         <Suspense fallback={null}>
-          <WarpOverlay request={warpRequest} onDone={handleWarpDone} />
+          <WarpOverlay
+            request={warpRequest}
+            onDone={handleWarpDone}
+            onCoverChange={handleWarpCover}
+          />
         </Suspense>
       )}
 

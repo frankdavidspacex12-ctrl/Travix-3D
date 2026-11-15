@@ -5,6 +5,16 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import type { ShipOverlay } from './shipOverlay';
 import { computeIssSubpoint, refreshIssElements, type IssSubpoint } from '../astronomy/iss';
+import { ProgressiveTexture, uploadDataTextureProgressively } from './progressiveTextureUpload';
+
+/** HD PBR maps once on the GPU (band-uploaded ExternalTextures, or the DataTextures as fallback). */
+interface UploadedPbrSet {
+  map: THREE.Texture | null;
+  normalMap: THREE.Texture;
+  roughnessMap: THREE.Texture;
+  metalnessMap: THREE.Texture;
+  dispose: () => void;
+}
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import {
@@ -54,6 +64,7 @@ import type {
   SurfaceDioramaRuntime,
 } from './surfaceDiorama';
 import { locale, tr } from '../i18n';
+import { keepPmremMaterials } from './pmremWarmup';
 
 // surfaceDiorama.ts used to enable this as an import side effect at startup; keep it identical now
 // that the module is code-split.
@@ -99,6 +110,25 @@ function loadDeepSpaceModule(): Promise<DeepSpaceDioramaModule> {
 }
 
 const _vec3A = new THREE.Vector3();
+
+const numberFormats = new Map<string, Intl.NumberFormat>();
+/**
+ * Same text as n.toLocaleString(loc, { minimum/maximumFractionDigits: digits }), but the
+ * formatter is built once: toLocaleString builds a new one on every call (the first one, with its
+ * locale data, cost ~60 ms in the middle of a flight on a phone).
+ */
+function formatNumber(n: number, loc: string, digits?: number): string {
+  const key = `${loc}|${digits ?? ''}`;
+  let f = numberFormats.get(key);
+  if (!f) {
+    f = new Intl.NumberFormat(
+      loc,
+      digits === undefined ? undefined : { minimumFractionDigits: digits, maximumFractionDigits: digits },
+    );
+    numberFormats.set(key, f);
+  }
+  return f.format(n);
+}
 const _vec3B = new THREE.Vector3();
 const _vec3C = new THREE.Vector3();
 const _vec3D = new THREE.Vector3();
@@ -644,6 +674,7 @@ export class SolarSystemEngine {
   private shipOverlay: ShipOverlay | null = null;
   private shipPass: RenderPass | null = null;
   private shipModeOn = false;
+  private renderSuspended = false;
   private shipLoading = false;
   private shipThrust = 0;
   private readonly shipSunDir = new THREE.Vector3();
@@ -765,7 +796,7 @@ export class SolarSystemEngine {
   private active8KUpgrade: {
     material: THREE.MeshPhysicalMaterial;
     restore: BasePbrSnapshot;
-    set: FullPbrTextureSet;
+    set: UploadedPbrSet;
   } | null = null;
 
   constructor(container: HTMLElement, callbacks: EngineCallbacks) {
@@ -783,6 +814,9 @@ export class SolarSystemEngine {
     });
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    // Reading every program's info log forces the CPU to wait for the GPU compiler; skip it in
+    // production builds (errors are still reported in development).
+    this.renderer.debug.checkShaderErrors = !import.meta.env.PROD;
     this.renderer.toneMappingExposure = this.currentExposure;
     this.renderer.setPixelRatio(
       this.isSoftwareGl ? 1 : Math.min(window.devicePixelRatio, 2),
@@ -791,7 +825,10 @@ export class SolarSystemEngine {
     this.viewportW = width;
     this.viewportH = height;
     this.renderer.shadowMap.enabled = !this.isSoftwareGl;
-    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    // three.js r187 removed PCFSoftShadowMap and swaps it for PCFShadowMap on the first shadow
+    // render. Asking for PCF directly gives the very same shadows, and lets the shaders compiled
+    // ahead of time (before that first render) match the ones actually used.
+    this.renderer.shadowMap.type = THREE.PCFShadowMap;
     this.pbrCaps = getPbr8KCapabilities(this.renderer, this.isSoftwareGl);
     this.renderer.domElement.style.display = 'block';
     this.renderer.domElement.style.width = '100%';
@@ -814,6 +851,8 @@ export class SolarSystemEngine {
     this.scene.environment = null;
     this.scene.environmentIntensity = 0.0;
     this.disposables.push(envTex);
+    // Lets the hyperspace view compile the same PMREM shaders in parallel later (pmremWarmup)
+    keepPmremMaterials(pmremGenerator);
     pmremGenerator.dispose();
 
     this.camera = new THREE.PerspectiveCamera(45, width / height, 0.05, 190000);
@@ -887,40 +926,403 @@ export class SolarSystemEngine {
    * light switched on); without that, the first planet click recompiles every PBR material at once
    * and the fly-to stutters. Programs are identical either way, so the rendered image is unchanged.
    */
+  /**
+   * compileAsync() against the same target the real frames are drawn into. With the bloom
+   * composer that is an off-screen buffer, whose shader variant differs from a direct-to-canvas
+   * one (no tone mapping, linear output): compiling against the canvas prepared the wrong variant
+   * and every material compiled again, synchronously, on its first real frame.
+   */
+  private compileForScreen(
+    scene: THREE.Object3D,
+    camera: THREE.Camera,
+    targetScene: THREE.Scene | null = null,
+  ): Promise<unknown> {
+    const prev = this.renderer.getRenderTarget();
+    if (this.composer) this.renderer.setRenderTarget(this.composer.readBuffer);
+    try {
+      return this.renderer.compileAsync(scene, camera, targetScene);
+    } finally {
+      this.renderer.setRenderTarget(prev);
+    }
+  }
+
   private warmUpShadersThenStart(): void {
     let started = false;
     const start = () => {
       if (started || this.disposed) return;
       started = true;
       this.startLoop();
-      this.scheduleIdle(() => this.prewarmFocusShadowVariant(), 1500);
+      // Soon after the first frames (not seconds later): the focus-lighting variants of every
+      // material, hidden mission markers included, must be ready before the first trip
+      this.scheduleIdle(() => this.prewarmFocusShadowVariant(), 300, 1000);
+      // Number formatters of the HUD distances, built before the first trip needs them
+      this.scheduleIdle(() => {
+        for (const d of [undefined, 1, 2]) formatNumber(1, locale(), d);
+      }, 500);
+      this.runTexturePreupload();
     };
     // Safety net: never hold the first frame back longer than this (render would just finish linking).
     window.setTimeout(start, 2500);
     try {
-      this.renderer.compileAsync(this.scene, this.camera).then(start, start);
+      this.compileForScreen(this.scene, this.camera).then(start, start);
     } catch {
       start();
     }
   }
 
   private prewarmFocusShadowVariant(): void {
-    const dir = this.focusShadowLight;
-    if (this.disposed || !dir || dir.visible) return; // already focused: compiled by the real render
+    if (this.disposed || !this.focusShadowLight) return;
     if (!this.spaceRoot.visible) {
       // A diorama is open (space lights hidden); try again once back in space mode.
       this.scheduleIdle(() => this.prewarmFocusShadowVariant(), 3000);
       return;
     }
-    // compile() only reads the visible lights, synchronously, so the light can be switched straight back.
-    dir.visible = true;
+    this.runVariantPrewarm();
+  }
+
+  /**
+   * Compiles, in parallel (KHR_parallel_shader_compile), every program a part of space mode can
+   * need: each material lit with and without the focus shadow light, plus the depth programs of
+   * the shadow pass. Without this they compiled synchronously on first use: the stalls when
+   * arriving at a planet (shadow light switched on) and when going back to the overview. Only
+   * programs are prepared; every change is undone in the same task, so nothing is ever drawn
+   * differently.
+   */
+  private compileSpaceVariants(root: THREE.Object3D): Promise<unknown> {
+    const dir = this.focusShadowLight;
+    if (!dir) return this.compileForScreen(root, this.camera, this.scene);
+    const wasOn = dir.visible;
+    const revealed = this.revealHiddenForCompile(root);
+    const pending: Array<Promise<unknown>> = [];
     try {
-      void this.renderer.compileAsync(this.scene, this.camera).catch(() => {});
+      // compile() only reads the visible lights, synchronously, so the light can be switched straight back
+      for (const on of [wasOn, !wasOn]) {
+        dir.visible = on;
+        pending.push(this.compileForScreen(root, this.camera, this.scene).catch(() => {}));
+        if (on) pending.push(this.compileShadowDepthPrograms(root));
+      }
     } catch {
-      // Not fatal: the variant then compiles on first focus, as before.
+      // Not fatal: programs then compile on first use, as before
     } finally {
-      dir.visible = false;
+      dir.visible = wasOn;
+      for (const o of revealed) o.visible = false;
     }
+    return Promise.all(pending);
+  }
+
+  /** Program-relevant state of each part of space mode at its last pre-compile. */
+  private readonly variantSignatures = new WeakMap<THREE.Object3D, string>();
+  private variantQueue: THREE.Object3D[] = [];
+  private variantPrewarmRunning = false;
+
+  /**
+   * Pre-compiles (see compileSpaceVariants) every part of space mode whose materials changed
+   * since last time (textures and relief maps arrive after start-up), one part per idle slice so
+   * no single task gets long, then keeps watching for changes.
+   */
+  private runVariantPrewarm(): void {
+    if (this.disposed || this.variantPrewarmRunning) return;
+    this.variantPrewarmRunning = true;
+    const step = (deadline?: IdleDeadline) => {
+      if (this.disposed) return;
+      if (!this.spaceRoot.visible) {
+        // A diorama is open (space lights hidden): wait until back in space mode
+        this.variantQueue = [];
+      } else {
+        if (!this.variantQueue.length) {
+          for (const part of this.spaceRoot.children) {
+            const sig = this.computeVariantSignature(part);
+            if (sig === null || this.variantSignatures.get(part) === sig) continue;
+            this.variantSignatures.set(part, sig);
+            this.variantQueue.push(part);
+          }
+        }
+        const until = performance.now() + 8;
+        do {
+          const part = this.variantQueue.shift();
+          if (!part) break;
+          void this.compileSpaceVariants(part).catch(() => {});
+        } while (deadline && deadline.timeRemaining() > 6 && performance.now() < until);
+      }
+      if (this.variantQueue.length) {
+        this.requestIdle(step, 120);
+      } else {
+        window.setTimeout(() => this.requestIdle(step, 2000), 2500);
+      }
+    };
+    this.requestIdle(step, 1000);
+  }
+
+  /**
+   * A trip starts: make sure the destination's programs (shadow-lit ones included) are compiling
+   * now, in parallel, so they are ready by the time the flight arrives.
+   */
+  private prewarmTripTarget(part: THREE.Object3D): void {
+    if (this.disposed || !this.spaceRoot.visible || part.parent !== this.spaceRoot) return;
+    const sig = this.computeVariantSignature(part);
+    if (sig === null || this.variantSignatures.get(part) === sig) return;
+    this.variantSignatures.set(part, sig);
+    this.variantQueue = this.variantQueue.filter((p) => p !== part);
+    void this.compileSpaceVariants(part).catch(() => {});
+  }
+
+  private texturePreuploadRunning = false;
+  private readonly texturesSeenForUpload = new WeakSet<THREE.Texture>();
+
+  /**
+   * three.js uploads a texture the first time it is drawn. Jupiter and its four moons, for
+   * example, first come into view mid-flight and their five maps were decoded and uploaded in
+   * one frame (~300 ms on a phone). Here, in idle time, each image is decoded off the main thread
+   * (img.decode()) and then uploaded with the very same three.js path (initTexture), one texture
+   * per idle slice. Nothing is drawn differently; the work just moves out of the flights.
+   */
+  private runTexturePreupload(): void {
+    if (this.disposed || this.texturePreuploadRunning) return;
+    this.texturePreuploadRunning = true;
+    const MAP_KEYS = [
+      'map', 'emissiveMap', 'normalMap', 'bumpMap', 'roughnessMap', 'metalnessMap', 'alphaMap',
+      'specularMap', 'aoMap', 'lightMap', 'clearcoatNormalMap', 'specularColorMap',
+    ];
+    const isUploaded = (tex: THREE.Texture) => {
+      const props = this.renderer.properties.get(tex) as { __version?: number };
+      return props.__version === tex.version;
+    };
+    const pending = (): THREE.Texture | null => {
+      let found: THREE.Texture | null = null;
+      this.spaceRoot.traverse((o) => {
+        if (found) return;
+        const m = (o as THREE.Mesh).material;
+        if (!m) return;
+        for (const mat of Array.isArray(m) ? m : [m]) {
+          const rec = mat as unknown as Record<string, unknown>;
+          for (const k of MAP_KEYS) {
+            const tex = rec[k] as THREE.Texture | null | undefined;
+            if (!tex || !tex.isTexture || this.texturesSeenForUpload.has(tex)) continue;
+            if ((tex as THREE.Texture & { isExternalTexture?: boolean }).isExternalTexture) continue;
+            if ((tex as THREE.Texture & { isRenderTargetTexture?: boolean }).isRenderTargetTexture) continue;
+            const img = tex.image as { width?: number; complete?: boolean } | null;
+            if (!img || !img.width || img.complete === false || tex.version === 0) continue;
+            if (isUploaded(tex)) {
+              this.texturesSeenForUpload.add(tex);
+              continue;
+            }
+            found = tex;
+            return;
+          }
+        }
+      });
+      return found;
+    };
+    const step = () => {
+      if (this.disposed) return;
+      const tex = this.spaceRoot.visible ? pending() : null;
+      if (!tex) {
+        // Nothing left right now: look again later (textures keep arriving after start-up)
+        window.setTimeout(() => this.requestIdle(step, 3000), 3000);
+        return;
+      }
+      this.texturesSeenForUpload.add(tex);
+      const img = tex.image as HTMLImageElement;
+      const decoded =
+        typeof HTMLImageElement !== 'undefined' && img instanceof HTMLImageElement && typeof img.decode === 'function'
+          ? img.decode().catch(() => {})
+          : Promise.resolve();
+      void decoded.then(() => {
+        this.requestIdle(() => {
+          if (this.disposed) return;
+          try {
+            if (!isUploaded(tex)) this.renderer.initTexture(tex);
+          } catch {
+            // uploaded on first use instead
+          }
+          this.requestIdle(step, 1000);
+        }, 1500);
+      });
+    };
+    this.requestIdle(step, 2000);
+  }
+
+  private requestIdle(cb: (deadline?: IdleDeadline) => void, timeoutMs: number): void {
+    if (typeof window.requestIdleCallback === 'function') {
+      window.requestIdleCallback(cb, { timeout: timeoutMs });
+    } else {
+      window.setTimeout(() => cb(), 50);
+    }
+  }
+
+  /** Depth materials standing in for the shadow pass's own (same program key); kept alive so the
+   *  programs stay cached. */
+  private readonly shadowDepthStandIns = new WeakMap<THREE.Material, THREE.MeshDepthMaterial>();
+
+  /**
+   * The shadow pass draws every caster with a depth material (three.js' internal one, or the
+   * object's customDepthMaterial) set up from the caster's own material, exactly as
+   * WebGLShadowMap.getDepthMaterial does. Swap in an equivalent one, compile, swap back.
+   */
+  private compileShadowDepthPrograms(root: THREE.Object3D): Promise<unknown> {
+    const sideFor: Record<number, THREE.Side> = {
+      [THREE.FrontSide]: THREE.BackSide,
+      [THREE.BackSide]: THREE.FrontSide,
+      [THREE.DoubleSide]: THREE.DoubleSide,
+    };
+    type Caster = THREE.Mesh & { customDepthMaterial?: THREE.Material };
+    type Props = Record<string, unknown>;
+    const KEYS = [
+      'visible', 'wireframe', 'side', 'alphaMap', 'alphaTest', 'map', 'clipShadows',
+      'clippingPlanes', 'clipIntersection', 'displacementMap', 'displacementScale',
+      'displacementBias', 'wireframeLinewidth', 'linewidth',
+    ];
+    const swapped: Array<{ obj: Caster; material: THREE.Material | THREE.Material[] }> = [];
+    const customSaved = new Map<THREE.Material, Props>();
+    const depthFor = (obj: Caster, m: THREE.Material): THREE.Material => {
+      let result: THREE.Material;
+      if (obj.customDepthMaterial) {
+        result = obj.customDepthMaterial;
+        if (!customSaved.has(result)) {
+          const saved: Props = {};
+          for (const k of KEYS) saved[k] = (result as unknown as Props)[k];
+          customSaved.set(result, saved);
+        }
+      } else {
+        let standIn = this.shadowDepthStandIns.get(m);
+        if (!standIn) {
+          standIn = new THREE.MeshDepthMaterial();
+          this.shadowDepthStandIns.set(m, standIn);
+        }
+        result = standIn;
+      }
+      const src = m as unknown as Props;
+      const dst = result as unknown as Props;
+      dst.visible = m.visible;
+      dst.wireframe = src.wireframe;
+      dst.side = m.shadowSide !== null ? m.shadowSide : sideFor[m.side];
+      dst.alphaMap = src.alphaMap;
+      dst.alphaTest = m.alphaToCoverage === true ? 0.5 : m.alphaTest;
+      dst.map = src.map;
+      dst.clipShadows = m.clipShadows;
+      dst.clippingPlanes = m.clippingPlanes;
+      dst.clipIntersection = m.clipIntersection;
+      dst.displacementMap = src.displacementMap;
+      dst.displacementScale = src.displacementScale;
+      dst.displacementBias = src.displacementBias;
+      dst.wireframeLinewidth = src.wireframeLinewidth;
+      dst.linewidth = src.linewidth;
+      return result;
+    };
+    let compiled: Promise<unknown> = Promise.resolve();
+    try {
+      root.traverse((o) => {
+        const obj = o as Caster;
+        const drawable = obj.isMesh || (o as THREE.Line).isLine || (o as THREE.Points).isPoints;
+        if (!drawable || !obj.castShadow || !obj.material) return;
+        const material = obj.material;
+        swapped.push({ obj, material });
+        obj.material = Array.isArray(material)
+          ? material.map((m) => depthFor(obj, m))
+          : depthFor(obj, material);
+      });
+      // The shadow map is a render target, like the composer buffer compileForScreen() targets
+      if (swapped.length) {
+        compiled = this.compileForScreen(root, this.camera, this.scene).catch(() => {});
+      }
+    } catch {
+      // compiled on first use instead
+    } finally {
+      for (const { obj, material } of swapped) obj.material = material;
+      for (const [m, saved] of customSaved) Object.assign(m, saved);
+    }
+    return compiled;
+  }
+
+  /**
+   * Material state of a part that decides which programs it needs (changes when maps arrive or
+   * swap); null when it has nothing to draw.
+   */
+  private computeVariantSignature(part: THREE.Object3D): string | null {
+    let objects = 0;
+    let versions = 0;
+    let count = 0;
+    part.traverse((o) => {
+      objects++;
+      const m = (o as THREE.Mesh).material;
+      if (!m) return;
+      // Object state that is part of the program too
+      if ((o as THREE.InstancedMesh).instanceColor) objects += 1000;
+      if (o.castShadow) objects += 100000;
+      if (o.receiveShadow) objects += 10000000;
+      for (const mat of Array.isArray(m) ? m : [m]) {
+        count++;
+        versions += mat.version * 7 + mat.id;
+      }
+    });
+    return count ? `${objects}:${count}:${versions}` : null;
+  }
+
+  /**
+   * Applies a change that needs new shader programs (the HD maps) only once those are compiled:
+   * the change is made for the synchronous part of a parallel compile and undone at once (nothing
+   * is drawn meanwhile); the caller then applies it for real.
+   */
+  private async compileBeforeApplying(
+    material: THREE.Material,
+    apply: () => void,
+    undo: () => void,
+  ): Promise<void> {
+    let compiled: Promise<unknown> = Promise.resolve();
+    try {
+      apply();
+      material.needsUpdate = true;
+      // Only the objects drawn with this material (children left out for the moment)
+      const users: THREE.Object3D[] = [];
+      this.spaceRoot.traverse((o) => {
+        const m = (o as THREE.Mesh).material;
+        if (m === material || (Array.isArray(m) && m.includes(material))) users.push(o);
+      });
+      compiled = Promise.all(
+        users.map((o) => {
+          const children = o.children;
+          o.children = [];
+          try {
+            return this.compileSpaceVariants(o);
+          } finally {
+            o.children = children;
+          }
+        }),
+      );
+    } catch {
+      // compiled on first use instead
+    } finally {
+      undo();
+      material.needsUpdate = true;
+    }
+    await compiled.catch(() => {});
+  }
+
+  /** Current PBR maps of a material, and a function that puts them back. */
+  private snapshotPbrMaps(mat: THREE.MeshStandardMaterial): () => void {
+    const { map, normalMap, roughnessMap, metalnessMap, metalness } = mat;
+    return () => {
+      mat.map = map;
+      mat.normalMap = normalMap;
+      mat.roughnessMap = roughnessMap;
+      mat.metalnessMap = metalnessMap;
+      mat.metalness = metalness;
+    };
+  }
+
+  /**
+   * Makes every hidden object in space mode visible for the synchronous part of compile() and
+   * returns them so the caller can hide them again in the same task: nothing is ever drawn in that
+   * state. Lights keep their own visibility (they define which shader variant is compiled).
+   */
+  private revealHiddenForCompile(root: THREE.Object3D = this.spaceRoot): THREE.Object3D[] {
+    const revealed: THREE.Object3D[] = [];
+    root.traverse((o) => {
+      if (o.visible || (o as THREE.Light).isLight) return;
+      o.visible = true;
+      revealed.push(o);
+    });
+    return revealed;
   }
 
   /** Fetch + parse the diorama chunks during idle time after the first frames are on screen. */
@@ -1780,7 +2182,8 @@ export class SolarSystemEngine {
                 const c = document.createElement('canvas');
                 c.width = Math.min(2048, img.width);
                 c.height = Math.min(1024, img.height);
-                const ctx = c.getContext('2d');
+                // CPU-backed: its pixels are read right away (no GPU readback stall)
+                const ctx = c.getContext('2d', { willReadFrequently: true });
                 if (ctx) {
                   ctx.drawImage(img, 0, 0, c.width, c.height);
                   const idata = ctx.getImageData(0, 0, c.width, c.height);
@@ -2051,7 +2454,7 @@ export class SolarSystemEngine {
                 const merged = document.createElement('canvas');
                 merged.width = baseCanvas.width;
                 merged.height = baseCanvas.height;
-                const ctx = merged.getContext('2d');
+                const ctx = merged.getContext('2d', { willReadFrequently: true });
                 if (ctx) {
                   ctx.drawImage(baseCanvas, 0, 0);
                   const alphaData = ctx.getImageData(
@@ -2063,7 +2466,7 @@ export class SolarSystemEngine {
                   const temp = document.createElement('canvas');
                   temp.width = merged.width;
                   temp.height = merged.height;
-                  const tctx = temp.getContext('2d')!;
+                  const tctx = temp.getContext('2d', { willReadFrequently: true })!;
                   tctx.drawImage(img, 0, 0, merged.width, merged.height);
                   const colorData = tctx.getImageData(
                     0,
@@ -3034,6 +3437,7 @@ export class SolarSystemEngine {
     this.shipOverlay?.resetInspection();
     const runtime = this.bodies.get(id);
     if (!runtime) return;
+    this.prewarmTripTarget(runtime.inclinationGroup);
 
     this.pendingSurfaceMission = null;
     if (this.deepSpaceDiorama) {
@@ -3083,6 +3487,8 @@ export class SolarSystemEngine {
     this.shipOverlay?.resetInspection();
     const moon = this.moonsById.get(moonId);
     if (!moon || moon.parentId !== bodyId) return;
+    const host = this.bodies.get(bodyId);
+    if (host) this.prewarmTripTarget(host.inclinationGroup);
 
     this.pendingSurfaceMission = null;
     if (this.deepSpaceDiorama) {
@@ -3393,6 +3799,54 @@ export class SolarSystemEngine {
     }
   }
 
+  /**
+   * Uploads an HD PBR set to the GPU in bands spread over many frames (see
+   * progressiveTextureUpload) instead of all four 4096 px textures in one frame. Falls back to
+   * the regular three.js upload for any texture the band path can't handle. Same pixels, same
+   * sampling; resolves to null if the upgrade was cancelled meanwhile.
+   */
+  private async uploadPbrSetProgressively(
+    set: FullPbrTextureSet,
+    signal: AbortSignal,
+  ): Promise<UploadedPbrSet | null> {
+    const sources = [set.map, set.normalMap, set.roughnessMap, set.metalnessMap];
+    const out: Array<THREE.Texture | null> = [];
+    const uploaded: ProgressiveTexture[] = [];
+    for (const tex of sources) {
+      if (!tex) {
+        out.push(null);
+        continue;
+      }
+      let result: ProgressiveTexture | null = null;
+      try {
+        result = await uploadDataTextureProgressively(this.renderer, tex, signal);
+      } catch {
+        result = null;
+      }
+      if (signal.aborted || this.disposed) {
+        result?.dispose();
+        uploaded.forEach((u) => u.dispose());
+        return null;
+      }
+      if (result) {
+        uploaded.push(result);
+        out.push(result.texture);
+      } else {
+        out.push(tex); // regular upload on first use, as before
+      }
+    }
+    return {
+      map: out[0],
+      normalMap: out[1] as THREE.Texture,
+      roughnessMap: out[2] as THREE.Texture,
+      metalnessMap: out[3] as THREE.Texture,
+      dispose: () => {
+        uploaded.forEach((u) => u.dispose());
+        set.dispose();
+      },
+    };
+  }
+
   private schedule8KUpgrade(
     bodyId: CelestialBodyId,
     moonId: string | null,
@@ -3422,23 +3876,40 @@ export class SolarSystemEngine {
         seed: moonId.charCodeAt(0) * 19 + moonId.length * 7,
         capabilities: this.pbrCaps,
         signal: abort.signal,
-      }).then((set) => {
+      }).then(async (set) => {
         if (!set || abort.signal.aborted || this.disposed) {
           set?.dispose();
           return;
         }
-        if (set.map) {
-          mRuntime.material.map = set.map;
+        // GPU upload spread over many frames instead of one long freeze
+        const up = await this.uploadPbrSetProgressively(set, abort.signal);
+        if (!up || abort.signal.aborted || this.disposed) {
+          if (!up) set.dispose();
+          else up.dispose();
+          return;
         }
-        mRuntime.material.normalMap = set.normalMap;
-        mRuntime.material.roughnessMap = set.roughnessMap;
-        mRuntime.material.metalnessMap = set.metalnessMap;
-        mRuntime.material.metalness = isIcyMoon ? 0.0 : 0.05;
-        mRuntime.material.needsUpdate = true;
+        const mm = mRuntime.material;
+        const applyMoon = () => {
+          if (up.map) {
+            mm.map = up.map;
+          }
+          mm.normalMap = up.normalMap;
+          mm.roughnessMap = up.roughnessMap;
+          mm.metalnessMap = up.metalnessMap;
+          mm.metalness = isIcyMoon ? 0.0 : 0.05;
+        };
+        // Programs for the HD maps compiled in parallel first: no stall when they switch on
+        await this.compileBeforeApplying(mm, applyMoon, this.snapshotPbrMaps(mm));
+        if (abort.signal.aborted || this.disposed) {
+          up.dispose();
+          return;
+        }
+        applyMoon();
+        mm.needsUpdate = true;
         this.active8KUpgrade = {
           material: mRuntime.material,
           restore: mRuntime.basePbr,
-          set,
+          set: up,
         };
       });
       return;
@@ -3481,23 +3952,39 @@ export class SolarSystemEngine {
       seed: bodyId.charCodeAt(0) * 23 + bodyId.length * 11,
       capabilities: this.pbrCaps,
       signal: abort.signal,
-    }).then((set) => {
+    }).then(async (set) => {
       if (!set || abort.signal.aborted || this.disposed) {
         set?.dispose();
         return;
       }
-      if (set.map) {
-        mat.map = set.map;
+      // GPU upload spread over many frames instead of one long freeze
+      const up = await this.uploadPbrSetProgressively(set, abort.signal);
+      if (!up || abort.signal.aborted || this.disposed) {
+        if (!up) set.dispose();
+        else up.dispose();
+        return;
       }
-      mat.normalMap = set.normalMap;
-      mat.roughnessMap = set.roughnessMap;
-      mat.metalnessMap = set.metalnessMap;
-      mat.metalness = isGas || isIcy || bodyId === 'earth' ? 0.0 : 0.05;
+      const applyBody = () => {
+        if (up.map) {
+          mat.map = up.map;
+        }
+        mat.normalMap = up.normalMap;
+        mat.roughnessMap = up.roughnessMap;
+        mat.metalnessMap = up.metalnessMap;
+        mat.metalness = isGas || isIcy || bodyId === 'earth' ? 0.0 : 0.05;
+      };
+      // Programs for the HD maps compiled in parallel first: no stall when they switch on
+      await this.compileBeforeApplying(mat, applyBody, this.snapshotPbrMaps(mat));
+      if (abort.signal.aborted || this.disposed) {
+        up.dispose();
+        return;
+      }
+      applyBody();
       mat.needsUpdate = true;
       this.active8KUpgrade = {
         material: mat,
         restore: base,
-        set,
+        set: up,
       };
     });
   }
@@ -3569,6 +4056,14 @@ export class SolarSystemEngine {
     this.shipOverlay?.setViewport(this.viewportW, this.viewportH, this.viewInsetTop, this.viewInsetBottom);
   }
 
+  /**
+   * Skip drawing while something opaque covers the whole view (the hyperspace jump); the
+   * simulation, camera flight and HUD keep updating. Nothing visible changes.
+   */
+  public setRenderSuspended(suspended: boolean): void {
+    this.renderSuspended = suspended;
+  }
+
   /** Shows / hides the always-on starship of "Modo nave" (model loaded on first use). */
   public setShipMode(on: boolean): void {
     this.shipModeOn = on;
@@ -3586,6 +4081,31 @@ export class SolarSystemEngine {
         overlay.setVisible(this.shipModeOn);
         this.shipOverlay = overlay;
         this.setupShipInteraction();
+        // Upload its textures and compile its shaders (for the real render target) before the
+        // first frame that shows it, so the fade-in never stalls
+        overlay.modelReady
+          .then(() => {
+            if (this.disposed) return;
+            for (const tex of overlay.getTextures()) {
+              try {
+                this.renderer.initTexture(tex);
+              } catch {
+                // uploaded on first use instead
+              }
+            }
+            const restore = overlay.revealForCompile();
+            let compiled: Promise<unknown>;
+            try {
+              compiled = this.compileForScreen(overlay.scene, overlay.camera);
+            } catch {
+              compiled = Promise.resolve();
+            } finally {
+              restore();
+            }
+            const done = () => overlay.markReady();
+            compiled.then(done, done);
+          })
+          .catch(() => {});
         if (this.composer) {
           // Drawn right after the 3D view, on a cleared depth buffer: never clips into planets
           const pass = new RenderPass(overlay.scene, overlay.camera);
@@ -4070,7 +4590,7 @@ export class SolarSystemEngine {
           // Órbita de la Luna en la escena: 55,5 unidades para los 384.400 km reales
           const luna = this.moonsById.get('luna');
           const km = luna ? (planet.currentWorldPos.distanceTo(p.pos) / luna.data.orbitRadius) * 384400 : 384400;
-          text = `☾ ${p.name} · ${(Math.round(km / 100) * 100).toLocaleString(locale())} km`;
+          text = `☾ ${p.name} · ${formatNumber(Math.round(km / 100) * 100, locale())} km`;
         }
         if (text !== st.text) {
           st.text = text;
@@ -4124,8 +4644,7 @@ export class SolarSystemEngine {
   }
 
   private formatSunDistance(au: number): { dist: string; light: string } {
-    const fmt = (v: number, d: number) =>
-      v.toLocaleString(locale(), { minimumFractionDigits: d, maximumFractionDigits: d });
+    const fmt = (v: number, d: number) => formatNumber(v, locale(), d);
     const lightMin = au * 8.3167;
     const light =
       lightMin < 1
@@ -5081,7 +5600,9 @@ export class SolarSystemEngine {
       const dt = Math.min(this.clock.getDelta(), 0.1);
       this.updateSimulation(dt);
 
-      if (this.isSoftwareGl || !this.composer) {
+      if (this.renderSuspended) {
+        // Covered by the hyperspace jump: nothing to draw
+      } else if (this.isSoftwareGl || !this.composer) {
         this.renderer.render(this.scene, this.camera);
         if (this.shipOverlay?.isActive) {
           this.renderer.autoClear = false;

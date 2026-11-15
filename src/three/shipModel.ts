@@ -133,6 +133,7 @@ export function createShipRig(template: THREE.Group, glowTex: THREE.Texture): Sh
     disposables.push(mat);
   });
   let hullOpacity = 1;
+  let fadeEnabled = false;
   const plumeMat = new THREE.ShaderMaterial({
     uniforms: { uTime: { value: 0 }, uPower: { value: 1 }, uGain: { value: 1 } },
     vertexShader: `
@@ -214,17 +215,20 @@ export function createShipRig(template: THREE.Group, glowTex: THREE.Texture): Sh
     },
     setOpacity(opacity) {
       const o = THREE.MathUtils.clamp(opacity, 0, 1);
-      if (Math.abs(o - hullOpacity) < 1e-3) return;
-      const wasOpaque = hullOpacity >= 0.999;
+      if (fadeEnabled && Math.abs(o - hullOpacity) < 1e-3) return;
       hullOpacity = o;
-      const opaque = o >= 0.999;
       for (const m of hullMats) {
         m.opacity = o;
-        m.transparent = !opaque;
-        // Keep depth writes so the hull does not show its own inner faces while fading
-        m.depthWrite = true;
-        if (wasOpaque !== opaque) m.needsUpdate = true;
+        if (!fadeEnabled) {
+          // Switched once and kept: toggling transparent on / off would change the shader
+          // program at the end of every fade (a compile hitch). At opacity 1 with depth writes
+          // the hull looks exactly like an opaque one.
+          m.transparent = true;
+          m.depthWrite = true;
+          m.needsUpdate = true;
+        }
       }
+      fadeEnabled = true;
     },
     dispose() {
       for (const d of disposables) d.dispose();

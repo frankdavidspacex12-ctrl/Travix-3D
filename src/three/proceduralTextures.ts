@@ -1060,7 +1060,8 @@ function readSourcePixels(
   const srcCanvas = document.createElement('canvas');
   srcCanvas.width = w;
   srcCanvas.height = h;
-  const srcCtx = srcCanvas.getContext('2d')!;
+  // CPU-backed: its pixels are read right away (no GPU readback stall)
+  const srcCtx = srcCanvas.getContext('2d', { willReadFrequently: true })!;
   srcCtx.drawImage(sourceImage, 0, 0, w, h);
   return srcCtx.getImageData(0, 0, w, h).data;
 }

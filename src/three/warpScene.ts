@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { createGlowTexture, createShipRig, loadShipTemplate, ShipRig } from './shipModel';
 import { createDetailedSaturnRingTexture, createUranusRingTexture } from './proceduralTextures';
+import { precompilePmrem } from './pmremWarmup';
 
 /**
  * Hyperspace / wormhole jump used by "Modo nave": radial light streaks, a flowing tunnel, the
@@ -75,6 +76,9 @@ export class WarpScene {
   private camera: THREE.PerspectiveCamera;
   private disposables: Array<{ dispose: () => void }> = [];
   private disposed = false;
+  /** Builds the environment map; null once built */
+  private buildEnvironment: (() => void) | null = null;
+  private warmUpWanted = false;
   private streaks: THREE.InstancedMesh;
   private streakData: Float32Array; // per streak: angle, radius, z, width
   private tunnelMat: THREE.ShaderMaterial;
@@ -91,7 +95,20 @@ export class WarpScene {
   private companionMeshes: Array<{ mesh: THREE.Mesh; mat: THREE.MeshStandardMaterial; angle: number; orbit: number }> = [];
   private ringMesh: THREE.Mesh<THREE.RingGeometry, THREE.MeshStandardMaterial> | null = null;
   private ringKey = '';
+  /**
+   * 1x1 white texture always bound as map / emissiveMap: swapping in the real planet texture is
+   * then just a uniform change, never a new shader program mid-jump (white x colour = colour,
+   * and the emissive colour is black whenever there is no glow).
+   */
+  private readonly placeholderTex: THREE.DataTexture;
   private textureLoader = new THREE.TextureLoader();
+  /** Decodes off the main thread; flipped and unpremultiplied like a TextureLoader upload */
+  private bitmapLoader = new THREE.ImageBitmapLoader().setOptions({
+    imageOrientation: 'flipY',
+    premultiplyAlpha: 'none',
+  });
+  /** Ring texture + material per ring type, reused across jumps */
+  private readonly ringCache = new Map<'saturn' | 'uranus', { material: THREE.MeshStandardMaterial }>();
   private time = 0;
   private readonly count: number;
   private readonly m = new THREE.Matrix4();
@@ -106,17 +123,33 @@ export class WarpScene {
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.05;
     this.renderer.setClearColor(0x000000, 1);
+    // Reading every program's info log makes the CPU wait for the GPU compiler; skip it in
+    // production builds (errors are still reported in development), as the main view does.
+    this.renderer.debug.checkShaderErrors = !import.meta.env.PROD;
 
     this.camera = new THREE.PerspectiveCamera(62, 1, 0.1, 400);
     this.camera.position.set(0, 2.6, 8.4);
     this.camera.lookAt(0, 0.2, -6);
 
-    const pmrem = new THREE.PMREMGenerator(this.renderer);
-    const env = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
-    pmrem.dispose();
-    this.scene.environment = env;
+    // Environment lighting: its shaders compile in parallel first, then the same fromScene() as
+    // before builds it without waiting on the GPU driver (see pmremWarmup). If a jump needs it
+    // sooner, it is built right away instead.
     this.scene.environmentIntensity = 0.4;
-    this.disposables.push(env);
+    const room = new RoomEnvironment();
+    this.buildEnvironment = () => {
+      this.buildEnvironment = null;
+      const pmrem = new THREE.PMREMGenerator(this.renderer);
+      const env = pmrem.fromScene(room, 0.04).texture;
+      pmrem.dispose();
+      this.scene.environment = env;
+      this.disposables.push(env);
+      if (this.warmUpWanted) this.warmUp();
+    };
+    void precompilePmrem(this.renderer, room)
+      .catch(() => {})
+      .then(() => {
+        if (!this.disposed) this.buildEnvironment?.();
+      });
 
     this.scene.add(new THREE.HemisphereLight(0xcfe0ff, 0x0b0e16, 0.5));
     const key = new THREE.DirectionalLight(0xffffff, 1.9);
@@ -191,7 +224,18 @@ export class WarpScene {
 
     // Destination: stays in view at the end of the tunnel and grows on approach
     const targetGeo = new THREE.SphereGeometry(TARGET_RADIUS, 64, 48);
-    this.targetMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.9, metalness: 0 });
+    this.placeholderTex = new THREE.DataTexture(new Uint8Array([255, 255, 255, 255]), 1, 1);
+    this.placeholderTex.colorSpace = THREE.SRGBColorSpace;
+    this.placeholderTex.needsUpdate = true;
+    this.disposables.push(this.placeholderTex);
+    this.targetMat = new THREE.MeshStandardMaterial({
+      color: 0xffffff,
+      roughness: 0.9,
+      metalness: 0,
+      map: this.placeholderTex,
+      emissive: 0x000000,
+      emissiveMap: this.placeholderTex,
+    });
     this.target = new THREE.Mesh(targetGeo, this.targetMat);
     this.target.visible = false;
     this.scene.add(this.target);
@@ -243,7 +287,7 @@ export class WarpScene {
         this.rig = createShipRig(template, this.glowTex);
         this.rig.group.scale.setScalar(SHIP_LENGTH);
         this.ship.add(this.rig.group);
-        this.renderer.compile(this.scene, this.camera);
+        this.warmUp();
       })
       .catch(() => {});
   }
@@ -278,37 +322,35 @@ export class WarpScene {
     this.target.visible = true;
     this.targetMat.emissive.set(target.glow ? 0xffffff : 0x000000);
     this.targetMat.emissiveIntensity = target.glow ? 1.4 : 0;
+    const glow = Boolean(target.glow);
+    const loadedMap = () =>
+      this.targetMat.map && this.targetMat.map !== this.placeholderTex ? this.targetMat.map : null;
     if (target.texture && target.texture !== this.targetTexUrl) {
       this.targetTexUrl = target.texture;
-      this.targetMat.map?.dispose();
-      this.targetMat.map = null;
-      this.targetMat.emissiveMap = null;
+      loadedMap()?.dispose();
+      this.targetMat.map = this.placeholderTex;
+      this.targetMat.emissiveMap = this.placeholderTex;
       this.targetMat.color.copy(color);
-      this.targetMat.needsUpdate = true;
       const url = target.texture;
-      const glow = Boolean(target.glow);
-      this.textureLoader.load(url, (tex) => {
+      this.loadTexture(url, (tex) => {
         if (this.disposed || this.targetTexUrl !== url) {
           tex.dispose();
           return;
         }
-        tex.colorSpace = THREE.SRGBColorSpace;
         this.targetMat.map = tex;
-        this.targetMat.emissiveMap = glow ? tex : null;
+        this.targetMat.emissiveMap = glow ? tex : this.placeholderTex;
         this.targetMat.color.set(0xffffff);
-        this.targetMat.needsUpdate = true;
       });
     } else if (target.texture) {
       // Same texture as last time: just make sure the emissive setup matches
-      this.targetMat.emissiveMap = target.glow ? this.targetMat.map : null;
-      this.targetMat.needsUpdate = true;
+      const map = loadedMap();
+      this.targetMat.emissiveMap = glow && map ? map : this.placeholderTex;
     } else {
       this.targetTexUrl = '';
-      this.targetMat.map?.dispose();
-      this.targetMat.map = null;
-      this.targetMat.emissiveMap = null;
+      loadedMap()?.dispose();
+      this.targetMat.map = this.placeholderTex;
+      this.targetMat.emissiveMap = this.placeholderTex;
       this.targetMat.color.copy(color);
-      this.targetMat.needsUpdate = true;
     }
   }
 
@@ -318,24 +360,22 @@ export class WarpScene {
     if (key === this.ringKey) return;
     this.ringKey = key;
     if (this.ringMesh) {
+      // Texture and material are kept for the next jump to a ringed planet (ringCache)
       this.scene.remove(this.ringMesh);
       this.ringMesh.geometry.dispose();
-      this.ringMesh.material.map?.dispose();
-      this.ringMesh.material.dispose();
       this.ringMesh = null;
     }
     if (!rings) return;
-    const tex = rings.saturn ? createDetailedSaturnRingTexture(4) : createUranusRingTexture(4);
-    const mat = new THREE.MeshStandardMaterial({
-      map: tex,
-      transparent: true,
-      opacity: rings.opacity,
-      side: THREE.DoubleSide,
-      roughness: 0.8,
-      metalness: 0.04,
-      depthWrite: false,
-      alphaTest: 0.015,
-    });
+    // The ring texture is generated on the CPU: once per ring type, not on every jump
+    const type = rings.saturn ? 'saturn' : 'uranus';
+    let cached = this.ringCache.get(type);
+    if (!cached) {
+      const tex = rings.saturn ? createDetailedSaturnRingTexture(4) : createUranusRingTexture(4);
+      cached = { material: this.makeRingMaterial(tex, rings.opacity) };
+      this.ringCache.set(type, cached);
+    }
+    const mat = cached.material;
+    mat.opacity = rings.opacity;
     this.ringMesh = new THREE.Mesh(createRingGeometry(TARGET_RADIUS * rings.inner, TARGET_RADIUS * rings.outer), mat);
     this.ringMesh.rotation.set(RING_VIEW_TILT, 0, -0.18);
     this.scene.add(this.ringMesh);
@@ -345,14 +385,21 @@ export class WarpScene {
   private setCompanions(list: WarpCompanion[], ringOuter = 0): void {
     for (const c of this.companionMeshes) {
       this.companionGroup.remove(c.mesh);
-      c.mat.map?.dispose();
+      if (c.mat.map !== this.placeholderTex) c.mat.map?.dispose();
       c.mat.dispose();
     }
     this.companionMeshes = [];
     const items = list.slice(0, COMPANION_MAX);
     items.forEach((item, i) => {
       const size = THREE.MathUtils.clamp(item.size, 0.07, 0.4);
-      const mat = new THREE.MeshStandardMaterial({ color: new THREE.Color(item.color), roughness: 0.95, metalness: 0 });
+      // White 1x1 map until the real one arrives (white x colour = colour): the texture swap is
+      // then a uniform change, not a new shader program mid-jump
+      const mat = new THREE.MeshStandardMaterial({
+        color: new THREE.Color(item.color),
+        roughness: 0.95,
+        metalness: 0,
+        map: this.placeholderTex,
+      });
       const mesh = new THREE.Mesh(this.companionGeo, mat);
       mesh.scale.setScalar(size);
       // Cada luna un poco más lejos que la anterior, fuera del disco del destino
@@ -361,23 +408,86 @@ export class WarpScene {
       this.companionGroup.add(mesh);
       if (item.texture) {
         const url = item.texture;
-        this.textureLoader.load(url, (tex) => {
+        this.loadTexture(url, (tex) => {
           if (this.disposed || !this.companionMeshes.some((c) => c.mat === mat)) {
             tex.dispose();
             return;
           }
-          tex.colorSpace = THREE.SRGBColorSpace;
           mat.map = tex;
           mat.color.set(0xffffff);
-          mat.needsUpdate = true;
         });
       }
     });
   }
 
-  /** Compile every shader up front so the first jump starts without a hitch. */
+  /** Compile every shader up front (in parallel where supported) so jumps start without a hitch. */
   public warmUp(): void {
-    this.renderer.compile(this.scene, this.camera);
+    // The ship's programs depend on the environment map: compile once it exists
+    if (this.buildEnvironment) {
+      this.warmUpWanted = true;
+      return;
+    }
+    this.warmUpWanted = false;
+    // Hidden until a jump (compile() covers hidden objects too), plus stand-ins with the same
+    // programs as the companion moons and the ring materials, which are created per jump
+    const extras = new THREE.Group();
+    const companionLike = new THREE.Mesh(
+      this.companionGeo,
+      new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.95, metalness: 0, map: this.placeholderTex }),
+    );
+    const ringLike = new THREE.Mesh(this.companionGeo, this.makeRingMaterial(this.placeholderTex, 1));
+    extras.add(companionLike, ringLike);
+    this.scene.add(extras);
+    try {
+      void this.renderer.compileAsync(this.scene, this.camera).catch(() => {});
+    } finally {
+      this.scene.remove(extras);
+      // The programs stay cached while any material uses them: keep these until disposal
+      this.disposables.push(companionLike.material, ringLike.material);
+    }
+  }
+
+  /** Ring material of the destination (same settings for every ring type). */
+  private makeRingMaterial(map: THREE.Texture, opacity: number): THREE.MeshStandardMaterial {
+    return new THREE.MeshStandardMaterial({
+      map,
+      transparent: true,
+      opacity,
+      side: THREE.DoubleSide,
+      roughness: 0.8,
+      metalness: 0.04,
+      depthWrite: false,
+      alphaTest: 0.015,
+    });
+  }
+
+  /**
+   * Loads an sRGB texture with the image decoded off the main thread (ImageBitmap, flipped while
+   * decoding): the same pixels as TextureLoader, without a long decode + upload in the middle of
+   * the jump. Falls back to TextureLoader where ImageBitmap options are unsupported.
+   */
+  private loadTexture(url: string, onLoad: (tex: THREE.Texture) => void): void {
+    const viaImage = () =>
+      this.textureLoader.load(url, (tex) => {
+        tex.colorSpace = THREE.SRGBColorSpace;
+        onLoad(tex);
+      });
+    if (typeof createImageBitmap !== 'function') {
+      viaImage();
+      return;
+    }
+    this.bitmapLoader.load(
+      url,
+      (bitmap) => {
+        const tex = new THREE.Texture(bitmap as unknown as HTMLImageElement);
+        tex.flipY = false; // already flipped by the decoder
+        tex.colorSpace = THREE.SRGBColorSpace;
+        tex.needsUpdate = true;
+        onLoad(tex);
+      },
+      undefined,
+      () => viaImage(),
+    );
   }
 
   public setSize(w: number, h: number): void {
@@ -395,6 +505,7 @@ export class WarpScene {
    * @param approach 0..1 how close the destination is (grows on screen)
    */
   public render(dt: number, speed: number, shipIn: number, shipOut: number, approach: number): void {
+    this.buildEnvironment?.();
     this.time += dt;
     const t = this.time;
     const v = 6 + speed * 230;
@@ -474,9 +585,14 @@ export class WarpScene {
     for (const dsp of this.disposables) dsp.dispose();
     this.disposables = [];
     this.rig?.dispose();
-    this.targetMat.map?.dispose();
     this.setCompanions([]);
     this.setRings(null);
+    for (const r of this.ringCache.values()) {
+      r.material.map?.dispose();
+      r.material.dispose();
+    }
+    this.ringCache.clear();
+    if (this.targetMat.map && this.targetMat.map !== this.placeholderTex) this.targetMat.map.dispose();
     this.renderer.dispose();
   }
 }

@@ -17,6 +17,10 @@ export class ShipOverlay {
   readonly scene = new THREE.Scene();
   readonly camera = new THREE.PerspectiveCamera(32, 1, 0.1, 100);
   private rig: ShipRig | null = null;
+  /** Shaders compiled and textures on the GPU: only then does the fade-in start */
+  private ready = false;
+  /** Resolves once the model is loaded and the ship built */
+  readonly modelReady: Promise<void>;
   private readonly glowTex = createGlowTexture();
   private readonly key = new THREE.DirectionalLight(0xffffff, 2.4);
   private readonly fill = new THREE.HemisphereLight(0xbfd2ff, 0x1a1f2b, 0.35);
@@ -43,17 +47,47 @@ export class ShipOverlay {
     this.scene.environmentIntensity = 0.35;
     this.scene.add(this.key, this.key.target, this.fill);
     this.camera.position.set(0, 0, 0);
-    loadShipTemplate()
-      .then((template) => {
-        if (this.disposed) return;
-        this.rig = createShipRig(template, this.glowTex);
-        this.rig.group.visible = this.visible > 0.001;
-        this.rig.setOpacity(0);
-        this.scene.add(this.rig.group);
-      })
-      .catch(() => {
-        // Model unavailable (offline before first cache): ship mode still works without the model
-      });
+    this.modelReady = loadShipTemplate().then((template) => {
+      if (this.disposed) return;
+      this.rig = createShipRig(template, this.glowTex);
+      this.rig.group.visible = false;
+      this.rig.setOpacity(0);
+      this.scene.add(this.rig.group);
+    });
+    this.modelReady.catch(() => {
+      // Model unavailable (offline before first cache): ship mode still works without the model
+    });
+  }
+
+  /** Called by the engine once the ship's shaders are compiled and its textures uploaded. */
+  markReady(): void {
+    this.ready = true;
+  }
+
+  /** Every texture the ship uses (uploaded ahead of the first frame that shows it). */
+  getTextures(): THREE.Texture[] {
+    const out = new Set<THREE.Texture>();
+    this.rig?.group.traverse((o) => {
+      const mat = (o as THREE.Mesh | THREE.Sprite).material as
+        | (THREE.Material & { map?: THREE.Texture | null })
+        | undefined;
+      if (mat && !Array.isArray(mat) && mat.map) out.add(mat.map);
+    });
+    return [...out];
+  }
+
+  /**
+   * Makes the ship visible for the synchronous part of a shader compile; call the returned
+   * function right after (same task) to restore it. Nothing is drawn in between.
+   */
+  revealForCompile(): () => void {
+    const g = this.rig?.group;
+    if (!g) return () => {};
+    const was = g.visible;
+    g.visible = true;
+    return () => {
+      g.visible = was;
+    };
   }
 
   /** Fade the ship in / out (ship mode toggled). */
@@ -122,8 +156,9 @@ export class ShipOverlay {
   ): void {
     this.time += dt;
     const rig = this.rig;
-    // The fade only runs once the model is loaded, so the first appearance is gentle too
-    if (!rig) return;
+    // The fade only runs once the model is loaded and its shaders are ready, so the first
+    // appearance is gentle too (no compile or upload in the middle of the fade)
+    if (!rig || !this.ready) return;
     // Same gentle ~0.9 s transition both ways (linear progress, eased below)
     const step = dt / SHIP_FADE_SECONDS;
     this.visible = THREE.MathUtils.clamp(this.visible + (this.wantVisible ? step : -step), 0, 1);

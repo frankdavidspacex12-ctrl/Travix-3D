@@ -15,6 +15,11 @@ export interface WarpRequest {
 interface WarpOverlayProps {
   request: WarpRequest | null;
   onDone: (id: number) => void;
+  /**
+   * True while the jump fully covers the screen: the 3D view underneath can skip drawing
+   * (nobody can see it), leaving the whole GPU to the jump. Called with false before it shows.
+   */
+  onCoverChange?: (covered: boolean) => void;
 }
 
 // Timeline (seconds)
@@ -30,7 +35,7 @@ const clamp01 = (x: number) => Math.min(1, Math.max(0, x));
  * "Modo nave" hyperspace jump: covers the screen for ~3 s while the engine travels underneath,
  * then drops out of the wormhole with a flash onto the destination. Tap to skip.
  */
-const WarpOverlay: React.FC<WarpOverlayProps> = ({ request, onDone }) => {
+const WarpOverlay: React.FC<WarpOverlayProps> = ({ request, onDone, onCoverChange }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const flashRef = useRef<HTMLDivElement | null>(null);
   const rootRef = useRef<HTMLDivElement | null>(null);
@@ -39,10 +44,14 @@ const WarpOverlay: React.FC<WarpOverlayProps> = ({ request, onDone }) => {
   const skipRef = useRef<() => void>(() => {});
   const [activeLabel, setActiveLabel] = useState<string | null>(null);
 
-  // One renderer for the whole session in ship mode, warmed up so jumps start instantly
-  useEffect(() => {
+  const coverRef = useRef(onCoverChange);
+  coverRef.current = onCoverChange;
+
+  /** One renderer for the whole session in ship mode (created lazily, then reused). */
+  const ensureScene = (): WarpScene | null => {
+    if (sceneRef.current || failedRef.current) return sceneRef.current;
     const canvas = canvasRef.current;
-    if (!canvas) return;
+    if (!canvas) return null;
     try {
       const lowPower = window.matchMedia('(max-width: 639.98px)').matches;
       const scene = new WarpScene(canvas, lowPower);
@@ -52,18 +61,38 @@ const WarpOverlay: React.FC<WarpOverlayProps> = ({ request, onDone }) => {
     } catch {
       failedRef.current = true;
     }
+    return sceneRef.current;
+  };
+
+  // Built and warmed up in idle time after ship mode is turned on (not in the same frame as the
+  // toggle), so the first jump starts instantly without stalling the toggle itself
+  useEffect(() => {
+    const w = window as Window & {
+      requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number;
+      cancelIdleCallback?: (id: number) => void;
+    };
+    let idleId = 0;
+    let timerId = 0;
+    if (typeof w.requestIdleCallback === 'function') {
+      idleId = w.requestIdleCallback(() => ensureScene(), { timeout: 2500 });
+    } else {
+      timerId = window.setTimeout(() => ensureScene(), 1200);
+    }
     const onResize = () => sceneRef.current?.setSize(window.innerWidth, window.innerHeight);
     window.addEventListener('resize', onResize);
     return () => {
+      if (idleId && typeof w.cancelIdleCallback === 'function') w.cancelIdleCallback(idleId);
+      if (timerId) window.clearTimeout(timerId);
       window.removeEventListener('resize', onResize);
       sceneRef.current?.dispose();
       sceneRef.current = null;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
     if (!request) return;
-    const scene = sceneRef.current;
+    const scene = ensureScene();
     const root = rootRef.current;
     if (!scene || !root || failedRef.current) {
       request.go();
@@ -76,6 +105,12 @@ const WarpOverlay: React.FC<WarpOverlayProps> = ({ request, onDone }) => {
     let t = 0;
     let went = false;
     let finished = false;
+    let covered = false;
+    const setCovered = (c: boolean) => {
+      if (c === covered) return;
+      covered = c;
+      coverRef.current?.(c);
+    };
     const go = () => {
       if (went) return;
       went = true;
@@ -112,6 +147,9 @@ const WarpOverlay: React.FC<WarpOverlayProps> = ({ request, onDone }) => {
       const fadeIn = clamp01(t / 0.28);
       const fadeOut = 1 - clamp01((t - (T_FLASH + 0.05)) / (T_END - T_FLASH - 0.05));
       root.style.opacity = String(Math.min(fadeIn, fadeOut));
+      // Fully opaque from the end of the fade-in until the exit begins; the 3D view resumes a
+      // little before the overlay starts fading, so the destination is already drawn
+      setCovered(fadeIn >= 1 && t < T_EXIT);
       if (flashRef.current) {
         const f = Math.exp(-Math.pow((t - T_FLASH) / 0.1, 2));
         flashRef.current.style.opacity = String(f * 0.9);
@@ -119,6 +157,7 @@ const WarpOverlay: React.FC<WarpOverlayProps> = ({ request, onDone }) => {
 
       if (t >= T_END) {
         finished = true;
+        setCovered(false);
         root.style.display = 'none';
         setActiveLabel(null);
         onDone(request.id);
@@ -130,6 +169,7 @@ const WarpOverlay: React.FC<WarpOverlayProps> = ({ request, onDone }) => {
 
     return () => {
       cancelAnimationFrame(raf);
+      setCovered(false);
       if (!finished) {
         // Interrupted (new jump or ship mode turned off): still take the user there
         go();

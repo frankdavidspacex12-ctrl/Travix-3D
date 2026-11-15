@@ -296,7 +296,7 @@ export function createCraftTextureSet(anisotropy = 4): CraftTextureSet {
   const wBumpCanvas = document.createElement('canvas');
   wBumpCanvas.width = wSize;
   wBumpCanvas.height = wSize;
-  const wbCtx = wBumpCanvas.getContext('2d')!;
+  const wbCtx = wBumpCanvas.getContext('2d', { willReadFrequently: true })!;
 
   wCtx.fillStyle = '#242a34';
   wCtx.fillRect(0, 0, wSize, wSize);
@@ -503,7 +503,7 @@ export function createCraftTextureSet(anisotropy = 4): CraftTextureSet {
   const jCanvas = document.createElement('canvas');
   jCanvas.width = jSize;
   jCanvas.height = jSize;
-  const jCtx = jCanvas.getContext('2d')!;
+  const jCtx = jCanvas.getContext('2d', { willReadFrequently: true })!;
   jCtx.fillStyle = '#241806';
   jCtx.fillRect(0, 0, jSize, jSize);
   const rHex = 44;
