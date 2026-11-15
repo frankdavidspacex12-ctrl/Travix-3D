@@ -85,15 +85,30 @@ function exactWorld(cleaned: string): SpaceAnswerResult | null {
   return null;
 }
 
+/**
+ * The recognizer sometimes glues the preposition to the place: «a Marte» → «amarte», «al Sol» →
+ * «alsol». Variant without that leading «a» / «al», tried only after the text as heard.
+ */
+function unglued(text: string): string | null {
+  const v = text.replace(/^(al|a)(?=[a-záéíóúñ]{3,})/i, '');
+  return v !== text ? v : null;
+}
+
 /** Best destination for what was heard (several alternatives from the recognizer). */
 export function resolveVoiceQuery(alternatives: string[]): SpaceAnswerResult | null {
   for (const alt of alternatives) {
-    const exact = exactWorld(stripCommand(alt));
+    const cleaned = stripCommand(alt);
+    const exact = exactWorld(cleaned) ?? (unglued(cleaned) ? exactWorld(unglued(cleaned)!) : null);
     if (exact) return exact;
   }
   for (const alt of alternatives) {
     const cleaned = stripCommand(alt);
     const res = (cleaned.length >= 2 ? resolveSpaceQuery(cleaned) : null) ?? resolveSpaceQuery(alt);
+    if (res) return res;
+  }
+  for (const alt of alternatives) {
+    const v = unglued(stripCommand(alt));
+    const res = v && v.length >= 2 ? resolveSpaceQuery(v) : null;
     if (res) return res;
   }
   return null;
@@ -115,6 +130,8 @@ const VoiceAssistant: React.FC<VoiceAssistantProps> = ({ onClose, onNavigate }) 
   const closedRef = useRef(false);
   /** Listening starts by itself only once, after the question (not again if it was cut short) */
   const autoListenRef = useRef(true);
+  /** The destination was said: closing must not cut the voice */
+  const goingRef = useRef(false);
   const lang = getLang();
 
   const stopListening = () => {
@@ -199,12 +216,20 @@ const VoiceAssistant: React.FC<VoiceAssistantProps> = ({ onClose, onNavigate }) 
       }
       setPhase('going');
       setMessage(res.headline);
-      narrate(tr(`Vamos a ${res.headline.split(' · ')[0]}`, `Going to ${res.headline.split(' · ')[0]}`));
-      window.setTimeout(() => {
-        if (closedRef.current) return;
+      // Say it all first, then fly: the flight (and the ship animation) start right after the
+      // voice ends. Android sometimes never reports the end, so a timer goes on anyway.
+      const name = res.headline.split(' · ')[0];
+      const phrase = tr(`Vamos a ${name}`, `Going to ${name}`);
+      goingRef.current = true;
+      let went = false;
+      const go = () => {
+        if (went || closedRef.current) return;
+        went = true;
         onNavigate(res);
         onClose();
-      }, 900);
+      };
+      narrate(phrase, go);
+      window.setTimeout(go, Math.min(4500, 1200 + phrase.length * 85));
     };
     recRef.current = rec;
     setHeard('');
@@ -239,7 +264,7 @@ const VoiceAssistant: React.FC<VoiceAssistantProps> = ({ onClose, onNavigate }) 
       closedRef.current = true;
       window.clearTimeout(fallback);
       window.removeEventListener('keydown', onKey);
-      stopNarration();
+      if (!goingRef.current) stopNarration();
       stopListening();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
