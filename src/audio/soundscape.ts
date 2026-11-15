@@ -20,6 +20,7 @@ class Soundscape {
   private reverb: ConvolverNode | null = null;
   private musicNodes: AudioNode[] = [];
   private bellTimer: number | null = null;
+  private layers: { trip: GainNode | null; descent: GainNode | null } = { trip: null, descent: null };
   private enabled = false;
   private listeners = new Set<Listener>();
 
@@ -131,6 +132,10 @@ class Soundscape {
    * propulsores que sube de tono y viento de velocidad. La música baja mientras tanto.
    */
   travel(): void {
+    this.inLayer('trip', () => this.travelNow());
+  }
+
+  private travelNow(): void {
     const ctx = this.ready();
     if (!ctx) return;
     const t = ctx.currentTime;
@@ -166,6 +171,10 @@ class Soundscape {
    * hipervelocidad que acelera · 2,5 s caída de tono al salir · 2,72 s golpe grave del destello.
    */
   warp(): void {
+    this.inLayer('trip', () => this.warpNow());
+  }
+
+  private warpNow(): void {
     const ctx = this.ready();
     if (!ctx || !this.sfxBus) return;
     const t = ctx.currentTime;
@@ -216,6 +225,204 @@ class Soundscape {
     this.noiseSweep(t + 2.4, 0.6, 5000, 300, 0.22);
     this.kick(t + 2.72, 90, 26, 1.3, 0.6);
     this.tone(73.42, t + 2.75, 2.2, 0.12, 'sine');
+  }
+
+  // ---------------------------------------------------------------- capas (viaje / descenso)
+
+  /**
+   * Programa unos efectos en su propia capa (un GainNode hacia sfxBus), para poder apagarlos de
+   * golpe: el viaje de la nave se corta cuando empieza la animación de descenso.
+   */
+  private inLayer(kind: 'trip' | 'descent', fn: () => void): void {
+    const ctx = this.ctx;
+    const bus = this.sfxBus;
+    if (!ctx || !bus) return;
+    this.fadeOutLayer(kind, 0.15);
+    const layer = ctx.createGain();
+    layer.connect(bus);
+    this.layers[kind] = layer;
+    this.sfxBus = layer;
+    try {
+      fn();
+    } finally {
+      this.sfxBus = bus;
+    }
+  }
+
+  private fadeOutLayer(kind: 'trip' | 'descent', seconds: number): void {
+    const ctx = this.ctx;
+    const layer = this.layers[kind];
+    if (!ctx || !layer) return;
+    this.layers[kind] = null;
+    const t = ctx.currentTime;
+    layer.gain.cancelScheduledValues(t);
+    layer.gain.setValueAtTime(layer.gain.value, t);
+    layer.gain.linearRampToValueAtTime(0, t + seconds);
+    window.setTimeout(() => layer.disconnect(), (seconds + 0.1) * 1000);
+  }
+
+  /** Corta el sonido del descenso (la animación se saltó o se cerró). */
+  stopDescent(): void {
+    this.fadeOutLayer('descent', 0.3);
+  }
+
+  /**
+   * Sonido de la animación «Así aterrizó», sincronizado con sus fases (DescentOverlay: la fase
+   * u = 0..1 dura 4,3 s). Corta primero el sonido del viaje de la nave. En la Luna, el cometa y
+   * Eros no hay aire que lleve el sonido: solo se oye, apagado, lo que vibra a través de la nave
+   * (motores y golpes), sin viento ni paracaídas.
+   */
+  descent(method: string, world: string): void {
+    this.fadeOutLayer('trip', 0.4);
+    this.inLayer('descent', () => this.descentNow(method, world));
+  }
+
+  private descentNow(method: string, world: string): void {
+    const ctx = this.ready();
+    if (!ctx) return;
+    const t0 = ctx.currentTime;
+    const T = (u: number) => t0 + u * 4.3; // misma escala de tiempo que la animación
+    this.duckMusic(t0, 5.2, 0.2);
+
+    // Entrada atmosférica: rugido del plasma contra el escudo térmico
+    const entry = (from: number, to: number) => {
+      this.noiseBand(T(from), T(to) - T(from), 'lowpass', 300, 1500, 0.8, 0.5, 0.2, 0.35);
+      this.engineRumble(T(from), T(to) - T(from), {
+        baseFrom: 32, baseTo: 40, peak: 0.35, attack: 0.25, release: 0.3,
+        tremoloFrom: 9, tremoloTo: 14, cutoffFrom: 260, cutoffTo: 520,
+      });
+    };
+    // Paracaídas: chasquido al abrirse y aleteo de la tela con viento
+    const chute = (open: number, until: number) => {
+      this.noiseBand(T(open), 0.22, 'bandpass', 1900, 600, 0.9, 0.7, 0.004, 0.18);
+      this.kick(T(open), 150, 60, 0.3, 0.4);
+      // Aleteo de la tela + viento de fondo mientras cuelga del paracaídas
+      this.noiseBand(T(open) + 0.1, T(until) - T(open), 'bandpass', 520, 360, 0.7, 2.0, 0.3, 0.4, 9, 0.6);
+      this.noiseBand(T(open) + 0.05, T(until) - T(open) + 0.2, 'lowpass', 900, 500, 0.6, 0.6, 0.4, 0.5);
+    };
+    const rockets = (from: number, to: number, muffled: boolean, strong = false) => {
+      this.engineRumble(T(from), T(to) - T(from), {
+        baseFrom: strong ? 44 : 52, baseTo: strong ? 58 : 66,
+        peak: muffled ? (strong ? 0.42 : 0.3) : 0.48, attack: 0.2, release: 0.25,
+        tremoloFrom: 20, tremoloTo: 28,
+        cutoffFrom: muffled ? 260 : 650, cutoffTo: muffled ? 420 : 1300,
+      });
+    };
+    const thud = (u: number, amount: number, muffled = false) => {
+      this.kick(T(u), 80, 30, 0.55, 0.55 * amount);
+      this.noiseBand(T(u), 0.3, 'lowpass', muffled ? 260 : 600, 120, 0.7, 0.4 * amount, 0.004, 0.25);
+    };
+
+    switch (method) {
+      case 'skycrane':
+        entry(0, 0.3);
+        chute(0.3, 0.55);
+        rockets(0.55, 0.86, false);
+        this.tone(2400, T(0.86), 0.08, 0.05, 'square'); // corte de los cables
+        thud(0.84, 0.6);
+        this.noiseBand(T(0.86), T(1) - T(0.86), 'lowpass', 900, 300, 0.7, 0.25, 0.05, 0.5); // la grúa se aleja
+        break;
+      case 'airbags':
+        entry(0, 0.28);
+        chute(0.26, 0.5);
+        rockets(0.47, 0.55, false); // retrocohetes antes de soltar las bolsas
+        [
+          [0.59, 1],
+          [0.69, 0.6],
+          [0.795, 0.35],
+          [0.9, 0.18],
+        ].forEach(([u, a]) => this.kick(T(u), 95, 38, 0.45, 0.85 * a)); // rebotes de las bolsas
+        break;
+      case 'retro_mars':
+        entry(0, 0.3);
+        chute(0.3, 0.55);
+        rockets(0.55, 0.88, false);
+        thud(0.88, 0.8);
+        break;
+      case 'apollo':
+        rockets(0, 0.86, true);
+        thud(0.86, 0.8, true);
+        break;
+      case 'retro_moon':
+        rockets(0, 0.55, true, true);
+        rockets(0.55, 0.86, true);
+        thud(0.86, 0.7, true);
+        break;
+      case 'titan':
+        entry(0.03, 0.18);
+        chute(0.16, 0.98);
+        this.noiseBand(T(0.2), T(0.98) - T(0.2), 'bandpass', 260, 420, 0.6, 1.1, 0.6, 0.6); // viento
+        thud(0.98, 0.4);
+        break;
+      case 'venus':
+        entry(0.06, 0.2);
+        chute(0.18, 0.45);
+        this.tone(1800, T(0.45), 0.06, 0.04, 'square'); // suelta el paracaídas
+        this.noiseBand(T(0.45), T(0.98) - T(0.45), 'bandpass', 220, 520, 0.6, 0.9, 0.3, 0.4); // aire denso
+        thud(0.98, 0.6);
+        break;
+      case 'comet':
+        thud(0.45, 0.5, true);
+        thud(0.75, 0.35, true);
+        thud(0.9, 0.2, true);
+        break;
+      case 'asteroid':
+        // Pequeños empujes de los propulsores (mismos instantes que la animación)
+        for (let k = 0; k < 4; k++) {
+          const at = 0.05 + k * 1.047;
+          if (at > 3.8) break;
+          this.noiseBand(t0 + at, 0.4, 'lowpass', 420, 260, 0.7, 0.18, 0.03, 0.2);
+        }
+        thud(0.9, 0.3, true);
+        break;
+    }
+  }
+
+  /** Ruido filtrado con envolvente y trémolo opcional: viento, plasma, aleteo, golpes. */
+  private noiseBand(
+    at: number,
+    seconds: number,
+    type: BiquadFilterType,
+    fromHz: number,
+    toHz: number,
+    q: number,
+    peak: number,
+    attack: number,
+    release: number,
+    tremoloHz = 0,
+    tremoloDepth = 0,
+  ): void {
+    const ctx = this.ctx;
+    if (!ctx || !this.sfxBus || seconds <= 0) return;
+    const end = at + seconds;
+    const src = ctx.createBufferSource();
+    src.buffer = this.makeNoise(seconds + 0.2);
+    const f = ctx.createBiquadFilter();
+    f.type = type;
+    f.Q.value = q;
+    f.frequency.setValueAtTime(fromHz, at);
+    f.frequency.exponentialRampToValueAtTime(toHz, end);
+    const env = ctx.createGain();
+    env.gain.setValueAtTime(0.0001, at);
+    env.gain.exponentialRampToValueAtTime(peak, at + Math.min(attack, seconds * 0.5));
+    env.gain.setValueAtTime(peak, Math.max(at + Math.min(attack, seconds * 0.5), end - release));
+    env.gain.exponentialRampToValueAtTime(0.0001, end);
+    let out: AudioNode = src.connect(f);
+    if (tremoloHz > 0) {
+      const trem = ctx.createGain();
+      trem.gain.value = 1 - tremoloDepth / 2;
+      const lfo = ctx.createOscillator();
+      const depth = ctx.createGain();
+      lfo.frequency.value = tremoloHz;
+      depth.gain.value = tremoloDepth / 2;
+      lfo.connect(depth).connect(trem.gain);
+      lfo.start(at);
+      lfo.stop(end + 0.05);
+      out = out.connect(trem);
+    }
+    out.connect(env).connect(this.sfxBus);
+    src.start(at);
+    src.stop(end + 0.1);
   }
 
   /** Confirmación al activar el sonido. */
@@ -551,3 +758,4 @@ class Soundscape {
 }
 
 export const soundscape = new Soundscape();
+

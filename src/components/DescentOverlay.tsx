@@ -1,6 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import type { AbandonedMission } from '../data/abandonedMissionsData';
 import type { LandingInfo, LandingWorld } from '../data/landingMethods';
+import { soundscape } from '../audio/soundscape';
 
 /** Duración de la animación (s); se puede saltar en cualquier momento. */
 const DURATION = 4.8;
@@ -55,6 +56,8 @@ export const DescentOverlay: React.FC<DescentOverlayProps> = ({ request, onDone 
 
   useEffect(() => {
     doneRef.current = false;
+    // Sonido de cada fase (corta el del viaje de la nave); se apaga al saltar o al terminar
+    soundscape.descent(landing.method, landing.world);
     const finish = () => {
       if (doneRef.current) return;
       doneRef.current = true;
@@ -99,6 +102,7 @@ export const DescentOverlay: React.FC<DescentOverlayProps> = ({ request, onDone 
     };
     raf = requestAnimationFrame(frame);
     return () => {
+      soundscape.stopDescent();
       cancelAnimationFrame(raf);
       window.clearTimeout(safety);
       window.removeEventListener('keydown', onKey, true);
