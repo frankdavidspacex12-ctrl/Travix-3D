@@ -360,6 +360,17 @@ const OUTER_ATMOSPHERE_BODIES = new Set(['uranus', 'neptune', 'pluto']);
  * 0,902. Se aplica igual al planeta, a su brillo de atmósfera y a sus auroras, para que nada
  * sobresalga de los polos.
  */
+/** Lunas principales de cada planeta que llevan etiqueta al mirarlo (máximo 4 por planeta). */
+const MAIN_MOONS: Partial<Record<string, string[]>> = {
+  earth: ['luna'],
+  mars: ['phobos', 'deimos'],
+  jupiter: ['io', 'europa', 'ganymede', 'callisto'],
+  saturn: ['titan'],
+  neptune: ['triton'],
+  pluto: ['charon'],
+};
+export const MAX_COMPANION_LABELS = 4;
+
 const POLAR_FLATTENING: Partial<Record<string, number>> = { jupiter: 0.935, saturn: 0.902 };
 
 function createAtmosphereShaderMaterial(
@@ -659,12 +670,14 @@ export class SolarSystemEngine {
   private labelsAllHidden = false;
   /** Always-on Sun reference marker (see updateSunMarker) */
   private sunMarkerEl: HTMLElement | null = null;
-  private companionLabelEl: HTMLElement | null = null;
-  private companionLabelText: HTMLElement | null = null;
+  private companionLabels: Array<{
+    el: HTMLElement;
+    text: HTMLElement | null;
+    arrow: HTMLElement | null;
+    tick: HTMLElement | null;
+    state: { shown: boolean | null; transform: string; text: string; arrow: string; moonId: string };
+  } | null> = [];
   private readonly issSubpoint: IssSubpoint = { latDeg: 0, lonDeg: 0, altKm: 0 };
-  private companionLabelArrow: HTMLElement | null = null;
-  private companionLabelTick: HTMLElement | null = null;
-  private companionLabelState = { shown: null as boolean | null, transform: '', text: '', arrow: '' };
   private lastCompanionTextAt = 0;
   private sunMarkerArrow: HTMLElement | null = null;
   private sunMarkerText: HTMLElement | null = null;
@@ -3774,99 +3787,146 @@ export class SolarSystemEngine {
    * from any planet, moon, spacecraft diorama or deep-space view. Elements inside `el`:
    * [data-sun-arrow] (rotated toward the Sun when it is off-screen) and [data-sun-text].
    */
-  /** Small "Luna" label pointing at the Moon when looking at the Earth (see updateCompanionLabel). */
-  public registerCompanionLabel(el: HTMLElement | null): void {
-    this.companionLabelEl = el;
-    this.companionLabelText = el?.querySelector<HTMLElement>('[data-companion-text]') ?? null;
-    this.companionLabelArrow = el?.querySelector<HTMLElement>('[data-companion-arrow]') ?? null;
-    this.companionLabelTick = el?.querySelector<HTMLElement>('[data-companion-tick]') ?? null;
-    this.companionLabelState = { shown: null, transform: '', text: '', arrow: '' };
+  /**
+   * Pequeñas etiquetas de las lunas principales del planeta enfocado (ver updateCompanionLabels).
+   * El motor coloca cada una y escribe en data-body-id / data-moon-id a qué luna apunta.
+   */
+  public registerCompanionLabel(index: number, el: HTMLElement | null): void {
+    this.companionLabels[index] = el
+      ? {
+          el,
+          text: el.querySelector<HTMLElement>('[data-companion-text]'),
+          arrow: el.querySelector<HTMLElement>('[data-companion-arrow]'),
+          tick: el.querySelector<HTMLElement>('[data-companion-tick]'),
+          state: { shown: null, transform: '', text: '', arrow: '', moonId: '' },
+        }
+      : null;
     this.lastCompanionTextAt = 0;
   }
 
   /**
-   * The Moon at its real size is a ~10 px disc (often a thin crescent) next to the Earth: a small
-   * label right under it, with the real Earth-Moon distance, makes it easy to spot and to visit.
+   * A tamaño y distancia reales las lunas son puntos diminutos lejos del planeta: cada luna principal
+   * que esté a la vista lleva debajo una etiqueta pequeña con su nombre (la Luna, además, su distancia
+   * real a la Tierra). Si ninguna está a la vista, una sola etiqueta en el borde con una flecha señala
+   * la más cercana, así siempre se pueden encontrar sin llenar la pantalla.
    */
-  private updateCompanionLabel(): void {
-    const el = this.companionLabelEl;
-    if (!el) return;
-    const state = this.companionLabelState;
-    const setShown = (shown: boolean) => {
-      if (state.shown === shown) return;
-      state.shown = shown;
-      el.style.opacity = shown ? '1' : '0';
-      el.style.pointerEvents = shown ? 'auto' : 'none';
-    };
+  private updateCompanionLabels(): void {
+    const labels = this.companionLabels;
+    if (labels.length === 0) return;
     const inSpace = !this.surfaceDiorama && !this.deepSpaceDiorama;
-    const companion =
-      inSpace && this.focusedBodyId && !this.focusedMoonId && !this.focusedMissionId && !this.isFlying
-        ? this.getFramingCompanion(this.focusedBodyId)
-        : null;
-    if (!companion || !this.focusedBodyId) {
-      setShown(false);
-      return;
-    }
-    _projVec.copy(companion).project(this.camera);
+    const bodyId = this.focusedBodyId;
+    const moonIds =
+      inSpace && bodyId && !this.focusedMoonId && !this.focusedMissionId && !this.isFlying
+        ? (MAIN_MOONS[bodyId] ?? [])
+        : [];
     const w = this.viewportW || window.innerWidth;
     const h = this.viewportH || window.innerHeight;
-    const behind = _projVec.z > 1;
-    const nx = behind ? -_projVec.x : _projVec.x;
-    const ny = behind ? -_projVec.y : _projVec.y;
-    const sx = (nx * 0.5 + 0.5) * w;
-    const sy = (-ny * 0.5 + 0.5) * h;
     const top = Math.max(70, this.viewInsetTop + 16);
     const bottom = h - Math.max(110, this.viewInsetBottom + 16);
-    const onScreen = !behind && sx >= 24 && sx <= w - 24 && sy >= top && sy <= bottom;
+
+    type Placed = { moon: MoonRuntime; sx: number; sy: number; onScreen: boolean; dist: number };
+    const visible: Placed[] = [];
+    let nearest: Placed | null = null;
+    for (const id of moonIds) {
+      const moon = this.moonsById.get(id);
+      if (!moon) continue;
+      _projVec.copy(moon.currentWorldPos).project(this.camera);
+      const behind = _projVec.z > 1;
+      const nx = behind ? -_projVec.x : _projVec.x;
+      const ny = behind ? -_projVec.y : _projVec.y;
+      const sx = (nx * 0.5 + 0.5) * w;
+      const sy = (-ny * 0.5 + 0.5) * h;
+      const p: Placed = {
+        moon,
+        sx,
+        sy,
+        onScreen: !behind && sx >= 24 && sx <= w - 24 && sy >= top && sy <= bottom,
+        dist: this.camera.position.distanceTo(moon.currentWorldPos),
+      };
+      if (p.onScreen) visible.push(p);
+      else if (!nearest || p.dist < nearest.dist) nearest = p;
+    }
+    const shown: Placed[] = visible.length > 0 ? visible : nearest ? [nearest] : [];
+
     const now = performance.now();
-    if (now - this.lastCompanionTextAt > 500 || !state.text) {
-      this.lastCompanionTextAt = now;
-      const planet = this.bodies.get(this.focusedBodyId);
-      const moon = this.moonsById.get('luna');
-      if (planet && moon) {
-        // Moon orbit in the scene is 55.5 units for the real 384,400 km mean distance
-        const km = (planet.currentWorldPos.distanceTo(companion) / moon.data.orbitRadius) * 384400;
-        const text = `Luna · ${(Math.round(km / 100) * 100).toLocaleString('es-ES')} km`;
-        if (text !== state.text) {
-          state.text = text;
-          if (this.companionLabelText) this.companionLabelText.textContent = text;
+    const refreshText = now - this.lastCompanionTextAt > 500;
+    if (refreshText) this.lastCompanionTextAt = now;
+    const used: Array<{ x: number; y: number }> = [];
+
+    for (let i = 0; i < labels.length; i++) {
+      const lab = labels[i];
+      if (!lab) continue;
+      const st = lab.state;
+      const p = shown[i];
+      const setShown = (on: boolean) => {
+        if (st.shown === on) return;
+        st.shown = on;
+        lab.el.style.opacity = on ? '1' : '0';
+        lab.el.style.pointerEvents = on ? 'auto' : 'none';
+      };
+      if (!p || !bodyId) {
+        setShown(false);
+        continue;
+      }
+      const moonId = p.moon.data.id;
+      if (st.moonId !== moonId) {
+        st.moonId = moonId;
+        st.text = '';
+        lab.el.dataset.bodyId = bodyId;
+        lab.el.dataset.moonId = moonId;
+        lab.el.setAttribute('aria-label', `Ir a ${p.moon.data.name}`);
+        lab.el.title = `${p.moon.data.name} en su posición real. Toca para ir.`;
+      }
+      if (refreshText || !st.text) {
+        let text = p.moon.data.name;
+        const planet = this.bodies.get(bodyId);
+        if (moonId === 'luna' && planet) {
+          // Órbita de la Luna en la escena: 55,5 unidades para los 384.400 km reales
+          const km = (planet.currentWorldPos.distanceTo(p.moon.currentWorldPos) / p.moon.data.orbitRadius) * 384400;
+          text = `Luna · ${(Math.round(km / 100) * 100).toLocaleString('es-ES')} km`;
+        }
+        if (text !== st.text) {
+          st.text = text;
+          if (lab.text) lab.text.textContent = text;
         }
       }
-    }
-    let transform: string;
-    let arrow = 'none';
-    if (onScreen) {
-      // Right under the Moon's real (tiny) disc, with a tick pointing up at it
-      transform = `translate3d(${sx.toFixed(1)}px, ${(sy + 9).toFixed(1)}px, 0) translateX(-50%)`;
-    } else {
-      // Off-screen (or behind the camera): pinned to the edge of the free area, on the line from its
-      // centre toward the Moon, with an arrow — same idea as the Sun marker, so it can always be found.
-      const left = 70;
-      const right = w - 70;
-      const ox = w / 2;
-      const oy = (top + bottom) / 2;
-      let dx = sx - ox;
-      let dy = sy - oy;
-      if (Math.abs(dx) < 1e-3 && Math.abs(dy) < 1e-3) dy = -1;
-      const tx = dx !== 0 ? (dx > 0 ? right - ox : left - ox) / dx : Infinity;
-      const ty = dy !== 0 ? (dy > 0 ? bottom - oy : top - oy) / dy : Infinity;
-      const t = Math.max(0, Math.min(tx, ty));
-      transform = `translate3d(${(ox + dx * t).toFixed(1)}px, ${(oy + dy * t).toFixed(1)}px, 0) translate(-50%, -50%)`;
-      arrow = `rotate(${Math.atan2(dy, dx).toFixed(3)}rad)`;
-    }
-    if (transform !== state.transform) {
-      state.transform = transform;
-      el.style.transform = transform;
-    }
-    if (arrow !== state.arrow) {
-      state.arrow = arrow;
-      if (this.companionLabelArrow) {
-        this.companionLabelArrow.style.display = arrow === 'none' ? 'none' : '';
-        if (arrow !== 'none') this.companionLabelArrow.style.transform = arrow;
+      let transform: string;
+      let arrow = 'none';
+      if (p.onScreen) {
+        // Justo debajo del disco (diminuto) de la luna; si choca con otra etiqueta, un poco más abajo
+        let y = p.sy + 9;
+        for (const u of used) if (Math.abs(u.x - p.sx) < 70 && Math.abs(u.y - y) < 18) y = u.y + 18;
+        used.push({ x: p.sx, y });
+        transform = `translate3d(${p.sx.toFixed(1)}px, ${y.toFixed(1)}px, 0) translateX(-50%)`;
+      } else {
+        // Fuera de la vista: en el borde del área libre, en la línea hacia la luna, con una flecha
+        const left = 70;
+        const right = w - 70;
+        const ox = w / 2;
+        const oy = (top + bottom) / 2;
+        let dx = p.sx - ox;
+        let dy = p.sy - oy;
+        if (Math.abs(dx) < 1e-3 && Math.abs(dy) < 1e-3) dy = -1;
+        const tx = dx !== 0 ? (dx > 0 ? right - ox : left - ox) / dx : Infinity;
+        const ty = dy !== 0 ? (dy > 0 ? bottom - oy : top - oy) / dy : Infinity;
+        const t = Math.max(0, Math.min(tx, ty));
+        transform = `translate3d(${(ox + dx * t).toFixed(1)}px, ${(oy + dy * t).toFixed(1)}px, 0) translate(-50%, -50%)`;
+        arrow = `rotate(${Math.atan2(dy, dx).toFixed(3)}rad)`;
       }
-      if (this.companionLabelTick) this.companionLabelTick.style.display = arrow === 'none' ? '' : 'none';
+      if (transform !== st.transform) {
+        st.transform = transform;
+        lab.el.style.transform = transform;
+      }
+      if (arrow !== st.arrow) {
+        st.arrow = arrow;
+        if (lab.arrow) {
+          lab.arrow.style.display = arrow === 'none' ? 'none' : '';
+          if (arrow !== 'none') lab.arrow.style.transform = arrow;
+        }
+        if (lab.tick) lab.tick.style.display = arrow === 'none' ? '' : 'none';
+      }
+      setShown(true);
     }
-    setShown(true);
   }
 
   public registerSunMarker(el: HTMLElement | null): void {
@@ -4670,7 +4730,7 @@ export class SolarSystemEngine {
     }
 
     this.updateSunMarker();
-    this.updateCompanionLabel();
+    this.updateCompanionLabels();
 
     const now = performance.now();
     if (now - this.lastHudSync > 120) {
