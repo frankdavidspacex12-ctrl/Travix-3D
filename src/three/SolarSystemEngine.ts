@@ -68,9 +68,10 @@ import { keepPmremMaterials } from './pmremWarmup';
 import { isMemoryConstrained } from './deviceProfile';
 import { cometActivity, createCometEffects, getSoftDotTexture, type CometEffects } from './cometEffects';
 
-// surfaceDiorama.ts used to enable this as an import side effect at startup; keep it identical now
-// that the module is code-split.
-THREE.Cache.enabled = true;
+// three.js file cache: every loaded model and image stays in memory for good. On phones and tablets
+// that grew with each mission visited until the browser killed the tab and reloaded the app from
+// the start. They are off there (files still come quickly from the offline cache).
+THREE.Cache.enabled = !isMemoryConstrained();
 
 /* ---------------------------------------------------------------------------
  * Code-split dioramas: the surface (rovers/landers/GLB) and deep-space (black holes,

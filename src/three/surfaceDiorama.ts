@@ -34,10 +34,12 @@ import {
   processSurface8KPBR,
 } from './highResPbrProcessor';
 import type { CraftPbrProfile, SurfacePbrProfile } from './pbr8k.worker';
+import { isMemoryConstrained } from './deviceProfile';
 
 export type SurfaceCameraMode = 'rover' | 'pov';
 
-THREE.Cache.enabled = true;
+// Off on phones and tablets: see SolarSystemEngine.ts
+THREE.Cache.enabled = !isMemoryConstrained();
 
 const dracoLoader = new DRACOLoader();
 dracoLoader.setDecoderPath('/draco/');
@@ -3271,7 +3273,8 @@ export function createSurfaceDiorama(
   // Real-time High-Resolution ShadowMap Directional Sunlight & Subtle Atmospheric Bounce + Visible Sky Sun Disc
   const dioramaShadowRes = resolvedCaps.isSoftwareGl
     ? 1024
-    : Math.min(4096, resolvedCaps.maxTextureSize || 4096);
+    : // 4096² shadows take ~64 MB of GPU memory: too much for phones and tablets
+      Math.min(isMemoryConstrained() ? 2048 : 4096, resolvedCaps.maxTextureSize || 4096);
   const sunLight = new THREE.DirectionalLight(theme.sunColor, theme.sunIntensity);
   sunLight.castShadow = true;
   sunLight.shadow.mapSize.set(dioramaShadowRes, dioramaShadowRes);
