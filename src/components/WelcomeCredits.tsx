@@ -4,6 +4,8 @@ import { tr } from '../i18n';
 
 export const TEAM_NAME = 'Steps Ahead';
 const EVENT_NAME = 'NASA Space Apps Challenge 2026';
+/** Official challenge name (kept in English in both languages) */
+const CHALLENGE_NAME = 'Abandoned but not Forgotten';
 const VENUE_ES = 'Sede presencial San Vicente';
 const TEAM_MEMBERS = [
   'Juan José Quintero Giraldo',
@@ -124,6 +126,10 @@ export const WelcomeCredits: React.FC<WelcomeCreditsProps> = ({ onClose }) => {
                 <Rocket className="w-3.5 h-3.5 text-amber-300" />
                 {EVENT_NAME}
               </span>
+              <p className="mt-1 max-w-[22rem] text-[12px] leading-snug text-slate-200">
+                {tr('App creada para presentar el reto', 'App built to present the challenge')}{' '}
+                <span className="font-semibold text-cyan-200">«{CHALLENGE_NAME}»</span>
+              </p>
               <span className="inline-flex items-center gap-1 text-slate-300">
                 <MapPin className="w-3.5 h-3.5 text-slate-400" />
                 {tr(VENUE_ES, 'San Vicente in-person venue')}
