@@ -167,7 +167,8 @@ const CompanionLabel = memo(function CompanionLabel({ index, onGo, labelRef }: C
       type="button"
       onClick={(e) => {
         const { bodyId, moonId } = e.currentTarget.dataset;
-        if (bodyId && moonId) onGo(bodyId as CelestialBodyId, moonId);
+        // Sin luna = la etiqueta señala al planeta (cuando se está parado en una de sus lunas)
+        if (bodyId) onGo(bodyId as CelestialBodyId, moonId ?? '');
       }}
       aria-label="Ir a la luna"
       title="La luna en su posición real. Toca para ir."
@@ -180,7 +181,7 @@ const CompanionLabel = memo(function CompanionLabel({ index, onGo, labelRef }: C
           <ArrowRight className="w-3 h-3 text-slate-200/90" />
         </span>
         <span>
-          ☾ <span data-companion-text>Luna</span>
+          <span data-companion-text>☾ Luna</span>
         </span>
       </span>
     </button>
@@ -524,8 +525,11 @@ export default function App() {
   }, []);
 
   const handleGoToMoon = useCallback(
-    (bodyId: CelestialBodyId, moonId: string) => handleSelectMoon(bodyId, moonId),
-    [handleSelectMoon],
+    (bodyId: CelestialBodyId, moonId: string) => {
+      if (moonId) handleSelectMoon(bodyId, moonId);
+      else handleSelectBody(bodyId);
+    },
+    [handleSelectMoon, handleSelectBody],
   );
 
   const handleGoToSun = useCallback(() => {

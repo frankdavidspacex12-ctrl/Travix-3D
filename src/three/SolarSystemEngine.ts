@@ -3885,38 +3885,60 @@ export class SolarSystemEngine {
     if (labels.length === 0) return;
     const inSpace = !this.surfaceDiorama && !this.deepSpaceDiorama;
     const bodyId = this.focusedBodyId;
-    const moonIds =
-      inSpace && bodyId && !this.focusedMoonId && !this.focusedMissionId && !this.isFlying
-        ? (MAIN_MOONS[bodyId] ?? [])
-        : [];
+    // Mirando un planeta: sus lunas principales. Parados en una luna: su planeta (siempre localizable,
+    // con flecha si no está a la vista) y las lunas hermanas que estén a la vista.
+    type Target = { key: string; name: string; pos: THREE.Vector3; moonId: string };
+    const targets: Target[] = [];
+    let planetKey = '';
+    if (inSpace && bodyId && !this.focusedMissionId && !this.isFlying) {
+      if (this.focusedMoonId) {
+        const planet = this.bodies.get(bodyId);
+        if (planet) {
+          targets.push({ key: bodyId, name: planet.data.name, pos: planet.currentWorldPos, moonId: '' });
+          planetKey = bodyId;
+        }
+      }
+      for (const id of MAIN_MOONS[bodyId] ?? []) {
+        if (id === this.focusedMoonId) continue;
+        const moon = this.moonsById.get(id);
+        if (moon) targets.push({ key: id, name: moon.data.name, pos: moon.currentWorldPos, moonId: id });
+      }
+    }
     const w = this.viewportW || window.innerWidth;
     const h = this.viewportH || window.innerHeight;
     const top = Math.max(70, this.viewInsetTop + 16);
     const bottom = h - Math.max(110, this.viewInsetBottom + 16);
 
-    type Placed = { moon: MoonRuntime; sx: number; sy: number; onScreen: boolean; dist: number };
+    type Placed = Target & { sx: number; sy: number; onScreen: boolean; dist: number };
     const visible: Placed[] = [];
     let nearest: Placed | null = null;
-    for (const id of moonIds) {
-      const moon = this.moonsById.get(id);
-      if (!moon) continue;
-      _projVec.copy(moon.currentWorldPos).project(this.camera);
+    let planetPlaced: Placed | null = null;
+    for (const tg of targets) {
+      _projVec.copy(tg.pos).project(this.camera);
       const behind = _projVec.z > 1;
       const nx = behind ? -_projVec.x : _projVec.x;
       const ny = behind ? -_projVec.y : _projVec.y;
       const sx = (nx * 0.5 + 0.5) * w;
       const sy = (-ny * 0.5 + 0.5) * h;
       const p: Placed = {
-        moon,
+        ...tg,
         sx,
         sy,
         onScreen: !behind && sx >= 24 && sx <= w - 24 && sy >= top && sy <= bottom,
-        dist: this.camera.position.distanceTo(moon.currentWorldPos),
+        dist: this.camera.position.distanceTo(tg.pos),
       };
-      if (p.onScreen) visible.push(p);
+      if (tg.key === planetKey) planetPlaced = p;
+      else if (p.onScreen) visible.push(p);
       else if (!nearest || p.dist < nearest.dist) nearest = p;
     }
-    const shown: Placed[] = visible.length > 0 ? visible : nearest ? [nearest] : [];
+    // En una luna: el planeta siempre (etiqueta o flecha) + las lunas hermanas a la vista
+    const shown: Placed[] = planetPlaced
+      ? [planetPlaced, ...visible]
+      : visible.length > 0
+        ? visible
+        : nearest
+          ? [nearest]
+          : [];
 
     const now = performance.now();
     const refreshText = now - this.lastCompanionTextAt > 500;
@@ -3938,22 +3960,24 @@ export class SolarSystemEngine {
         setShown(false);
         continue;
       }
-      const moonId = p.moon.data.id;
-      if (st.moonId !== moonId) {
-        st.moonId = moonId;
+      const moonId = p.moonId;
+      if (st.moonId !== p.key) {
+        st.moonId = p.key;
         st.text = '';
         lab.el.dataset.bodyId = bodyId;
-        lab.el.dataset.moonId = moonId;
-        lab.el.setAttribute('aria-label', `Ir a ${p.moon.data.name}`);
-        lab.el.title = `${p.moon.data.name} en su posición real. Toca para ir.`;
+        lab.el.dataset.moonId = moonId; // vacío = el planeta
+        lab.el.setAttribute('aria-label', `Ir a ${p.name}`);
+        lab.el.title = `${p.name} en su posición real. Toca para ir.`;
       }
       if (refreshText || !st.text) {
-        let text = p.moon.data.name;
+        // ☾ para lunas, ● para el planeta
+        let text = `${moonId ? '☾' : '●'} ${p.name}`;
         const planet = this.bodies.get(bodyId);
         if (moonId === 'luna' && planet) {
           // Órbita de la Luna en la escena: 55,5 unidades para los 384.400 km reales
-          const km = (planet.currentWorldPos.distanceTo(p.moon.currentWorldPos) / p.moon.data.orbitRadius) * 384400;
-          text = `Luna · ${(Math.round(km / 100) * 100).toLocaleString('es-ES')} km`;
+          const luna = this.moonsById.get('luna');
+          const km = luna ? (planet.currentWorldPos.distanceTo(p.pos) / luna.data.orbitRadius) * 384400 : 384400;
+          text = `☾ Luna · ${(Math.round(km / 100) * 100).toLocaleString('es-ES')} km`;
         }
         if (text !== st.text) {
           st.text = text;
