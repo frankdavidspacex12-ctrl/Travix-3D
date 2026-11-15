@@ -2714,6 +2714,7 @@ export class SolarSystemEngine {
               tex.anisotropy = maxAnisotropy;
               moonMat.map = tex;
               moonBasePbr.map = tex;
+              if (mData.mapBrightness) moonMat.color.setScalar(mData.mapBrightness);
               if (tex.image instanceof HTMLImageElement) {
                 const mrt = this.moonsById.get(mData.id);
                 if (mrt) mrt.albedoImage = tex.image;
@@ -5052,12 +5053,16 @@ export class SolarSystemEngine {
       return;
     }
 
-    // Spacecraft optical auto-exposure compensates for inverse-square (decay=2) sunlight while keeping sunlit hemispheres luminous & unclipped
+    // Spacecraft optical auto-exposure compensates for inverse-square (decay=2) sunlight while keeping sunlit hemispheres luminous & unclipped.
+    // The cap used to be 290 (reached near 26 AU), so Neptune, Pluto and above all the darker
+    // Charon were drawn far darker than an eye there would see them (NASA's «Pluto Time»: noon
+    // on Pluto looks like Earth just after sunset). It now follows the same law out to Eris; the
+    // sky, the Sun and the outer-planet limb glow have their own screen caps, so they do not change.
     const camAU = Math.max(0.22, this.camera.position.length() / AU_TO_UNITS);
     let targetExp = THREE.MathUtils.clamp(
       0.56 * Math.pow(camAU, 1.92),
       0.068,
-      290,
+      4000,
     );
     if (this.focusedBodyId === 'sun') {
       targetExp = 0.95;

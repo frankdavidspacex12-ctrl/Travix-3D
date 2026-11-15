@@ -47,6 +47,12 @@ export interface MoonData {
   atmosphereColor?: string;
   textureUrl?: string;
   bumpUrl?: string;
+  /**
+   * Brightness multiplier for a texture map that came out darker than the real body reflects
+   * (1 = as is). Charon's map renders at about half of Pluto's, but its real albedo is ~0.4 against
+   * Pluto's ~0.5–0.6.
+   */
+  mapBrightness?: number;
 }
 
 export interface CelestialBodyData {
@@ -730,6 +736,7 @@ export const CELESTIAL_BODIES: CelestialBodyData[] = [
         j2000MeanLonDeg: 223.0,
         style: 'charon',
         textureUrl: `${MOONS_LOCAL_BASE}/charon.jpg`,
+        mapBrightness: 1.35,
       },
     ],
   },
