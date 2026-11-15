@@ -1,6 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import { MapPin, Rocket, X } from 'lucide-react';
 import { tr } from '../i18n';
+import { ShareButton } from './ShareButton';
 
 export const TEAM_NAME = 'Steps Ahead';
 const EVENT_NAME = 'NASA Space Apps Challenge 2026';
@@ -186,6 +187,7 @@ export const WelcomeCredits: React.FC<WelcomeCreditsProps> = ({ onClose }) => {
             >
               {tr('Comenzar a explorar', 'Start exploring')}
             </button>
+            <ShareButton className="mt-2 w-full inline-flex items-center justify-center gap-2 px-4 py-2 rounded-xl border border-white/20 hover:border-white/45 text-slate-100 hover:text-white text-sm font-medium cursor-pointer transition-colors" />
             <p className="mt-2 text-center text-[10px] text-slate-400">
               {tr('Vuelve a ver esta presentación tocando el logo de Travix.', 'Open this screen again by tapping the Travix logo.')}
             </p>

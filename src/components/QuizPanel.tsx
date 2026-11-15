@@ -5,6 +5,7 @@ import { Check, GraduationCap, Map as MapIcon, RotateCcw, Trophy, X } from 'luci
 import { QUIZ_QUESTIONS, type QuizQuestion } from '../data/quizData';
 import type { GuidedTourTarget } from '../data/guidedToursData';
 import { getLang, tr } from '../i18n';
+import { ShareButton } from './ShareButton';
 
 const ANSWERED_KEY = 'travix-quiz-answered';
 const TOTAL = QUIZ_QUESTIONS.length;
@@ -250,6 +251,14 @@ const QuizPanel: React.FC<QuizPanelProps> = ({ onClose, onGo }) => {
         <p className="text-xs text-slate-400">
           {tr('Quedan', 'There are')} {remaining} {tr('preguntas nuevas.', 'new questions left.')}
         </p>
+        <ShareButton
+          label={tr('Compartir mi resultado', 'Share my score')}
+          text={tr(
+            `Saqué ${round.correct} de ${n} en «Pon a prueba tus conocimientos» de Travix 3D, sobre las naves que la NASA dejó en el espacio. ¿Puedes superarme?`,
+            `I scored ${round.correct} out of ${n} on the Travix 3D space quiz about the spacecraft NASA left behind. Can you beat me?`,
+          )}
+          className="mx-auto inline-flex items-center justify-center gap-2 px-4 py-2 rounded-full border border-sky-300/40 text-sky-100 hover:text-white hover:border-sky-200 text-sm cursor-pointer"
+        />
         <div className="flex flex-wrap justify-center gap-2 pt-1">
           <button
             type="button"

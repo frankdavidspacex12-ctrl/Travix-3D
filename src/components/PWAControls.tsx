@@ -3,6 +3,7 @@ import { Download, Wifi } from 'lucide-react';
 import { usePWAInstall } from '../hooks/usePWAInstall';
 import { PanelControls } from './PanelControls';
 import { tr } from '../i18n';
+import { ShareButton } from './ShareButton';
 
 export const PWAControls: React.FC = () => {
   const { canInstall, isInstalled, isIOS, isOnline, install } = usePWAInstall();
@@ -119,6 +120,7 @@ export const PWAControls: React.FC = () => {
               {isInstalled && (
                 <p className="text-[11px] text-emerald-300">{tr('App instalada en este dispositivo.', 'App installed on this device.')}</p>
               )}
+              <ShareButton />
             </>
           )}
         </div>
