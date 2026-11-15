@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import {
   BookOpen,
+  Download,
   ChevronLeft,
   ChevronRight,
   Compass,
@@ -126,6 +127,12 @@ const STEPS: TutorialStep[] = [
     icon: Volume2,
     title: 'Música y sonidos',
     text: 'Este botón enciende o apaga la música del espacio y los efectos. Empieza apagado.',
+  },
+  {
+    target: 'install',
+    icon: Download,
+    title: 'Llévala contigo',
+    text: 'Desde este botón puedes instalar Travix 3D como una app en tu celular o computador y usarla sin internet.',
   },
   {
     target: 'overview',

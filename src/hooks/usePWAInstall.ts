@@ -5,6 +5,13 @@ interface BeforeInstallPromptEvent extends Event {
   userChoice: Promise<{ outcome: 'accepted' | 'dismissed' }>;
 }
 
+function isIOSDevice(): boolean {
+  if (typeof navigator === 'undefined') return false;
+  const ua = navigator.userAgent;
+  // iPadOS se presenta como Mac de escritorio, pero con pantalla táctil
+  return /iPhone|iPad|iPod/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);
+}
+
 export function usePWAInstall() {
   const [deferredPrompt, setDeferredPrompt] =
     useState<BeforeInstallPromptEvent | null>(null);
@@ -53,6 +60,8 @@ export function usePWAInstall() {
 
   return {
     canInstall: Boolean(deferredPrompt) && !isInstalled,
+    /** iPhone / iPad: Safari no ofrece botón de instalar; se hace desde «Compartir». */
+    isIOS: isIOSDevice(),
     isInstalled,
     isOnline,
     install,

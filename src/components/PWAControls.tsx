@@ -4,7 +4,9 @@ import { usePWAInstall } from '../hooks/usePWAInstall';
 import { PanelControls } from './PanelControls';
 
 export const PWAControls: React.FC = () => {
-  const { canInstall, isOnline, install } = usePWAInstall();
+  const { canInstall, isInstalled, isIOS, isOnline, install } = usePWAInstall();
+  // Mientras no esté instalada, un punto ámbar en el botón invita a abrir el panel e instalarla
+  const showInstallHint = !isInstalled;
   const [open, setOpen] = useState(false);
   const [minimized, setMinimized] = useState(false);
 
@@ -18,17 +20,22 @@ export const PWAControls: React.FC = () => {
           setOpen((prev) => !prev);
         }}
         aria-expanded={open}
+        data-tour="install"
         aria-label={
-          isOnline
-            ? 'Estado de conexión y modo sin internet'
-            : 'Modo sin internet activo'
+          showInstallHint
+            ? 'Instalar la app y estado sin internet'
+            : isOnline
+              ? 'Estado de conexión y modo sin internet'
+              : 'Modo sin internet activo'
         }
         title={
-          isOnline
-            ? 'PWA lista para usar sin internet'
-            : 'Modo sin internet activo (100% offline)'
+          showInstallHint
+            ? 'Instala Travix 3D en tu dispositivo y úsala sin internet'
+            : isOnline
+              ? 'App lista para usar sin internet'
+              : 'Modo sin internet activo (100% offline)'
         }
-        className={`pointer-events-auto w-10 h-10 rounded-full flex items-center justify-center transition-colors cursor-pointer focus-visible:outline-2 focus-visible:outline-amber-400 ${
+        className={`relative pointer-events-auto w-10 h-10 rounded-full flex items-center justify-center transition-colors cursor-pointer focus-visible:outline-2 focus-visible:outline-amber-400 ${
           !isOnline || open
             ? 'travix-glass-bar border-amber-400/55 text-amber-300'
             : 'travix-glass-bar text-slate-100 hover:text-white hover:border-white/35'
@@ -39,6 +46,12 @@ export const PWAControls: React.FC = () => {
             isOnline ? 'text-emerald-300' : 'text-amber-400'
           }`}
         />
+        {showInstallHint && (
+          <span
+            aria-hidden="true"
+            className="absolute top-1 right-1 w-2 h-2 rounded-full bg-amber-400 ring-2 ring-[#05070d]"
+          />
+        )}
       </button>
 
       {open && (
@@ -87,6 +100,23 @@ export const PWAControls: React.FC = () => {
                   <Download className="w-3.5 h-3.5 text-amber-400 shrink-0" />
                   <span>Instalar app offline</span>
                 </button>
+              )}
+              {/* Sin botón del navegador: instrucciones según el dispositivo */}
+              {!canInstall && !isInstalled && (
+                <div className="rounded-lg bg-white/5 border border-amber-400/25 px-2.5 py-2 text-[11px] leading-snug text-slate-100">
+                  <p className="font-semibold text-amber-200 flex items-center gap-1">
+                    <Download className="w-3 h-3 text-amber-400 shrink-0" />
+                    Instálala en tu dispositivo
+                  </p>
+                  <p className="mt-1">
+                    {isIOS
+                      ? 'En Safari toca Compartir (el cuadrado con la flecha hacia arriba) y luego «Agregar a pantalla de inicio».'
+                      : 'Abre el menú del navegador (⋮) y elige «Instalar aplicación» o «Agregar a la pantalla principal».'}
+                  </p>
+                </div>
+              )}
+              {isInstalled && (
+                <p className="text-[11px] text-emerald-300">App instalada en este dispositivo.</p>
               )}
             </>
           )}
