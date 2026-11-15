@@ -26,8 +26,8 @@ export interface GuidedTour {
 export const NASA_GUIDED_TOURS: GuidedTour[] = [
   {
     id: 'hardware_chronology',
-    name: 'Legado de Hardware NASA · Cronología',
-    subtitle: '17 naves en su ubicación real · ordenadas por fecha de lanzamiento',
+    name: 'Legado de Hardware NASA · Reto «Abandoned but not Forgotten»',
+    subtitle: 'Cronología · 17 naves en su ubicación real · ordenadas por fecha de lanzamiento',
     accentColor: '#FB7185',
     steps: [
       {
