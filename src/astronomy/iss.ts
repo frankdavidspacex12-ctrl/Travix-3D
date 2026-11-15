@@ -20,6 +20,7 @@ const FALLBACK_TLE: [string, string] = [
 
 const TLE_URL = 'https://celestrak.org/NORAD/elements/gp.php?CATNR=25544&FORMAT=TLE';
 const STORAGE_KEY = 'travix-iss-tle';
+const ATTEMPT_KEY = 'travix-iss-tle-attempt';
 const REFRESH_AFTER_MS = 6 * 3600 * 1000;
 
 interface Elements {
@@ -119,6 +120,14 @@ let refreshing = false;
 export async function refreshIssElements(): Promise<void> {
   if (refreshing || typeof fetch === 'undefined') return;
   if (Date.now() - elements.epochMs < REFRESH_AFTER_MS) return;
+  // CelesTrak limita las consultas repetidas (responde 403): como máximo un intento por hora
+  try {
+    const last = Number(window.localStorage.getItem(ATTEMPT_KEY) || 0);
+    if (Date.now() - last < 3600 * 1000) return;
+    window.localStorage.setItem(ATTEMPT_KEY, String(Date.now()));
+  } catch {
+    // sin almacenamiento: se intenta una vez por visita
+  }
   refreshing = true;
   try {
     const ctrl = new AbortController();

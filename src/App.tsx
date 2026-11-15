@@ -17,7 +17,7 @@ import {
   DeepSpaceTargetId,
 } from './data/solarSystemData';
 import { GuidedTourStep } from './data/guidedToursData';
-import { FocusSelection, MAX_COMPANION_LABELS, SolarSystemEngine } from './three/SolarSystemEngine';
+import { FocusSelection, MAX_COMPANION_LABELS, MAX_SURFACE_LABELS, SolarSystemEngine } from './three/SolarSystemEngine';
 import type { SurfaceCameraMode } from './three/surfaceDiorama';
 import { ControlDock } from './components/ControlDock';
 import { GuidedTourBar } from './components/GuidedTourBar';
@@ -188,6 +188,34 @@ const CompanionLabel = memo(function CompanionLabel({ index, onGo, labelRef }: C
   );
 });
 
+interface SurfaceLabelProps {
+  index: number;
+  onGo: (missionId: string) => void;
+  labelRef: (index: number, el: HTMLButtonElement | null) => void;
+}
+
+/**
+ * Nombre de una misión sobre la superficie del planeta o la luna que se mira, justo debajo de su
+ * punto; el motor la coloca y escribe en data-mission-id a cuál apunta. Tocarla lleva a la misión.
+ */
+const SurfaceLabel = memo(function SurfaceLabel({ index, onGo, labelRef }: SurfaceLabelProps) {
+  return (
+    <button
+      ref={(el) => labelRef(index, el)}
+      type="button"
+      onClick={(e) => {
+        const id = e.currentTarget.dataset.missionId;
+        if (id) onGo(id);
+      }}
+      aria-label="Ir a la misión"
+      style={{ opacity: 0, pointerEvents: 'none' }}
+      className="fixed top-0 left-0 z-[15] rounded-full travix-chip px-1.5 py-px text-[9px] font-medium text-amber-100 whitespace-nowrap max-w-[9.5rem] truncate cursor-pointer transition-opacity duration-300 hover:text-white focus-visible:outline-2 focus-visible:outline-amber-400"
+    >
+      <span data-surface-text>Misión</span>
+    </button>
+  );
+});
+
 export default function App() {
   const canvasMountRef = useRef<HTMLDivElement | null>(null);
   const engineRef = useRef<SolarSystemEngine | null>(null);
@@ -195,6 +223,7 @@ export default function App() {
   const headerRef = useRef<HTMLElement | null>(null);
   const sunMarkerRef = useRef<HTMLButtonElement | null>(null);
   const companionLabelRefs = useRef<Array<HTMLButtonElement | null>>([]);
+  const surfaceLabelRefs = useRef<Array<HTMLButtonElement | null>>([]);
   useViewInset('app-header', headerRef, 'top');
 
   const [selection, setSelection] = useState<FocusSelection | null>(null);
@@ -300,6 +329,7 @@ export default function App() {
       );
       engine.registerSunMarker(sunMarkerRef.current);
       companionLabelRefs.current.forEach((el, i) => engine?.registerCompanionLabel(i, el));
+      surfaceLabelRefs.current.forEach((el, i) => engine?.registerSurfaceLabel(i, el));
       engine.setShipMode(shipModeRef.current);
     } catch {
       setWebglError(true);
@@ -519,6 +549,19 @@ export default function App() {
     engineRef.current?.registerSunMarker(el);
   }, []);
 
+  const registerSurfaceLabel = useCallback((index: number, el: HTMLButtonElement | null) => {
+    surfaceLabelRefs.current[index] = el;
+    engineRef.current?.registerSurfaceLabel(index, el);
+  }, []);
+
+  const handleGoToSurfaceMission = useCallback(
+    (missionId: string) => {
+      const mission = ABANDONED_MISSIONS.find((m) => m.id === missionId);
+      if (mission) handleSelectMission(mission);
+    },
+    [handleSelectMission],
+  );
+
   const registerCompanionLabel = useCallback((index: number, el: HTMLButtonElement | null) => {
     companionLabelRefs.current[index] = el;
     engineRef.current?.registerCompanionLabel(index, el);
@@ -688,6 +731,9 @@ export default function App() {
 
       {/* The Sun as universal reference, visible from every view */}
       <SunMarker onGo={handleGoToSun} markerRef={registerSunMarker} />
+      {Array.from({ length: MAX_SURFACE_LABELS }, (_, i) => (
+        <SurfaceLabel key={'s' + i} index={i} onGo={handleGoToSurfaceMission} labelRef={registerSurfaceLabel} />
+      ))}
       {Array.from({ length: MAX_COMPANION_LABELS }, (_, i) => (
         <CompanionLabel key={i} index={i} onGo={handleGoToMoon} labelRef={registerCompanionLabel} />
       ))}

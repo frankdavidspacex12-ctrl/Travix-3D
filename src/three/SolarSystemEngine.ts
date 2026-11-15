@@ -421,6 +421,8 @@ const MAIN_MOONS: Partial<Record<string, string[]>> = {
   pluto: ['charon'],
 };
 export const MAX_COMPANION_LABELS = 4;
+/** Máximo de etiquetas de misiones en superficie a la vez (las demás quedan agrupadas o en la lista). */
+export const MAX_SURFACE_LABELS = 8;
 
 const POLAR_FLATTENING: Partial<Record<string, number>> = { jupiter: 0.935, saturn: 0.902 };
 
@@ -729,6 +731,11 @@ export class SolarSystemEngine {
     state: { shown: boolean | null; transform: string; text: string; arrow: string; moonId: string };
   } | null> = [];
   private readonly issSubpoint: IssSubpoint = { latDeg: 0, lonDeg: 0, altKm: 0 };
+  private surfaceLabels: Array<{
+    el: HTMLElement;
+    text: HTMLElement | null;
+    state: { shown: boolean | null; transform: string; text: string; missionId: string };
+  } | null> = [];
   private lastCompanionTextAt = 0;
   private sunMarkerArrow: HTMLElement | null = null;
   private sunMarkerText: HTMLElement | null = null;
@@ -2848,8 +2855,8 @@ export class SolarSystemEngine {
 
       this.raycaster.setFromCamera(this.pointerNdc, this.camera);
 
-      // 1. Check visible mission surface beacons only when explicitly focusing a mission
-      if (this.focusedMissionId) {
+      // 1. Puntos de misión visibles: la misión elegida o las de la superficie del cuerpo enfocado
+      if (this.focusedMissionId || this.focusedBodyId) {
         const visibleBeacons = this.missionHitProxies.filter(
           (p) => p.parent?.visible,
         );
@@ -3001,11 +3008,20 @@ export class SolarSystemEngine {
   }
 
   private updateBeaconVisibilities(): void {
-    // Planets and moons stay 100% pure (zero rovers, beacons, or orbital dots unless that mission is selected)
+    // Mirando un planeta o una luna (sin misión elegida) se muestran los puntos de las misiones que
+    // están en su superficie, para poder encontrarlas y tocarlas; con una misión elegida, solo la suya.
+    const hostBody = !this.focusedMissionId ? this.focusedBodyId : null;
+    const hostMoon = this.focusedMoonId ?? undefined;
     this.beaconsByMissionId.forEach((beacon, id) => {
       const isSelected = id === this.focusedMissionId;
-      beacon.group.visible = isSelected;
-      beacon.ringMat.opacity = isSelected ? 0.92 : 0.0;
+      const m = beacon.mission;
+      const onHost =
+        !!hostBody &&
+        m.missionRole === 'surface' &&
+        m.targetBodyId === hostBody &&
+        (m.targetMoonId ?? undefined) === hostMoon;
+      beacon.group.visible = isSelected || onHost;
+      beacon.ringMat.opacity = isSelected ? 0.92 : onHost ? 0.4 : 0.0;
     });
     for (const sat of this.orbitSatellites) {
       sat.pivot.visible = this.focusedMissionId === sat.missionId;
@@ -3880,6 +3896,82 @@ export class SolarSystemEngine {
    * real a la Tierra). Si ninguna está a la vista, una sola etiqueta en el borde con una flecha señala
    * la más cercana, así siempre se pueden encontrar sin llenar la pantalla.
    */
+  /** Etiquetas con el nombre de las misiones en la superficie del cuerpo enfocado (ver updateSurfaceLabels). */
+  public registerSurfaceLabel(index: number, el: HTMLElement | null): void {
+    this.surfaceLabels[index] = el
+      ? {
+          el,
+          text: el.querySelector<HTMLElement>('[data-surface-text]'),
+          state: { shown: null, transform: '', text: '', missionId: '' },
+        }
+      : null;
+  }
+
+  /**
+   * Nombre de cada misión cuyo punto está en la cara visible del planeta o la luna. Si dos quedan
+   * casi en el mismo sitio de la pantalla (p. ej. el módulo, el vehículo y la estación del Apolo 15),
+   * se agrupan en una sola etiqueta «Apolo 15 +2» y gana la que aparece primero en el catálogo.
+   */
+  private updateSurfaceLabels(): void {
+    const labels = this.surfaceLabels;
+    if (labels.length === 0) return;
+    const active =
+      !this.surfaceDiorama && !this.deepSpaceDiorama && !this.isFlying && !this.focusedMissionId && !!this.focusedBodyId;
+    const w = this.viewportW || window.innerWidth;
+    const h = this.viewportH || window.innerHeight;
+    const top = Math.max(70, this.viewInsetTop + 16);
+    const bottom = h - Math.max(110, this.viewInsetBottom + 16);
+    const placed: Array<{ x: number; y: number; mission: AbandonedMission; count: number }> = [];
+    if (active) {
+      for (const beacon of this.beaconsByMissionId.values()) {
+        if (!beacon.group.visible || beacon.mission.missionRole !== 'surface') continue;
+        // Solo la cara que mira a la cámara (no a través del planeta)
+        _vec3A.subVectors(this.camera.position, beacon.currentWorldPos).normalize();
+        if (beacon.worldNormal.dot(_vec3A) < 0.2) continue;
+        _projVec.copy(beacon.currentWorldPos).project(this.camera);
+        if (_projVec.z > 1) continue;
+        const x = (_projVec.x * 0.5 + 0.5) * w;
+        const y = (-_projVec.y * 0.5 + 0.5) * h;
+        if (x < 30 || x > w - 30 || y < top || y > bottom) continue;
+        const near = placed.find((p) => Math.abs(p.x - x) < 84 && Math.abs(p.y - y) < 20);
+        if (near) {
+          near.count++;
+          continue;
+        }
+        if (placed.length < labels.length) placed.push({ x, y, mission: beacon.mission, count: 1 });
+      }
+    }
+    for (let i = 0; i < labels.length; i++) {
+      const lab = labels[i];
+      if (!lab) continue;
+      const st = lab.state;
+      const p = placed[i];
+      const shown = Boolean(p);
+      if (st.shown !== shown) {
+        st.shown = shown;
+        lab.el.style.opacity = shown ? '1' : '0';
+        lab.el.style.pointerEvents = shown ? 'auto' : 'none';
+      }
+      if (!p) continue;
+      if (st.missionId !== p.mission.id) {
+        st.missionId = p.mission.id;
+        lab.el.dataset.missionId = p.mission.id;
+        lab.el.setAttribute('aria-label', `Ir a ${p.mission.name}`);
+        lab.el.title = `${p.mission.name} · ${p.mission.region}. Toca para ir.`;
+      }
+      const text = p.count > 1 ? `${p.mission.name} +${p.count - 1}` : p.mission.name;
+      if (text !== st.text) {
+        st.text = text;
+        if (lab.text) lab.text.textContent = text;
+      }
+      const transform = `translate3d(${p.x.toFixed(1)}px, ${(p.y + 7).toFixed(1)}px, 0) translateX(-50%)`;
+      if (transform !== st.transform) {
+        st.transform = transform;
+        lab.el.style.transform = transform;
+      }
+    }
+  }
+
   private updateCompanionLabels(): void {
     const labels = this.companionLabels;
     if (labels.length === 0) return;
@@ -4825,6 +4917,7 @@ export class SolarSystemEngine {
 
     this.updateSunMarker();
     this.updateCompanionLabels();
+    this.updateSurfaceLabels();
 
     const now = performance.now();
     if (now - this.lastHudSync > 120) {

@@ -189,6 +189,17 @@ export function getNearbyTargets(selection: FocusSelection | null): NearbyTarget
     .slice(0, MAX_ITEMS);
 }
 
+/** Misiones en la superficie del planeta o la luna que se mira (en el orden del catálogo). */
+export function getSurfaceMissions(selection: FocusSelection | null): AbandonedMission[] {
+  if (!selection || selection.missionId) return [];
+  return ABANDONED_MISSIONS.filter(
+    (m) =>
+      m.missionRole === 'surface' &&
+      m.targetBodyId === selection.bodyId &&
+      (m.targetMoonId ?? undefined) === (selection.moonId ?? undefined),
+  );
+}
+
 interface NearbyObjectsProps {
   selection: FocusSelection | null;
   onGoBody: (id: CelestialBodyId) => void;
@@ -202,8 +213,11 @@ interface NearbyObjectsProps {
  */
 export const NearbyObjects: React.FC<NearbyObjectsProps> = ({ selection, onGoBody, onGoMoon, onGoMission }) => {
   const [collapsed, setCollapsed] = useState(false);
+  // «En superficie» empieza plegada: solo su título con la cantidad, para no llenar la pantalla
+  const [surfaceOpen, setSurfaceOpen] = useState(false);
   const items = useMemo(() => getNearbyTargets(selection), [selection]);
-  if (items.length === 0) return null;
+  const surface = useMemo(() => getSurfaceMissions(selection), [selection]);
+  if (items.length === 0 && surface.length === 0) return null;
 
   return (
     <nav
@@ -245,6 +259,37 @@ export const NearbyObjects: React.FC<NearbyObjectsProps> = ({ selection, onGoBod
             <span>{it.name}</span>
           </button>
         ))}
+      {surface.length > 0 && (
+        <>
+          <button
+            type="button"
+            onClick={() => setSurfaceOpen((o) => !o)}
+            aria-expanded={surfaceOpen}
+            title={surfaceOpen ? 'Ocultar las misiones en la superficie' : 'Ver las misiones en la superficie'}
+            className="pointer-events-auto mt-1 inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full travix-chip text-[9px] font-semibold uppercase tracking-wider text-amber-200/90 hover:text-white cursor-pointer focus-visible:outline-2 focus-visible:outline-amber-400"
+          >
+            <span>En superficie · {surface.length}</span>
+            {surfaceOpen ? <ChevronUp className="w-2.5 h-2.5" /> : <ChevronDown className="w-2.5 h-2.5" />}
+          </button>
+          {surfaceOpen && (
+            <div className="pointer-events-auto flex flex-col items-end gap-1 max-h-[38vh] overflow-y-auto overscroll-contain pr-0.5">
+              {surface.map((m) => (
+                <button
+                  key={m.id}
+                  type="button"
+                  onClick={() => onGoMission(m)}
+                  title={`${m.name} · ${m.region}. Toca para ir.`}
+                  aria-label={`Ir a ${m.name} (${m.region})`}
+                  className="inline-flex items-center gap-1 pl-1.5 pr-2 py-0.5 rounded-full travix-chip text-[10px] font-medium text-slate-100 whitespace-nowrap max-w-[11rem] hover:text-white transition-colors cursor-pointer focus-visible:outline-2 focus-visible:outline-amber-400"
+                >
+                  <span className="shrink-0 w-1.5 h-1.5 rotate-45" style={{ backgroundColor: m.accentColor }} aria-hidden="true" />
+                  <span className="truncate">{m.name}</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </>
+      )}
     </nav>
   );
 };
