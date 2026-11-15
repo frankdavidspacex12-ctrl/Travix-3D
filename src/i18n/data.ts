@@ -5,6 +5,8 @@ import { ABANDONED_MISSIONS } from '../data/abandonedMissionsData';
 import { LEFT_BEHIND_NOTES } from '../data/leftBehindNotes';
 import { CELESTIAL_BODIES, DEEP_SPACE_TARGETS } from '../data/solarSystemData';
 import { LANDING_BY_CRAFT } from '../data/landingMethods';
+import { NASA_GUIDED_TOURS } from '../data/guidedToursData';
+import { TOURS_EN, TOUR_STEPS_EN } from './toursEn';
 import { MISSIONS_EN } from './missionsEn';
 import { NOTES_EN, sourceLabelEn } from './notesEn';
 import { LANDING_EN } from './landingEn';
@@ -49,6 +51,10 @@ export function applyLanguageToData(lang: Lang): void {
     for (const moon of b.moons) swap(moon, BODIES_EN[moon.id], lang);
   }
   for (const d of DEEP_SPACE_TARGETS) swap(d, DEEP_SPACE_EN[d.id], lang);
+  for (const t of NASA_GUIDED_TOURS) {
+    swap(t, TOURS_EN[t.id], lang);
+    for (const st of t.steps) swap(st, TOUR_STEPS_EN[st.id], lang);
+  }
 }
 
 applyLanguageToData(getLang());
