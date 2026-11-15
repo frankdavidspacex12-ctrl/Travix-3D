@@ -110,6 +110,7 @@ const VoiceAssistant: React.FC<VoiceAssistantProps> = ({ onClose, onNavigate }) 
   const [phase, setPhase] = useState<Phase>('asking');
   const [heard, setHeard] = useState('');
   const [message, setMessage] = useState('');
+  const [errorCode, setErrorCode] = useState('');
   const recRef = useRef<Recognition | null>(null);
   const closedRef = useRef(false);
   /** Listening starts by itself only once, after the question (not again if it was cut short) */
@@ -148,6 +149,8 @@ const VoiceAssistant: React.FC<VoiceAssistantProps> = ({ onClose, onNavigate }) 
     rec.maxAlternatives = 3;
     rec.continuous = false;
     let finalAlternatives: string[] | null = null;
+    // Some Android phones never mark the result as final: keep the last thing heard as a backup
+    let lastHeard = '';
     rec.onresult = (e) => {
       let text = '';
       for (let i = e.resultIndex; i < e.results.length; i++) {
@@ -157,10 +160,14 @@ const VoiceAssistant: React.FC<VoiceAssistantProps> = ({ onClose, onNavigate }) 
           finalAlternatives = Array.from({ length: r.length }, (_, k) => r[k].transcript);
         }
       }
-      setHeard(text.trim());
+      lastHeard = text.trim();
+      setHeard(lastHeard);
     };
     rec.onerror = (e) => {
       if (closedRef.current) return;
+      // 'aborted' is our own stop (a new tap on the microphone): not an error to show
+      if (e.error === 'aborted') return;
+      setErrorCode(e.error);
       setPhase('error');
       setMessage(
         e.error === 'not-allowed' || e.error === 'service-not-allowed'
@@ -175,7 +182,7 @@ const VoiceAssistant: React.FC<VoiceAssistantProps> = ({ onClose, onNavigate }) 
     rec.onend = () => {
       if (closedRef.current || recRef.current !== rec) return;
       recRef.current = null;
-      const alts = finalAlternatives;
+      const alts = finalAlternatives ?? (lastHeard ? [lastHeard] : null);
       if (!alts || alts.length === 0) {
         setPhase((p) => (p === 'listening' ? 'error' : p));
         setMessage((m) => m || tr('No te escuché. Toca el micrófono e intenta de nuevo.', 'I did not hear you. Tap the microphone and try again.'));
@@ -202,12 +209,14 @@ const VoiceAssistant: React.FC<VoiceAssistantProps> = ({ onClose, onNavigate }) 
     recRef.current = rec;
     setHeard('');
     setMessage('');
+    setErrorCode('');
     setPhase('listening');
     try {
       rec.start();
-    } catch {
+    } catch (err) {
       // Some browsers only start it from a tap: the next tap on the microphone will work
       recRef.current = null;
+      setErrorCode(err instanceof Error ? err.name : 'start');
       setPhase('error');
       setMessage(tr('Toca el micrófono para hablar.', 'Tap the microphone to talk.'));
     }
@@ -216,15 +225,19 @@ const VoiceAssistant: React.FC<VoiceAssistantProps> = ({ onClose, onNavigate }) 
   // Ask the question, then listen (tapping the microphone skips the question)
   useEffect(() => {
     closedRef.current = false;
-    narrate(tr('¿A dónde quieres ir?', 'Where do you want to go?'), () => {
+    const startAfterQuestion = () => {
       if (!closedRef.current && autoListenRef.current) listen();
-    });
+    };
+    narrate(tr('¿A dónde quieres ir?', 'Where do you want to go?'), startAfterQuestion);
+    // Chrome on Android sometimes never reports the end of the spoken question: listen anyway
+    const fallback = window.setTimeout(startAfterQuestion, 2800);
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();
     };
     window.addEventListener('keydown', onKey);
     return () => {
       closedRef.current = true;
+      window.clearTimeout(fallback);
       window.removeEventListener('keydown', onKey);
       stopNarration();
       stopListening();
@@ -277,6 +290,9 @@ const VoiceAssistant: React.FC<VoiceAssistantProps> = ({ onClose, onNavigate }) 
         <p className="mt-4 text-base font-semibold text-white" aria-live="polite">
           {status}
         </p>
+        {errorCode && (
+          <p className="mt-1 text-[10px] text-slate-500">({errorCode})</p>
+        )}
         {heard && (
           <p className="mt-2 text-sm text-slate-200">
             «{heard}»
