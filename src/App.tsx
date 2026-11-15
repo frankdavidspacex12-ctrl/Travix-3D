@@ -4,7 +4,7 @@
  */
 
 import { Fragment, lazy, memo, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowRight, FileText, HelpCircle, Search, Sun } from 'lucide-react';
+import { ArrowRight, FileText, GraduationCap, HelpCircle, Search, Sun } from 'lucide-react';
 import { MemoNearbyObjects } from './components/NearbyObjects';
 import { DescentOverlay, type DescentRequest } from './components/DescentOverlay';
 import { getLandingInfo } from './data/landingMethods';
@@ -42,6 +42,7 @@ import { localizeAnswer } from './i18n/data';
 
 // Hyperspace jump of "Modo nave": its own chunk, loaded only when ship mode is turned on
 const WarpOverlay = lazy(() => import('./components/WarpOverlay'));
+const QuizPanel = lazy(() => import('./components/QuizPanel'));
 const SHIP_MODE_KEY = 'travix-ship-mode';
 
 function readShipMode(): boolean {
@@ -539,6 +540,8 @@ export default function App() {
     [handleSelectBody, handleSelectMoon, handleSelectMission],
   );
 
+  const [isQuizOpen, setIsQuizOpen] = useState(false);
+
   const handleSelectTourStep = useCallback(
     (step: GuidedTourStep) => {
       const { target } = step;
@@ -813,6 +816,16 @@ export default function App() {
         </button>
         <button
           type="button"
+          onClick={() => setIsQuizOpen(true)}
+          data-tour="quiz"
+          aria-label={tr('Pon a prueba tus conocimientos', 'Test your knowledge')}
+          title={tr('Pon a prueba tus conocimientos: 100 preguntas', 'Test your knowledge: 100 questions')}
+          className="pointer-events-auto w-10 h-10 rounded-full flex items-center justify-center travix-glass-bar text-slate-100 hover:text-white hover:border-white/35 transition-colors cursor-pointer shrink-0 focus-visible:outline-2 focus-visible:outline-amber-400"
+        >
+          <GraduationCap className="w-4 h-4 text-amber-400 shrink-0" aria-hidden="true" />
+        </button>
+        <button
+          type="button"
           onClick={() => setLang(getLang() === 'en' ? 'es' : 'en')}
           lang={lang === 'en' ? 'es' : 'en'}
           aria-label={lang === 'en' ? 'Cambiar a español' : 'Switch to English'}
@@ -925,6 +938,17 @@ export default function App() {
       {isWelcomeOpen && <WelcomeCredits onClose={handleCloseWelcome} />}
 
       {isTutorialOpen && !isWelcomeOpen && <WelcomeTutorial onClose={handleCloseTutorial} />}
+
+      {isQuizOpen && (
+        <Suspense fallback={null}>
+          <QuizPanel
+            onClose={() => setIsQuizOpen(false)}
+            onGo={(target) =>
+              handleSelectTourStep({ id: 'quiz', title: '', nasaBadge: '', narration: '', scienceFact: '', target })
+            }
+          />
+        </Suspense>
+      )}
 
       {isShipMode && (
         <Suspense fallback={null}>

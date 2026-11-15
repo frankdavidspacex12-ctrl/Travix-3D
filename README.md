@@ -30,6 +30,7 @@ School-age explorers fly through the Solar System, find each artifact at its rea
 - **Real time.** Planet positions from JPL Keplerian elements (J2000); Earth's day/night side matches the real UTC time; the ISS is placed over its real ground track (propagated from CelesTrak orbital elements).
 - **Find every artifact.** Surface missions show as dots with names on the planet or moon you are looking at, plus an "On the surface" list. Moon labels keep the planet and its moons easy to find.
 - **"How it landed."** A short, schematic animation with synchronized sound shows the real landing method of each surface mission (labeled as an illustration, not to scale).
+- **"Test your knowledge" quiz.** 100 questions (English and Spanish) about the hardware left behind and the worlds it explores. Players choose how many to answer; answered questions are remembered and never repeated, and every answer explains why and can take you to that place in 3D.
 - **Offline and installable.** Progressive Web App: install it and use it with no internet, all 3D models, textures and NASA photos included.
 - **Accessible.** Respects "reduce motion", keyboard-friendly tutorial, optional voice narration.
 
