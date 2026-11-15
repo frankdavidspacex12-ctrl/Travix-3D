@@ -443,6 +443,7 @@ export const ControlDock: React.FC<ControlDockProps> = ({
         <button
           type="button"
           onClick={onTogglePause}
+          data-tour="pause"
           aria-label={isPaused ? 'Reanudar simulación' : 'Pausar simulación'}
           title={isPaused ? 'Reanudar (Espacio)' : 'Pausar (Espacio)'}
           className={`inline-flex items-center gap-1.5 p-2.5 sm:px-2.5 sm:py-1 rounded-full text-xs transition-colors whitespace-nowrap shrink-0 cursor-pointer focus-visible:outline-2 focus-visible:outline-amber-400 ${
@@ -501,6 +502,7 @@ export const ControlDock: React.FC<ControlDockProps> = ({
           <button
             type="button"
             onClick={onToggleShipMode}
+            data-tour="ship"
             aria-label="Modo nave: viajar con hipersalto"
             aria-pressed={isShipMode}
             title={
@@ -523,6 +525,7 @@ export const ControlDock: React.FC<ControlDockProps> = ({
           <button
             type="button"
             onClick={onToggleSound}
+            data-tour="sound"
             aria-label={isSoundOn ? 'Desactivar música y sonidos' : 'Activar música y sonidos'}
             aria-pressed={isSoundOn}
             title={isSoundOn ? 'Sonido activo: música ambiental y efectos (toca para silenciar)' : 'Activar música ambiental y efectos de sonido'}
@@ -544,6 +547,7 @@ export const ControlDock: React.FC<ControlDockProps> = ({
         <button
           type="button"
           onClick={onResetOverview}
+          data-tour="overview"
           aria-label="Vista general del sistema"
           className="inline-flex items-center gap-1.5 p-2.5 sm:px-2.5 sm:py-1 rounded-full hover:bg-white/12 text-slate-100 hover:text-white text-xs transition-colors whitespace-nowrap shrink-0 cursor-pointer focus-visible:outline-2 focus-visible:outline-amber-400"
           title="Volver a la vista general (Esc)"

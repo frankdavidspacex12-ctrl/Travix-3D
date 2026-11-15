@@ -4,7 +4,7 @@
  */
 
 import { lazy, memo, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowRight, FileText, Search, Sun } from 'lucide-react';
+import { ArrowRight, FileText, HelpCircle, Search, Sun } from 'lucide-react';
 import { MemoNearbyObjects } from './components/NearbyObjects';
 import {
   ABANDONED_MISSIONS,
@@ -29,6 +29,7 @@ import {
 } from './components/MissionSearch';
 import { PWAControls } from './components/PWAControls';
 import { shouldShowWelcome, TEAM_NAME, WelcomeCredits } from './components/WelcomeCredits';
+import { shouldShowTutorial, WelcomeTutorial } from './components/WelcomeTutorial';
 import { subscribeViewInsets, useViewInset } from './ui/viewInsets';
 import type { WarpRequest } from './components/WarpOverlay';
 import { soundscape } from './audio/soundscape';
@@ -310,7 +311,20 @@ export default function App() {
   }, [isLibritoShown]);
 
   const [isWelcomeOpen, setIsWelcomeOpen] = useState(shouldShowWelcome);
-  const handleCloseWelcome = useCallback(() => setIsWelcomeOpen(false), []);
+  // Tutorial: first visit only, right after the welcome screen (or at once if that was seen before)
+  const [isTutorialOpen, setIsTutorialOpen] = useState(
+    () => !shouldShowWelcome() && shouldShowTutorial(),
+  );
+  const handleCloseWelcome = useCallback(() => {
+    setIsWelcomeOpen(false);
+    if (shouldShowTutorial()) setIsTutorialOpen(true);
+  }, []);
+  const handleOpenTutorial = useCallback(() => setIsTutorialOpen(true), []);
+  const handleCloseTutorial = useCallback(() => setIsTutorialOpen(false), []);
+  // The tutorial points at the bottom controls: make sure they are showing
+  useEffect(() => {
+    if (isTutorialOpen) setIsDockCollapsed(false);
+  }, [isTutorialOpen]);
 
   // "Modo nave": every trip goes through a hyperspace jump (WarpOverlay)
   const [isShipMode, setIsShipMode] = useState(readShipMode);
@@ -677,6 +691,16 @@ export default function App() {
           onOpenSearch={handleOpenSearch}
           onCardOpenChange={setIsTourCardOpen}
         />
+        <button
+          type="button"
+          onClick={handleOpenTutorial}
+          data-tour="tutorial"
+          aria-label="Ver el tutorial de Travix 3D"
+          title="Tutorial: aprende a usar Travix 3D"
+          className="pointer-events-auto w-10 h-10 rounded-full flex items-center justify-center travix-glass-bar text-slate-100 hover:text-white hover:border-white/35 transition-colors cursor-pointer shrink-0 focus-visible:outline-2 focus-visible:outline-amber-400"
+        >
+          <HelpCircle className="w-4 h-4 text-amber-400 shrink-0" aria-hidden="true" />
+        </button>
       </header>
 
       {/* PWA Offline Status & Install Controls */}
@@ -779,6 +803,8 @@ export default function App() {
       />
 
       {isWelcomeOpen && <WelcomeCredits onClose={handleCloseWelcome} />}
+
+      {isTutorialOpen && !isWelcomeOpen && <WelcomeTutorial onClose={handleCloseTutorial} />}
 
       {isShipMode && (
         <Suspense fallback={null}>

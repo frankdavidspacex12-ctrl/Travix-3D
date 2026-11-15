@@ -98,6 +98,7 @@ export const GuidedTourBar: React.FC<GuidedTourBarProps> = ({
         }}
         aria-expanded={menuOpen}
         aria-label="Guías interactivas NASA"
+        data-tour="tours"
         className={`pointer-events-auto w-10 h-10 rounded-full flex items-center justify-center transition-colors cursor-pointer shrink-0 focus-visible:outline-2 focus-visible:outline-amber-400 ${
           activeTour || menuOpen
             ? 'travix-glass-bar border-amber-400/60 text-amber-300'

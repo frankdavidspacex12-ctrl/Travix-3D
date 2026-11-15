@@ -306,3 +306,28 @@ input[type="range"].solar-slider::-moz-range-thumb {
   .welcome-card .welcome-badge { width: 4.5rem; height: 4.5rem; }
   .welcome-card li { padding-top: 0.2rem; padding-bottom: 0.2rem; }
 }
+
+/* ---------- Tutorial de bienvenida: foco sobre el control de cada paso ---------- */
+.tutorial-spot {
+  box-shadow:
+    0 0 0 3px rgba(251, 191, 36, 0.95),
+    0 0 24px 6px rgba(251, 191, 36, 0.35),
+    0 0 0 200vmax rgba(2, 4, 10, 0.62);
+  transition: top 0.3s ease, left 0.3s ease, width 0.3s ease, height 0.3s ease;
+}
+.tutorial-card {
+  background-color: rgba(8, 12, 22, 0.94);
+  animation: tutorial-card-in 0.35s ease-out both;
+  transition: top 0.3s ease, left 0.3s ease;
+}
+@keyframes tutorial-card-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .tutorial-spot,
+  .tutorial-card {
+    animation: none;
+    transition: none;
+  }
+}

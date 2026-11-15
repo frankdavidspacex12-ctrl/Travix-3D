@@ -234,6 +234,7 @@ export const MissionSearch: React.FC<MissionSearchProps> = ({
         onClick={() => onOpenChange(!isOpen)}
         aria-expanded={isOpen}
         aria-label="Buscar misiones, satélites, planetas y preguntas del cosmos"
+        data-tour="search"
         title="Buscador espacial (misiones, preguntas, planetas, Vía Láctea)"
         className={`pointer-events-auto w-10 h-10 rounded-full flex items-center justify-center transition-colors cursor-pointer focus-visible:outline-2 focus-visible:outline-amber-400 ${
           isOpen
