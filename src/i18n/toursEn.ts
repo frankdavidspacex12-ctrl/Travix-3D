@@ -3,8 +3,8 @@ type StepEn = { title: string; nasaBadge: string; narration: string; scienceFact
 
 export const TOURS_EN: Record<string, { name: string; subtitle: string }> = {
   hardware_chronology: {
-    name: 'NASA Hardware Legacy · Timeline',
-    subtitle: '17 spacecraft at their real location · ordered by launch date',
+    name: 'NASA Hardware Legacy · “Abandoned but not Forgotten” challenge',
+    subtitle: 'Timeline · 17 spacecraft at their real location · ordered by launch date',
   },
   solar_architecture: { name: 'Grand Tour of the Solar System', subtitle: 'Real 1:215 scale · NASA/JPL open data' },
   ocean_worlds: { name: 'Water Worlds and Habitability', subtitle: 'Subsurface oceans and exotic ices · NASA' },

@@ -4,14 +4,37 @@ import { getLang } from '../i18n';
 
 export const canNarrate = typeof window !== 'undefined' && 'speechSynthesis' in window;
 
+/**
+ * Puntúa una voz: las neuronales («Natural», «Neural», «Online» en Edge/Windows, voces mejoradas
+ * de Apple) y las de Google suenan humanas; las locales antiguas (Microsoft Sabina/Helena/
+ * Pablo, eSpeak) suenan robóticas y quedan al final.
+ */
+function voiceScore(v: SpeechSynthesisVoice, lang: 'en' | 'es'): number {
+  const name = v.name;
+  let score = 0;
+  if (/natural|neural|online/i.test(name)) score += 100;
+  else if (/premium|enhanced|mejorad/i.test(name)) score += 80;
+  else if (/google/i.test(name)) score += 60;
+  else if (/siri|monica|paulina|jorge|samantha|daniel/i.test(name)) score += 40;
+  if (/espeak|desktop/i.test(name)) score -= 50;
+  const preferred = lang === 'en' ? /^en[-_](US|GB)/i : /^es[-_](419|CO|MX|US)/i;
+  if (preferred.test(v.lang)) score += 10;
+  return score;
+}
+
 function voiceFor(lang: 'en' | 'es'): SpeechSynthesisVoice | undefined {
-  const voices = window.speechSynthesis.getVoices();
-  if (lang === 'en') {
-    return voices.find((v) => /^en[-_](US|GB)/i.test(v.lang)) ?? voices.find((v) => /^en\b|^en[-_]/i.test(v.lang));
+  const prefix = lang === 'en' ? /^en\b|^en[-_]/i : /^es\b|^es[-_]/i;
+  const candidates = window.speechSynthesis.getVoices().filter((v) => prefix.test(v.lang));
+  let best: SpeechSynthesisVoice | undefined;
+  let bestScore = -Infinity;
+  for (const v of candidates) {
+    const s = voiceScore(v, lang);
+    if (s > bestScore) {
+      best = v;
+      bestScore = s;
+    }
   }
-  return (
-    voices.find((v) => /^es[-_](419|CO|MX|US)/i.test(v.lang)) ?? voices.find((v) => /^es\b|^es[-_]/i.test(v.lang))
-  );
+  return best;
 }
 
 /** Lee el texto en el idioma actual; onEnd se llama al terminar o al detenerse. */
