@@ -36,6 +36,8 @@ interface ControlDockProps {
   selectedMoon: MoonData | null;
   selectedMission: AbandonedMission | null;
   isPlanetInfoOpen?: boolean;
+  /** Bumped on every arrival at a body: shows the librito expanded (or as a slim bar) */
+  planetInfoRequest?: { id: number; minimized: boolean };
   searchContext?: { headline: string; answer: string } | null;
   cameraMode: 'overview' | 'tracking' | 'free';
   simEpochMs: number;
@@ -79,6 +81,7 @@ export const ControlDock: React.FC<ControlDockProps> = ({
   selectedMoon,
   selectedMission,
   isPlanetInfoOpen = false,
+  planetInfoRequest,
   searchContext,
   cameraMode,
   simEpochMs,
@@ -109,6 +112,13 @@ export const ControlDock: React.FC<ControlDockProps> = ({
   useEffect(() => {
     setIsInfoMinimized(false);
   }, [selectedBody?.id, selectedMoon?.id, isPlanetInfoOpen]);
+
+  // Arrival at a body: expanded, even if it had been minimized before (declared after the reset
+  // above so it wins when both run in the same commit)
+  useEffect(() => {
+    if (!planetInfoRequest || planetInfoRequest.id === 0) return;
+    setIsInfoMinimized(planetInfoRequest.minimized);
+  }, [planetInfoRequest]);
 
   // Publish how much of the screen bottom the dock covers: phone bottom sheets sit on top of it
   // (--dock-offset) and the 3D camera keeps the focused body above it (view insets).
