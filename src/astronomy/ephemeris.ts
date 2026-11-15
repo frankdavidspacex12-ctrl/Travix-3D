@@ -115,11 +115,12 @@ export const PLANET_ELEMENTS_J2000: Record<string, KeplerElementsJ2000> = {
     Omega: 131.78422574,
   },
   comet67p: {
-    // 67P/Churyumov-Gerasimenko (perihelion Aug 2015 -> d = 5703, period ~2352.6 days)
+    // 67P/Churyumov-Gerasimenko (period ~2352.6 days). L0 places the mean anomaly at 0 on the
+    // latest perihelion, 2 Nov 2021 (d ≈ 7975.5): L0 = wBar − n·d (mod 360). Next one ~Apr 2028.
     a: 3.4628,
     e: 0.64097,
     I: 7.0402,
-    L0: 191.5, // Calibrated to Aug 13, 2015 perihelion
+    L0: 282.47,
     n: 360 / 2352.6,
     wBar: 62.9,
     Omega: 50.147,
