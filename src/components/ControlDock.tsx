@@ -11,11 +11,13 @@ import {
   Pause,
   Play,
   Rocket,
+  RefreshCw,
   RotateCcw,
   Search,
   Volume2,
   VolumeX,
 } from 'lucide-react';
+import { applyUpdate, checkForUpdate, useUpdateReady } from '../pwa/update';
 import {
   computeBodyTelemetry,
   daysSinceJ2000,
@@ -107,6 +109,7 @@ export const ControlDock: React.FC<ControlDockProps> = ({
 }) => {
   const orbitsDisabledInCloseUp = selectedBody !== null;
   const rootRef = useRef<HTMLDivElement | null>(null);
+  const updateReady = useUpdateReady();
   const [isInfoMinimized, setIsInfoMinimized] = useState(false);
 
   // A new body / moon, or reopening the panel, always shows the full info again.
@@ -547,18 +550,36 @@ export const ControlDock: React.FC<ControlDockProps> = ({
 
         <button
           type="button"
-          onClick={onResetOverview}
+          onClick={() => {
+            // A newer version is waiting: apply it now (reloads with the latest changes)
+            if (applyUpdate()) return;
+            onResetOverview();
+            checkForUpdate();
+          }}
           data-tour="overview"
-          aria-label={tr('Vista general del sistema', 'Solar System overview')}
+          aria-label={
+            updateReady
+              ? tr('Actualizar la app a la nueva versión', 'Update the app to the new version')
+              : tr('Vista general del sistema', 'Solar System overview')
+          }
           className="inline-flex items-center gap-1.5 p-2.5 sm:px-2.5 sm:py-1 rounded-full hover:bg-white/12 text-slate-100 hover:text-white text-xs transition-colors whitespace-nowrap shrink-0 cursor-pointer focus-visible:outline-2 focus-visible:outline-amber-400"
-          title={tr('Volver a la vista general (Esc)', 'Back to the overview (Esc)')}
+          title={
+            updateReady
+              ? tr('Hay una versión nueva: toca para actualizar', 'A new version is ready: tap to update')
+              : tr('Volver a la vista general (Esc) y buscar actualizaciones', 'Back to the overview (Esc) and check for updates')
+          }
         >
-          {selectedBody ? (
+          {updateReady ? (
+            <span className="relative inline-flex">
+              <RefreshCw className="w-3.5 h-3.5 text-emerald-400" />
+              <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-emerald-400" aria-hidden="true" />
+            </span>
+          ) : selectedBody ? (
             <RotateCcw className="w-3.5 h-3.5 text-amber-400" />
           ) : (
             <Globe className="w-3.5 h-3.5 text-amber-400" />
           )}
-          <span className="hidden sm:inline">{tr('Sistema', 'System')}</span>
+          <span className="hidden sm:inline">{updateReady ? tr('Actualizar', 'Update') : tr('Sistema', 'System')}</span>
         </button>
 
         <button
