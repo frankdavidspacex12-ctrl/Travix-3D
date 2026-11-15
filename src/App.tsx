@@ -48,6 +48,7 @@ import { localizeAnswer } from './i18n/data';
 // Hyperspace jump of "Modo nave": its own chunk, loaded only when ship mode is turned on
 const WarpOverlay = lazy(() => import('./components/WarpOverlay'));
 const QuizPanel = lazy(() => import('./components/QuizPanel'));
+const ColombiansPanel = lazy(() => import('./components/ColombiansPanel'));
 const SHIP_MODE_KEY = 'travix-ship-mode';
 
 function readShipMode(): boolean {
@@ -550,6 +551,8 @@ export default function App() {
   );
 
   const [isQuizOpen, setIsQuizOpen] = useState(false);
+  const [isColombiansOpen, setIsColombiansOpen] = useState(false);
+  const openColombians = useCallback(() => setIsColombiansOpen(true), []);
 
   const handleSelectTourStep = useCallback(
     (step: GuidedTourStep) => {
@@ -812,6 +815,7 @@ export default function App() {
           onSelectStep={handleSelectTourStep}
           onOpenSearch={handleOpenSearch}
           onCardOpenChange={setIsTourCardOpen}
+          onOpenColombians={openColombians}
         />
         <button
           type="button"
@@ -947,6 +951,17 @@ export default function App() {
       {isWelcomeOpen && <WelcomeCredits onClose={handleCloseWelcome} />}
 
       {isTutorialOpen && !isWelcomeOpen && <WelcomeTutorial onClose={handleCloseTutorial} />}
+
+      {isColombiansOpen && (
+        <Suspense fallback={null}>
+          <ColombiansPanel
+            onClose={() => setIsColombiansOpen(false)}
+            onGo={(target) =>
+              handleSelectTourStep({ id: 'colombians', title: '', nasaBadge: '', narration: '', scienceFact: '', target })
+            }
+          />
+        </Suspense>
+      )}
 
       {isQuizOpen && (
         <Suspense fallback={null}>

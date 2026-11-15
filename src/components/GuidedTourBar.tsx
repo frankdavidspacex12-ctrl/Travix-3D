@@ -6,6 +6,7 @@ import {
   Pause,
   Play,
   Search,
+  Users,
 } from 'lucide-react';
 import {
   GuidedTour,
@@ -22,12 +23,15 @@ interface GuidedTourBarProps {
   onOpenSearch?: (tab?: SearchTab) => void;
   /** True while a guide's narration card is open and expanded */
   onCardOpenChange?: (open: boolean) => void;
+  /** Opens the «Colombians at NASA» section */
+  onOpenColombians?: () => void;
 }
 
 export const GuidedTourBar: React.FC<GuidedTourBarProps> = ({
   onSelectStep,
   onOpenSearch,
   onCardOpenChange,
+  onOpenColombians,
 }) => {
   const [menuOpen, setMenuOpen] = useState(false);
   const [menuMinimized, setMenuMinimized] = useState(false);
@@ -180,11 +184,38 @@ export const GuidedTourBar: React.FC<GuidedTourBarProps> = ({
                       </div>
                     </div>
                     <span className="text-[11px] font-mono-tabular text-slate-200 shrink-0">
-                      {tour.steps.length} paradas
+                      {tour.steps.length} {tr('paradas', 'stops')}
                     </span>
                   </button>
                 );
               })}
+              {onOpenColombians && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMenuOpen(false);
+                    onOpenColombians();
+                  }}
+                  className="w-full px-3.5 py-3 sm:py-2.5 text-left transition-colors cursor-pointer flex items-center justify-between gap-2 hover:bg-white/[0.07]"
+                >
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span
+                        className="w-2 h-2 rounded-full shrink-0"
+                        style={{ background: 'linear-gradient(180deg,#FCD116 0 50%,#003893 50% 75%,#CE1126 75% 100%)' }}
+                        aria-hidden="true"
+                      />
+                      <span className="text-xs font-semibold text-white break-words min-w-0">
+                        {tr('Colombianos en la NASA', 'Colombians at NASA')}
+                      </span>
+                    </div>
+                    <div className="mt-0.5 text-xs text-slate-200 break-words">
+                      {tr('Mujeres y hombres de Colombia en misiones de la NASA', 'Colombian women and men on NASA missions')}
+                    </div>
+                  </div>
+                  <Users className="w-4 h-4 text-amber-300 shrink-0" aria-hidden="true" />
+                </button>
+              )}
             </div>
           )}
         </div>
@@ -205,7 +236,7 @@ export const GuidedTourBar: React.FC<GuidedTourBarProps> = ({
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[11px] font-mono-tabular text-amber-300">
                 <span className="shrink-0">
-                  Parada {stepIdx + 1}/{activeTour.steps.length}
+                  {tr('Parada', 'Stop')} {stepIdx + 1}/{activeTour.steps.length}
                 </span>
                 <span aria-hidden="true">·</span>
                 <span className="break-words min-w-0 text-slate-200">
