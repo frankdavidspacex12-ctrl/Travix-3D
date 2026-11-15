@@ -13,11 +13,13 @@ import {
   Rocket,
   RefreshCw,
   RotateCcw,
+  Mic,
   Search,
   Volume2,
   VolumeX,
 } from 'lucide-react';
 import { applyUpdate, checkForUpdate, useUpdateReady } from '../pwa/update';
+import { canUseVoice } from '../voice/support';
 import {
   computeBodyTelemetry,
   daysSinceJ2000,
@@ -51,6 +53,8 @@ interface ControlDockProps {
   onTogglePlanetInfo: () => void;
   onHidePanel: () => void;
   onOpenSearch: (tab?: SearchTab) => void;
+  /** Opens the voice assistant (only shown where the browser supports speech recognition) */
+  onOpenVoice?: () => void;
   onSelectBody: (id: CelestialBodyId) => void;
   onSelectMoon: (bodyId: CelestialBodyId, moonId: string) => void;
   onResetOverview: () => void;
@@ -95,6 +99,7 @@ export const ControlDock: React.FC<ControlDockProps> = ({
   onTogglePlanetInfo,
   onHidePanel,
   onOpenSearch,
+  onOpenVoice,
   onSelectBody,
   onSelectMoon,
   onResetOverview,
@@ -592,6 +597,20 @@ export const ControlDock: React.FC<ControlDockProps> = ({
           <Search className="w-3.5 h-3.5 text-amber-400 shrink-0" />
           <span className="hidden sm:inline">{tr('Buscar', 'Search')}</span>
         </button>
+
+        {canUseVoice && onOpenVoice && (
+          <button
+            type="button"
+            onClick={onOpenVoice}
+            data-tour="voice"
+            aria-label={tr('Asistente de voz: di a dónde quieres ir', 'Voice assistant: say where you want to go')}
+            title={tr('Asistente de voz: di a dónde quieres ir', 'Voice assistant: say where you want to go')}
+            className="inline-flex items-center gap-1.5 p-2.5 sm:px-2.5 sm:py-1 rounded-full travix-glass-control text-slate-100 hover:text-white text-xs whitespace-nowrap shrink-0 cursor-pointer focus-visible:outline-2 focus-visible:outline-amber-400"
+          >
+            <Mic className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+            <span className="hidden sm:inline">{tr('Voz', 'Voice')}</span>
+          </button>
+        )}
       </div>
     </div>
   );

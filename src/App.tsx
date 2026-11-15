@@ -44,11 +44,13 @@ import type { WarpTarget } from './three/warpScene';
 import type { LinkTarget } from './components/LinkedText';
 import { getLang, setLang, tr, useLang } from './i18n';
 import { localizeAnswer } from './i18n/data';
+import type { SpaceAnswerResult } from './data/spaceKnowledgeSearch';
 
 // Hyperspace jump of "Modo nave": its own chunk, loaded only when ship mode is turned on
 const WarpOverlay = lazy(() => import('./components/WarpOverlay'));
 const QuizPanel = lazy(() => import('./components/QuizPanel'));
 const ColombiansPanel = lazy(() => import('./components/ColombiansPanel'));
+const VoiceAssistant = lazy(() => import('./components/VoiceAssistant'));
 const SHIP_MODE_KEY = 'travix-ship-mode';
 
 function readShipMode(): boolean {
@@ -540,6 +542,19 @@ export default function App() {
     [travel],
   );
 
+  /** The voice assistant found a destination: same as choosing the search's direct answer. */
+  const handleVoiceAnswer = useCallback(
+    (res: SpaceAnswerResult) => {
+      const t = res.target;
+      const ctx = (key: string) => ({ targetKey: key, headline: res.headline, answer: res.answer });
+      if (t.type === 'mission') handleSelectMission(t.mission, ctx(`mission:${t.mission.id}`));
+      else if (t.type === 'moon') handleSelectMoon(t.bodyId, t.moonId, ctx(`moon:${t.bodyId}:${t.moonId}`));
+      else if (t.type === 'body') handleSelectBody(t.bodyId, ctx(`body:${t.bodyId}`));
+      else handleSelectDeepSpace(t.id, ctx(`deepspace:${t.id}`));
+    },
+    [handleSelectBody, handleSelectMoon, handleSelectMission, handleSelectDeepSpace],
+  );
+
   /** A linked name in a librito / ficha: travel to that planet, moon or spacecraft. */
   const handleNavigateLink = useCallback(
     (target: LinkTarget) => {
@@ -553,6 +568,7 @@ export default function App() {
   const [isQuizOpen, setIsQuizOpen] = useState(false);
   const [isColombiansOpen, setIsColombiansOpen] = useState(false);
   const openColombians = useCallback(() => setIsColombiansOpen(true), []);
+  const [isVoiceOpen, setIsVoiceOpen] = useState(false);
 
   const handleSelectTourStep = useCallback(
     (step: GuidedTourStep) => {
@@ -920,6 +936,7 @@ export default function App() {
 
       {/* Minimalist 98% Glassmorphism Bottom Control Bar */}
       <ControlDock
+        onOpenVoice={() => setIsVoiceOpen(true)}
         selectedBody={selectedBody}
         selectedMoon={selectedMoon}
         selectedMission={selectedMission}
@@ -951,6 +968,12 @@ export default function App() {
       {isWelcomeOpen && <WelcomeCredits onClose={handleCloseWelcome} />}
 
       {isTutorialOpen && !isWelcomeOpen && <WelcomeTutorial onClose={handleCloseTutorial} />}
+
+      {isVoiceOpen && (
+        <Suspense fallback={null}>
+          <VoiceAssistant onClose={() => setIsVoiceOpen(false)} onNavigate={handleVoiceAnswer} />
+        </Suspense>
+      )}
 
       {isColombiansOpen && (
         <Suspense fallback={null}>
