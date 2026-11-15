@@ -9,6 +9,15 @@ import {
 import { CELESTIAL_BODIES } from '../data/solarSystemData';
 import { getSoftDotTexture } from './cometEffects';
 import {
+  buildAlsep,
+  buildLunarRover,
+  buildSojourner,
+  buildSurveyor,
+  adaptInsightToPhoenix,
+  createCraftMaterials,
+  type CraftMaterials,
+} from './craftModels';
+import {
   CraftTextureSet,
   createCraftTextureSet,
   createTerrainPBRTextures,
@@ -47,6 +56,8 @@ interface NasaGlbSpec {
   companionPath?: string;
   companionMaxDim?: number;
   companionOffset?: [number, number, number];
+  /** Retune NASA foil / solar-cell materials (applyNasaSpacecraftMaterials) */
+  nasaMaterials?: boolean;
 }
 
 const MISSION_GLB_MAP: Partial<Record<string, NasaGlbSpec>> = {
@@ -161,6 +172,69 @@ const MISSION_GLB_MAP: Partial<Record<string, NasaGlbSpec>> = {
     anchor: 'ground',
     rotY: Math.PI * 0.2,
   },
+  // Official NASA 3D Resources models (science.nasa.gov/3d-resources), PNG fallbacks stripped
+  pioneer10: {
+    path: '/models/pioneer.glb',
+    targetMaxDim: 5.2,
+    anchor: 'center',
+    nasaMaterials: true,
+  },
+  pioneer11: {
+    path: '/models/pioneer.glb',
+    targetMaxDim: 5.2,
+    anchor: 'center',
+    nasaMaterials: true,
+  },
+  viking1: {
+    path: '/models/viking_lander.glb',
+    targetMaxDim: 3.0,
+    anchor: 'ground',
+  },
+  viking2: {
+    path: '/models/viking_lander.glb',
+    targetMaxDim: 3.0,
+    anchor: 'ground',
+  },
+  near_shoemaker: {
+    path: '/models/near_shoemaker.glb',
+    targetMaxDim: 3.4,
+    anchor: 'ground',
+    // Came to rest on Eros (12 Feb 2001) on the bottom of its body and the edges of two panels
+    rotY: Math.PI / 4,
+    rotX: 0.95,
+    nasaMaterials: true,
+  },
+  dawn: {
+    path: '/models/dawn.glb',
+    targetMaxDim: 6.0,
+    anchor: 'center',
+    nasaMaterials: true,
+  },
+  kepler: {
+    path: '/models/kepler.glb',
+    targetMaxDim: 4.2,
+    anchor: 'center',
+    nasaMaterials: true,
+  },
+  // Phoenix on the InSight model (same lander design), see craftModels.adaptInsightToPhoenix
+  phoenix: {
+    path: '/models/insight.glb',
+    targetMaxDim: 3.9,
+    anchor: 'ground',
+    rotY: Math.PI * 0.15,
+  },
+  spirit: {
+    path: '/models/mer.glb',
+    targetMaxDim: 2.3,
+    anchor: 'ground',
+    nasaMaterials: true,
+  },
+  opportunity: {
+    path: '/models/mer.glb',
+    targetMaxDim: 2.3,
+    anchor: 'ground',
+    nasaMaterials: true,
+  },
   voyager1: {
     path: '/models/voyager.glb',
     targetMaxDim: 5.1,
@@ -197,6 +271,125 @@ function disposeObjectTree(obj: THREE.Object3D): void {
   });
 }
 
+/**
+ * NASA 3D Resources models share material names. Their spacecraft foils and solar cells were
+ * authored for a dark, reflective viewer: under the app's lighting the cells came out white and
+ * the foils like yellow plastic. Real MLI foil is metal and solar cells are dark blue glass, so:
+ * - foil_gold / foil_silver: fully metallic, satin (keeps their crinkle ramp as colour);
+ * - shiny_panel(s): dark blue, glossy solar cells (any cell texture is kept, tinted);
+ * - black_krinkle: dark satin blanket.
+ * These materials are flagged so the derived-relief pass leaves them alone.
+ */
+function applyNasaSpacecraftMaterials(
+  model: THREE.Object3D,
+  craftTex?: CraftTextureSet,
+  disposables?: Array<{ dispose: () => void }>,
+): void {
+  // Solar-cell grid for arrays that NASA modelled as a plain glossy colour (Dawn, MER)
+  let cellMap: THREE.Texture | null = null;
+  let cellNormal: THREE.Texture | null = null;
+  const cells = () => {
+    if (!craftTex) return null;
+    if (!cellMap) {
+      cellMap = craftTex.solarMap.clone();
+      cellMap.repeat.set(4, 4);
+      cellMap.needsUpdate = true;
+      cellNormal = craftTex.solarNormal.clone();
+      cellNormal.repeat.set(4, 4);
+      cellNormal.needsUpdate = true;
+      disposables?.push(cellMap, cellNormal);
+    }
+    return { map: cellMap, normal: cellNormal! };
+  };
+  model.traverse((child) => {
+    const mesh = child as THREE.Mesh;
+    if (!mesh.isMesh) return;
+    for (const m of Array.isArray(mesh.material) ? mesh.material : [mesh.material]) {
+      const std = m as THREE.MeshStandardMaterial;
+      if (!std || !('metalness' in std)) continue;
+      const name = (std.name || '').toLowerCase();
+      if (name.startsWith('foil_gold') || name === 'gold' || name === 'gold2') {
+        // Real "gold" blankets are amber Kapton over aluminium: copper-gold, not lemon yellow
+        std.color.multiply(new THREE.Color(1.0, 0.6, 0.34));
+        std.metalness = 1;
+        std.roughness = 0.34;
+      } else if (name.startsWith('foil_silver')) {
+        std.metalness = 1;
+        std.roughness = 0.28;
+      } else if (name.startsWith('shiny_panel') || name.startsWith('solararray')) {
+        if (std.map) {
+          std.color.setRGB(0.32, 0.4, 0.62);
+        } else {
+          const c = cells();
+          if (c) {
+            std.map = c.map;
+            std.normalMap = c.normal;
+            std.normalScale = new THREE.Vector2(0.6, 0.6);
+            std.color.setRGB(0.62, 0.68, 0.86);
+          } else {
+            std.color.setRGB(0.05, 0.075, 0.14);
+          }
+        }
+        std.metalness = 0.4;
+        std.roughness = 0.34;
+      } else if (name.startsWith('black_krinkle')) {
+        std.color.multiplyScalar(0.55);
+        std.metalness = 0.35;
+        std.roughness = 0.55;
+      } else {
+        continue;
+      }
+      std.userData.keepAuthoredPbr = true;
+      std.needsUpdate = true;
+    }
+  });
+}
+
+/**
+ * Apollo Lunar Module (NASA 3D Resources): its materials are flat colours. In the mission photos
+ * the descent stage is wrapped in gold and amber Kapton over black panels and the ascent stage
+ * is grey-silver anodised aluminium, so: yellow -> crinkled gold Kapton, orange -> amber Kapton,
+ * white -> grey anodised aluminium, greys -> satin metal.
+ */
+function applyApolloLmMaterials(model: THREE.Object3D): void {
+  model.traverse((child) => {
+    const mesh = child as THREE.Mesh;
+    if (!mesh.isMesh) return;
+    for (const m of Array.isArray(mesh.material) ? mesh.material : [mesh.material]) {
+      const std = m as THREE.MeshStandardMaterial;
+      if (!std || !('metalness' in std) || std.userData.keepAuthoredPbr) continue;
+      const c = std.color;
+      const isYellow = c.r > 0.55 && c.g > 0.35 && c.b < 0.25 && c.r - c.b > 0.4;
+      const isOrange = c.r > 0.45 && c.g < 0.4 && c.b < 0.15;
+      const isPaleYellow = c.r > 0.85 && c.g > 0.85 && c.b < 0.7;
+      const isWhite = !std.map && c.r > 0.9 && c.g > 0.9 && c.b > 0.9;
+      const isGrey = !std.map && Math.abs(c.r - c.g) < 0.04 && Math.abs(c.g - c.b) < 0.04 && c.r > 0.2 && c.r < 0.85;
+      // (No crinkle normal map: the model's UVs stretch it into wood-like streaks)
+      if (isYellow || isPaleYellow) {
+        std.color.setRGB(0.86, 0.62, 0.24);
+        std.metalness = 1;
+        std.roughness = 0.3;
+      } else if (isOrange) {
+        std.color.setRGB(0.72, 0.4, 0.14);
+        std.metalness = 1;
+        std.roughness = 0.34;
+      } else if (isWhite) {
+        std.color.setRGB(0.66, 0.68, 0.7);
+        std.metalness = 0.7;
+        std.roughness = 0.4;
+      } else if (isGrey) {
+        std.color.multiplyScalar(0.85);
+        std.metalness = 0.6;
+        std.roughness = 0.42;
+      } else {
+        continue;
+      }
+      std.userData.keepAuthoredPbr = true;
+      std.needsUpdate = true;
+    }
+  });
+}
+
 function normalizeAndPrepareGlb(
   rawScene: THREE.Object3D,
   targetMaxDim: number,
@@ -207,11 +400,15 @@ function normalizeAndPrepareGlb(
   pbrCaps?: Pbr8KCapabilities,
   abortSignal?: AbortSignal,
   disposables?: Array<{ dispose: () => void }>,
+  nasaMaterials = false,
+  apolloLm = false,
 ): THREE.Group {
   const wrapper = new THREE.Group();
   const model = rawScene;
   model.rotation.set(rotX, rotY, 0);
   model.updateMatrixWorld(true);
+  if (nasaMaterials) applyNasaSpacecraftMaterials(model, craftTex, disposables);
+  if (apolloLm) applyApolloLmMaterials(model);
 
   const box = new THREE.Box3().setFromObject(model);
   const size = new THREE.Vector3();
@@ -253,6 +450,11 @@ function normalizeAndPrepareGlb(
         const std = m as THREE.MeshStandardMaterial;
         if (!std || !('envMapIntensity' in std)) continue;
         std.envMapIntensity = 0.94;
+        // Foils and solar cells already tuned (applyNasaSpacecraftMaterials): no derived relief
+        if (std.userData.keepAuthoredPbr) {
+          if (std.map) std.map.anisotropy = pbrCaps?.anisotropy ?? 4;
+          continue;
+        }
 
         if (std.map && std.map.image) {
           std.map.anisotropy = pbrCaps?.anisotropy ?? 4;
@@ -772,6 +974,9 @@ function buildSpacecraftModel(
     metalnessMap: textures.lensMetalness,
     metalness: 1.0,
   });
+  // Materials of the models rebuilt from NASA photos (craftModels), created on first use
+  let craftMatsCache: CraftMaterials | null = null;
+  const craftMats = () => (craftMatsCache ??= createCraftMaterials(textures, disposables));
   const accentMat = new THREE.MeshBasicMaterial({
     color: new THREE.Color(mission.accentColor),
     toneMapped: false,
@@ -1103,26 +1308,8 @@ function buildSpacecraftModel(
   }
   // ---------------- 3. Sojourner / Lunokhod ----------------
   else if (craftType === 'rover_sojourner') {
-    const sj = craftFallbackGroup;
-    addBox(0.56, 0.22, 0.72, goldFoil, 0, 0.29, 0, 0, 0, 0, sj);
-    addBox(0.64, 0.03, 0.78, solarArrayMat, 0, 0.42, 0, 0, 0, 0, sj);
-    for (const wx of [-0.38, 0.38]) {
-      const sign = Math.sign(wx);
-      const piv = new THREE.Vector3(wx - sign * 0.09, 0.28, -0.02);
-      const bog = new THREE.Vector3(wx - sign * 0.05, 0.18, 0.15);
-      addStrut(piv, new THREE.Vector3(wx, 0.09, -0.3), 0.015, silverMetal, sj, 8);
-      addStrut(piv, bog, 0.015, silverMetal, sj, 8);
-      addStrut(bog, new THREE.Vector3(wx, 0.09, 0), 0.013, darkTitanium, sj, 8);
-      addStrut(bog, new THREE.Vector3(wx, 0.09, 0.3), 0.013, darkTitanium, sj, 8);
-      for (const wz of [-0.3, 0, 0.3]) {
-        addWheel(0.09, 0.08, wx, 0.09, wz, sj);
-      }
-    }
-    // Forward stereo hazard cameras + laser stripe projectors + rear APXS drum + UHF whip
-    addCyl(0.025, 0.025, 0.05, lensGlassMat, -0.1, 0.3, -0.37, Math.PI / 2, 0, 0, 12, sj);
-    addCyl(0.025, 0.025, 0.05, lensGlassMat, 0.1, 0.3, -0.37, Math.PI / 2, 0, 0, 12, sj);
-    addCyl(0.06, 0.06, 0.1, copperMat, 0, 0.24, 0.42, Math.PI / 2, 0, 0, 14, sj);
-    addCyl(0.015, 0.015, 0.32, silverMetal, 0.22, 0.56, 0.24, 0, 0, 0, 10, sj);
+    // Rebuilt from NASA photos at real size (65 x 48 x 30 cm): see craftModels.buildSojourner
+    craftFallbackGroup.add(buildSojourner(craftMats(), disposables));
     povOrigin = new THREE.Vector3(0, 0.46, -0.45);
   } else if (craftType === 'rover_lunokhod') {
     const lk = craftFallbackGroup;
@@ -1323,20 +1510,13 @@ function buildSpacecraftModel(
     disposables.push(apolloBeaconGeo, apolloBeaconMat);
 
     if (craftType === 'lander_apollo_lrv') {
-      const lrv = new THREE.Group();
+      // Lunar Roving Vehicle rebuilt from Apollo 15 photos (craftModels.buildLunarRover), at the
+      // same 0.4 scale as the Lunar Module model beside it
+      const lrv = buildLunarRover(craftMats(), disposables);
+      lrv.scale.setScalar(0.4);
       lrv.position.set(2.45, 0, -1.35);
       lrv.rotation.y = 0.42;
       groundExtrasGroup.add(lrv);
-      addBox(0.75, 0.08, 1.28, silverMetal, 0, 0.26, 0, 0, 0, 0, lrv);
-      addBox(0.32, 0.32, 0.22, silverMetal, -0.18, 0.44, 0.1, 0, 0, 0, lrv);
-      addBox(0.32, 0.32, 0.22, silverMetal, 0.18, 0.44, 0.1, 0, 0, 0, lrv);
-      addCyl(0.34, 0.05, 0.08, goldFoil, -0.16, 0.76, -0.45, 0.35, 0, 0, 20, lrv);
-      addBox(0.1, 0.1, 0.16, lensGlassMat, 0.22, 0.64, -0.58, 0, 0, 0, lrv);
-      for (const lx of [-0.46, 0.46]) {
-        for (const lz of [-0.52, 0.52]) {
-          addWheel(0.19, 0.12, lx, 0.19, lz, lrv);
-        }
-      }
     }
 
     povOrigin = new THREE.Vector3(0, 2.15, -1.05);
@@ -1401,26 +1581,11 @@ function buildSpacecraftModel(
       }
     }
   } else if (craftType === 'lander_surveyor') {
-    const sv = craftFallbackGroup;
-    // Open triangular aluminum spaceframe + 2 solid vernier thrusters + TV mirror turret + soil-mechanics claw arm
-    addBox(0.68, 0.52, 0.68, whitePanelMat, 0, 0.74, 0, 0, 0, 0, sv);
-    addCyl(0.24, 0.24, 0.36, goldFoil, -0.2, 0.76, 0.22, 0, 0, 0, 16, sv);
-    addCyl(0.22, 0.22, 0.34, copperMat, 0.22, 0.76, -0.18, 0, 0, 0, 16, sv);
-    addBox(0.88, 0.04, 0.58, solarArrayMat, 0, 1.6, 0.12, 0.35, 0, 0, sv);
-    addCyl(0.045, 0.045, 0.84, silverMetal, 0, 1.16, 0, 0, 0, 0, 14, sv);
-    // Survey TV camera hood + articulated surface-sampler pantograph arm
-    addCyl(0.075, 0.075, 0.38, whitePanelMat, 0.22, 1.12, -0.22, 0, 0, 0, 14, sv);
-    addCyl(0.05, 0.05, 0.08, lensGlassMat, 0.22, 1.32, -0.24, 0.35, 0, 0, 12, sv);
-    addStrut(new THREE.Vector3(-0.24, 0.62, -0.34), new THREE.Vector3(-0.46, 0.16, -0.92), 0.018, silverMetal, sv, 8);
-    addBox(0.09, 0.06, 0.14, darkTitanium, -0.46, 0.12, -0.98, 0.25, 0, 0, sv);
-    for (let i = 0; i < 3; i++) {
-      const a = (i * Math.PI * 2) / 3;
-      const lx = Math.cos(a) * 1.12;
-      const lz = Math.sin(a) * 1.12;
-      addCyl(0.18, 0.18, 0.05, silverMetal, lx, 0.03, lz, 0, 0, 0, 14, sv);
-      addStrut(new THREE.Vector3(lx, 0.05, lz), new THREE.Vector3(Math.cos(a) * 0.44, 0.66, Math.sin(a) * 0.44), 0.034, silverMetal, sv, 10);
-      addStrut(new THREE.Vector3(lx * 0.82, 0.22, lz * 0.82), new THREE.Vector3(Math.cos(a + 0.4) * 0.34, 0.56, Math.sin(a + 0.4) * 0.34), 0.018, darkTitanium, sv, 8);
-    }
+    // Rebuilt from Apollo 12 photos of Surveyor 3 (same design; Surveyor 1 had no sampler arm),
+    // at 0.6 scale like the previous model: see craftModels.buildSurveyor
+    const sv = buildSurveyor(craftMats(), disposables);
+    sv.scale.setScalar(0.6);
+    craftFallbackGroup.add(sv);
     povOrigin = new THREE.Vector3(0, 1.2, -0.45);
   } else if (craftType === 'lander_venera') {
     const vn = craftFallbackGroup;
@@ -1858,40 +2023,8 @@ function buildSpacecraftModel(
     camPos = new THREE.Vector3(-3.4, 2.1, 4.0);
     camTarget = new THREE.Vector3(0, 0.95, -0.4);
   } else if (craftType === 'package_alsep') {
-    // Apollo 12 ALSEP: Central Station + sunshade + helical antenna, SNAP-27 RTG, Passive Seismic
-    // Experiment under its thermal shroud, Lunar Surface Magnetometer and Solar Wind Spectrometer
-    const al = craftFallbackGroup;
-    addBox(0.62, 0.3, 0.44, goldFoil, 0, 0.2, 0, 0, 0, 0, al);
-    addBox(0.78, 0.02, 0.6, silverMetal, 0, 0.62, 0, 0, 0, 0, al);
-    for (const [sx, sz] of [[-0.36, -0.27], [0.36, -0.27], [-0.36, 0.27], [0.36, 0.27]]) {
-      addCyl(0.012, 0.012, 0.28, silverMetal, sx, 0.48, sz, 0, 0, 0, 6, al);
-    }
-    addCyl(0.03, 0.03, 0.62, silverMetal, 0.2, 0.86, 0.08, 0.5, 0, 0, 8, al);
-    // SNAP-27 RTG with radial cooling fins, 3 m away
-    addCyl(0.16, 0.16, 0.46, darkTitanium, -2.6, 0.23, 0.6, 0, 0, 0, 16, al);
-    for (let f = 0; f < 8; f++) {
-      const a = (f * Math.PI) / 4;
-      addBox(0.28, 0.42, 0.015, darkTitanium, -2.6 + Math.cos(a) * 0.14, 0.23, 0.6 + Math.sin(a) * 0.14, 0, -a, 0, al);
-    }
-    // Passive Seismic Experiment: drum + aluminised mylar skirt laid on the regolith
-    addCyl(0.62, 0.62, 0.012, silverMetal, 1.9, 0.01, -1.3, 0, 0, 0, 28, al);
-    addCyl(0.15, 0.17, 0.36, silverMetal, 1.9, 0.19, -1.3, 0, 0, 0, 16, al);
-    // Lunar Surface Magnetometer: three booms with sensor heads
-    for (let b = 0; b < 3; b++) {
-      const a = (b * Math.PI * 2) / 3;
-      addStrut(new THREE.Vector3(-1.4, 0.32, -1.6), new THREE.Vector3(-1.4 + Math.cos(a) * 0.8, 0.6, -1.6 + Math.sin(a) * 0.8), 0.015, silverMetal, al, 6);
-      addCyl(0.05, 0.05, 0.12, whitePanelMat, -1.4 + Math.cos(a) * 0.8, 0.6, -1.6 + Math.sin(a) * 0.8, 0, 0, Math.PI / 2, 10, al);
-    }
-    addBox(0.26, 0.22, 0.22, goldFoil, -1.4, 0.22, -1.6, 0, 0, 0, al);
-    // Solar Wind Spectrometer on its legs
-    addBox(0.3, 0.24, 0.3, whitePanelMat, 1.3, 0.42, 1.25, 0, 0, 0, al);
-    for (const [lx, lz] of [[-0.12, -0.12], [0.12, -0.12], [-0.12, 0.12], [0.12, 0.12]]) {
-      addCyl(0.012, 0.012, 0.32, silverMetal, 1.3 + lx, 0.16, 1.25 + lz, 0, 0, 0, 6, al);
-    }
-    // Flat ribbon cables running to the Central Station
-    addBox(2.4, 0.006, 0.025, darkTitanium, -1.3, 0.004, 0.3, 0, -0.12, 0, al);
-    addBox(2.2, 0.006, 0.025, darkTitanium, 0.95, 0.004, -0.65, 0, 0.6, 0, al);
-    addBox(1.6, 0.006, 0.025, darkTitanium, 0.65, 0.004, 0.62, 0, -0.75, 0, al);
+    // Apollo 12 ALSEP rebuilt from the mission photos: see craftModels.buildAlsep
+    craftFallbackGroup.add(buildAlsep(craftMats(), disposables));
     povOrigin = new THREE.Vector3(0, 0.9, 1.2);
     povLook = new THREE.Vector3(0, 0.4, -10.0);
     camPos = new THREE.Vector3(-3.6, 2.4, 4.4);
@@ -2023,8 +2156,8 @@ function buildSpacecraftModel(
     camTarget = new THREE.Vector3(0, 0.2, 0);
   }
 
-  // ChemCam / SuperCam LIBS green-cyan laser spectroscopy beam for Mars rovers
-  if (craftType === 'rover_msl' || craftType === 'rover_mer') {
+  // ChemCam / SuperCam LIBS laser (Curiosity / Perseverance only: Spirit and Opportunity had none)
+  if (craftType === 'rover_msl') {
     const startPt =
       craftType === 'rover_msl'
         ? new THREE.Vector3(0.26, 1.88, -0.58)
@@ -2098,6 +2231,8 @@ function buildSpacecraftModel(
           pbrCaps,
           abortSignal,
           disposables,
+          glbSpec.nasaMaterials ?? false,
+          glbSpec.path.endsWith('apollo_lm.glb'),
         );
         if (glbSpec.offset) {
           prepared.position.set(
@@ -2107,6 +2242,7 @@ function buildSpacecraftModel(
           );
         }
         glbMainRoot = prepared;
+        if (mission.id === 'phoenix') adaptInsightToPhoenix(prepared, craftMats(), disposables);
         group.add(prepared);
         if (!glbSpec.keepFallback) {
           craftFallbackGroup.visible = false;
@@ -3091,6 +3227,7 @@ export function createSurfaceDiorama(
 
   // Mount Spacecraft at surface height (or orbital zero-G origin)
   craftResult.group.position.set(0, groundY, 0);
+  craftResult.group.name = 'craft';
   root.add(craftResult.group);
 
   // Atmospheric Sky Dome (surface worlds with atmospheres only)
