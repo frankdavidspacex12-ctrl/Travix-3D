@@ -1,3 +1,4 @@
+import { isMemoryConstrained } from '../three/deviceProfile';
 // Sonido sintetizado con Web Audio: música ambiental generativa y efectos cortos.
 // No usa archivos de audio, así que funciona sin internet y no requiere licencias.
 // Arranca apagado: los navegadores solo permiten sonido después de que la persona toca algo,
@@ -17,7 +18,7 @@ class Soundscape {
   private master: GainNode | null = null;
   private musicBus: GainNode | null = null;
   private sfxBus: GainNode | null = null;
-  private reverb: ConvolverNode | null = null;
+  private reverb: AudioNode | null = null;
   private musicNodes: AudioNode[] = [];
   private bellTimer: number | null = null;
   private layers: { trip: GainNode | null; descent: GainNode | null } = { trip: null, descent: null };
@@ -522,7 +523,15 @@ class Soundscape {
     const Ctor: typeof AudioContext | undefined =
       window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
     if (!Ctor) return false;
-    const ctx = new Ctor();
+    // Phones: a bigger audio buffer ('playback') so the sound does not crackle when the phone is
+    // busy building a 3D scene; a little more latency does not matter for music and effects.
+    const phone = isMemoryConstrained();
+    let ctx: AudioContext;
+    try {
+      ctx = phone ? new Ctor({ latencyHint: 'playback' }) : new Ctor();
+    } catch {
+      ctx = new Ctor();
+    }
     this.ctx = ctx;
     this.master = ctx.createGain();
     this.master.gain.value = 0.0001;
@@ -535,11 +544,31 @@ class Soundscape {
     limiter.release.value = 0.2;
     this.master.connect(limiter).connect(ctx.destination);
 
-    this.reverb = ctx.createConvolver();
-    this.reverb.buffer = this.makeImpulse(3.2);
     const wet = ctx.createGain();
-    wet.gain.value = 0.45;
-    this.reverb.connect(wet).connect(this.master);
+    if (phone) {
+      // The convolution reverb is the heaviest node: on phones a light echo (delay with feedback)
+      // gives a similar sense of space at a fraction of the cost
+      const input = ctx.createGain();
+      const delay = ctx.createDelay(1);
+      delay.delayTime.value = 0.23;
+      const feedback = ctx.createGain();
+      feedback.gain.value = 0.42;
+      const tone = ctx.createBiquadFilter();
+      tone.type = 'lowpass';
+      tone.frequency.value = 2200;
+      input.connect(delay);
+      delay.connect(tone).connect(feedback).connect(delay);
+      tone.connect(wet);
+      wet.gain.value = 0.35;
+      this.reverb = input;
+    } else {
+      const conv = ctx.createConvolver();
+      conv.buffer = this.makeImpulse(3.2);
+      conv.connect(wet);
+      wet.gain.value = 0.45;
+      this.reverb = conv;
+    }
+    wet.connect(this.master);
 
     this.musicBus = ctx.createGain();
     this.musicBus.gain.value = MUSIC_LEVEL;

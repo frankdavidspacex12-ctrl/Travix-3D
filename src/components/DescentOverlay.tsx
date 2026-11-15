@@ -3,6 +3,7 @@ import type { AbandonedMission } from '../data/abandonedMissionsData';
 import type { LandingInfo, LandingWorld } from '../data/landingMethods';
 import { soundscape } from '../audio/soundscape';
 import { tr } from '../i18n';
+import { isMemoryConstrained } from '../three/deviceProfile';
 
 /** Duración de la animación (s); se puede saltar en cualquier momento. */
 const DURATION = 4.8;
@@ -17,6 +18,11 @@ export interface DescentRequest {
 interface DescentOverlayProps {
   request: DescentRequest;
   onDone: (id: number) => void;
+  /**
+   * True while the opaque animation covers the whole view: the 3D scene underneath can skip
+   * drawing (it keeps loading the mission), so the animation runs smoothly on phones.
+   */
+  onCoverChange?: (covered: boolean) => void;
 }
 
 const SKY: Record<LandingWorld, [string, string]> = {
@@ -50,7 +56,9 @@ const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
  * (grúa espacial, bolsas de aire, retrocohetes, paracaídas...) con un texto corto. Es una
  * ilustración esquemática, no a escala. Toque, clic, Esc, Enter o Espacio la saltan.
  */
-export const DescentOverlay: React.FC<DescentOverlayProps> = ({ request, onDone }) => {
+export const DescentOverlay: React.FC<DescentOverlayProps> = ({ request, onDone, onCoverChange }) => {
+  const coverRef = useRef(onCoverChange);
+  coverRef.current = onCoverChange;
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const doneRef = useRef(false);
   const { mission, landing } = request;
@@ -81,10 +89,18 @@ export const DescentOverlay: React.FC<DescentOverlayProps> = ({ request, onDone 
     const start = performance.now();
     // Estrellas fijas para los mundos sin aire
     const stars = Array.from({ length: 90 }, () => [Math.random(), Math.random() * 0.75, Math.random()]);
+    // Phones: 1.5x is sharp enough and much lighter to paint every frame than 2-3x
+    const maxDpr = isMemoryConstrained() ? 1.5 : 2;
+    let covered = false;
+    const setCovered = (c: boolean) => {
+      if (c === covered) return;
+      covered = c;
+      coverRef.current?.(c);
+    };
 
     const frame = () => {
       if (!canvas || !ctx) return;
-      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      const dpr = Math.min(window.devicePixelRatio || 1, maxDpr);
       const W = window.innerWidth;
       const H = window.innerHeight;
       if (canvas.width !== Math.round(W * dpr) || canvas.height !== Math.round(H * dpr)) {
@@ -98,11 +114,14 @@ export const DescentOverlay: React.FC<DescentOverlayProps> = ({ request, onDone 
       // Fundido final hacia la escena de la misión
       const fade = seg(t, DURATION - FADE_OUT, DURATION);
       canvas.style.opacity = String(1 - fade);
+      // The 3D view resumes just before the fade, so the mission is already drawn behind it
+      setCovered(t > 0.05 && t < DURATION - FADE_OUT - 0.25);
       if (t >= DURATION) finish();
       else raf = requestAnimationFrame(frame);
     };
     raf = requestAnimationFrame(frame);
     return () => {
+      setCovered(false);
       soundscape.stopDescent();
       cancelAnimationFrame(raf);
       window.clearTimeout(safety);

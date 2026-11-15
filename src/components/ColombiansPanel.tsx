@@ -1,9 +1,10 @@
 // «Colombians at NASA»: Colombian women and men whose work is part of NASA missions.
 import React, { useEffect, useState } from 'react';
-import { ExternalLink, Map as MapIcon, Users, X } from 'lucide-react';
+import { ExternalLink, Map as MapIcon, Square, Users, Volume2, X } from 'lucide-react';
 import { COLOMBIANS_AT_NASA } from '../data/colombiansAtNasa';
 import type { GuidedTourTarget } from '../data/guidedToursData';
 import { getLang, tr } from '../i18n';
+import { canNarrate, narrate, stopNarration } from '../audio/narration';
 
 interface ColombiansPanelProps {
   onClose: () => void;
@@ -25,7 +26,24 @@ function initials(name: string): string {
 
 const ColombiansPanel: React.FC<ColombiansPanelProps> = ({ onClose, onGo }) => {
   const [filter, setFilter] = useState<Filter>('all');
+  const [speakingId, setSpeakingId] = useState<string | null>(null);
   const lang = getLang();
+
+  // Stop the voice when the panel closes (or the language changes and it remounts)
+  useEffect(() => () => stopNarration(), []);
+
+  const toggleListen = (p: (typeof COLOMBIANS_AT_NASA)[number]) => {
+    if (speakingId === p.id) {
+      stopNarration();
+      setSpeakingId(null);
+      return;
+    }
+    const t = p[lang];
+    setSpeakingId(p.id);
+    narrate(`${p.name}. ${t.role.replace(/·/g, ",")}. ${t.story} ${t.link}`, () =>
+      setSpeakingId((cur) => (cur === p.id ? null : cur)),
+    );
+  };
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -118,6 +136,7 @@ const ColombiansPanel: React.FC<ColombiansPanelProps> = ({ onClose, onGo }) => {
                   <button
                     type="button"
                     onClick={() => {
+                      stopNarration();
                       onGo(p.go);
                       onClose();
                     }}
@@ -126,6 +145,30 @@ const ColombiansPanel: React.FC<ColombiansPanelProps> = ({ onClose, onGo }) => {
                     <MapIcon className="w-3.5 h-3.5" aria-hidden="true" />
                     {p.goLabel[lang]}
                   </button>
+                  {canNarrate && (
+                    <button
+                      type="button"
+                      onClick={() => toggleListen(p)}
+                      aria-pressed={speakingId === p.id}
+                      aria-label={
+                        speakingId === p.id
+                          ? tr(`Detener la historia de ${p.name}`, `Stop ${p.name}’s story`)
+                          : tr(`Escuchar la historia de ${p.name}`, `Listen to ${p.name}’s story`)
+                      }
+                      className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 border text-xs font-semibold cursor-pointer ${
+                        speakingId === p.id
+                          ? 'border-sky-300 bg-sky-500/20 text-white'
+                          : 'border-white/25 text-slate-100 hover:border-white/50'
+                      }`}
+                    >
+                      {speakingId === p.id ? (
+                        <Square className="w-3 h-3" aria-hidden="true" />
+                      ) : (
+                        <Volume2 className="w-3.5 h-3.5" aria-hidden="true" />
+                      )}
+                      {speakingId === p.id ? tr('Detener', 'Stop') : tr('Escuchar', 'Listen')}
+                    </button>
+                  )}
                   <a
                     href={p.source.url}
                     target="_blank"

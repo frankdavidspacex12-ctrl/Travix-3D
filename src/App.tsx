@@ -995,7 +995,14 @@ export default function App() {
         </div>
       )}
 
-      {descent && <DescentOverlay key={descent.id} request={descent} onDone={handleDescentDone} />}
+      {descent && (
+        <DescentOverlay
+          key={descent.id}
+          request={descent}
+          onDone={handleDescentDone}
+          onCoverChange={handleWarpCover}
+        />
+      )}
       </Fragment>
     </main>
   );
