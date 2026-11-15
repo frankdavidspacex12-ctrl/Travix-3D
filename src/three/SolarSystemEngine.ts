@@ -365,8 +365,9 @@ const MAIN_MOONS: Partial<Record<string, string[]>> = {
   earth: ['luna'],
   mars: ['phobos', 'deimos'],
   jupiter: ['io', 'europa', 'ganymede', 'callisto'],
-  saturn: ['titan'],
-  neptune: ['triton'],
+  saturn: ['titan', 'rhea', 'iapetus', 'enceladus'],
+  uranus: ['titania', 'oberon', 'ariel', 'miranda'],
+  neptune: ['triton', 'proteus'],
   pluto: ['charon'],
 };
 export const MAX_COMPANION_LABELS = 4;
