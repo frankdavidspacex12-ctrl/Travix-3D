@@ -65,6 +65,7 @@ import type {
 } from './surfaceDiorama';
 import { locale, tr } from '../i18n';
 import { keepPmremMaterials } from './pmremWarmup';
+import { cometActivity, createCometEffects, getSoftDotTexture, type CometEffects } from './cometEffects';
 
 // surfaceDiorama.ts used to enable this as an import side effect at startup; keep it identical now
 // that the module is code-split.
@@ -381,8 +382,6 @@ const SUN_INNER_GLOW_COLOR = new THREE.Color(0xffdf94);
  */
 const SUN_MIN_GLOW_RADIUS_PX = 4.5;
 const STAR_WHITE = new THREE.Color(0xfff8ec);
-/** Comet 67P's coma and tails (scattered sunlight): capped like the sky beyond ~3 AU exposure */
-const COMET_MAX_SCREEN_EXPOSURE = 6;
 const SUN_OUTER_GLOW_COLOR = new THREE.Color(0xf97316);
 const OUTER_ATMOSPHERE_BODIES = new Set(['uranus', 'neptune', 'pluto']);
 
@@ -682,8 +681,6 @@ export class SolarSystemEngine {
   private shipTurn = 0;
   private readonly prevCamQuat = new THREE.Quaternion();
   private readonly turnQuat = new THREE.Quaternion();
-  private cometMats: Array<{ material: THREE.MeshBasicMaterial | THREE.PointsMaterial; baseColor: THREE.Color }> = [];
-  private lastCometComp = -1;
   private sunOuterGlowMat: THREE.SpriteMaterial | null = null;
   private sunFocusBoost = 0;
   private auroraMats: THREE.ShaderMaterial[] = [];
@@ -694,19 +691,23 @@ export class SolarSystemEngine {
   private outerAtmosphereMats: Array<{ material: THREE.ShaderMaterial; baseIntensity: number }> = [];
   private lastSkyComp = -1;
   private lastAtmoComp = -1;
-  private saturnIceRingPoints: THREE.Points | null = null;
+  /** Enceladus' geysers: soft ice grains rising from the south pole */
   private moonPlumes: Array<{
     points: THREE.Points;
     radius: number;
-    dir: THREE.Vector3;
+    /** Unit direction of each grain (3 floats per grain) */
+    dirs: Float32Array;
+    /** 0..1 life of each grain (0 = leaving the surface, 1 = gone) */
+    age: Float32Array;
+    /** Life fraction per second */
     speed: number;
     material: THREE.PointsMaterial;
     baseColor: THREE.Color;
   }> = [];
   private asteroidBelt: THREE.InstancedMesh | null = null;
   private kuiperBelt: THREE.InstancedMesh | null = null;
-  private cometTailGroup: THREE.Group | null = null;
-  private cometComaPoints: THREE.Points | null = null;
+  /** Coma and tails of comet 67P (cometEffects) */
+  private cometFx: CometEffects | null = null;
   private orbitSatellites: Array<{ missionId: string; pivot: THREE.Group; speed: number; ledMat?: THREE.MeshBasicMaterial; phase: number }> = [];
 
   private clock = new THREE.Clock();
@@ -1918,68 +1919,12 @@ export class SolarSystemEngine {
         tiltGroup.add(mesh);
         this.disposables.push(planetMat);
 
-        // Luminous solar-wind coma, dual cyan ion + warm dust tails & streaming particles for Comet 67P
+        // Coma, ion tail and dust tail of comet 67P (soft, physically oriented: see cometEffects)
         if (data.id === 'comet67p') {
-          const tailGrp = new THREE.Group();
-          anchorGroup.add(tailGrp);
-          this.cometTailGroup = tailGrp;
-
-          const tailGeo = new THREE.ConeGeometry(0.62, 7.2, 24, 1, true);
-          tailGeo.translate(0, 3.6, 0);
-          tailGeo.rotateX(Math.PI / 2);
-          const tailMat = new THREE.MeshBasicMaterial({
-            color: 0x67e8f9,
-            transparent: true,
-            opacity: 0.24,
-            blending: THREE.AdditiveBlending,
-            depthWrite: false,
-            side: THREE.DoubleSide,
-          });
-          const ionTail = new THREE.Mesh(tailGeo, tailMat);
-          tailGrp.add(ionTail);
-
-          const dustTailGeo = new THREE.ConeGeometry(0.95, 5.4, 24, 1, true);
-          dustTailGeo.translate(0, 2.7, 0);
-          dustTailGeo.rotateX(Math.PI / 2);
-          const dustTailMat = new THREE.MeshBasicMaterial({
-            color: 0xfde68a,
-            transparent: true,
-            opacity: 0.14,
-            blending: THREE.AdditiveBlending,
-            depthWrite: false,
-            side: THREE.DoubleSide,
-          });
-          const dustTail = new THREE.Mesh(dustTailGeo, dustTailMat);
-          dustTail.rotation.y = 0.22;
-          tailGrp.add(dustTail);
-
-          const comaCount = 140;
-          const comaPos = new Float32Array(comaCount * 3);
-          for (let ci = 0; ci < comaCount; ci++) {
-            const d = Math.random() * 6.5;
-            const spread = 0.15 + d * 0.14;
-            comaPos[ci * 3] = (Math.random() - 0.5) * spread;
-            comaPos[ci * 3 + 1] = (Math.random() - 0.5) * spread;
-            comaPos[ci * 3 + 2] = d;
-          }
-          const comaGeo = new THREE.BufferGeometry();
-          comaGeo.setAttribute('position', new THREE.BufferAttribute(comaPos, 3));
-          const comaMat = new THREE.PointsMaterial({
-            color: 0xa5f3fc,
-            size: 0.12,
-            transparent: true,
-            opacity: 0.55,
-            blending: THREE.AdditiveBlending,
-            depthWrite: false,
-            toneMapped: false,
-          });
-          const comaPts = new THREE.Points(comaGeo, comaMat);
-          tailGrp.add(comaPts);
-          this.cometComaPoints = comaPts;
-          this.disposables.push(tailGeo, tailMat, dustTailGeo, dustTailMat, comaGeo, comaMat);
-          for (const m of [tailMat, dustTailMat, comaMat]) {
-            this.cometMats.push({ material: m, baseColor: m.color.clone() });
-          }
+          const fx = createCometEffects(data.visualRadius);
+          anchorGroup.add(fx.group);
+          this.cometFx = fx;
+          this.disposables.push(fx);
         }
 
         const activePlanetMat = planetMat;
@@ -2509,32 +2454,6 @@ export class SolarSystemEngine {
             () => {},
           );
         }
-
-        // Orbiting Glittering Ice-Crystal Ring Particles for Saturn
-        if (data.id === 'saturn') {
-          const iceCount = 480;
-          const icePos = new Float32Array(iceCount * 3);
-          for (let ic = 0; ic < iceCount; ic++) {
-            const rad = THREE.MathUtils.lerp(innerR * 1.04, outerR * 0.96, Math.random());
-            const ang = Math.random() * Math.PI * 2;
-            icePos[ic * 3] = Math.cos(ang) * rad;
-            icePos[ic * 3 + 1] = (Math.random() - 0.5) * 0.06;
-            icePos[ic * 3 + 2] = Math.sin(ang) * rad;
-          }
-          const iceGeo = new THREE.BufferGeometry();
-          iceGeo.setAttribute('position', new THREE.BufferAttribute(icePos, 3));
-          const iceMat = new THREE.PointsMaterial({
-            color: 0xfef3c7,
-            size: 0.09,
-            transparent: true,
-            opacity: 0.65,
-            depthWrite: false,
-          });
-          const icePts = new THREE.Points(iceGeo, iceMat);
-          tiltGroup.add(icePts);
-          this.saturnIceRingPoints = icePts;
-          this.disposables.push(iceGeo, iceMat);
-        }
       }
 
       // Animated Polar Auroras for Jupiter & Saturn
@@ -2700,39 +2619,56 @@ export class SolarSystemEngine {
           this.disposables.push(mAtmoGeo, mAtmoMat);
         }
 
-        // Active Volcanic Sulfur Plume on Io & South-Polar Cryo-Geyser Plume on Enceladus
-        if (mData.id === 'io' || mData.id === 'enceladus') {
-          const isIo = mData.id === 'io';
-          const plumeDir = isIo
-            ? new THREE.Vector3(0.65, 0.72, 0.24).normalize()
-            : new THREE.Vector3(0.08, -0.99, 0.08).normalize();
-          const pCount = 52;
-          const pArr = new Float32Array(pCount * 3);
-          for (let pi = 0; pi < pCount; pi++) {
-            const h = Math.random() * mData.radius * 0.9;
-            const spread = 0.02 + h * 0.28;
-            pArr[pi * 3] = plumeDir.x * (mData.radius + h) + (Math.random() - 0.5) * spread;
-            pArr[pi * 3 + 1] = plumeDir.y * (mData.radius + h) + (Math.random() - 0.5) * spread;
-            pArr[pi * 3 + 2] = plumeDir.z * (mData.radius + h) + (Math.random() - 0.5) * spread;
+        // Enceladus: the south-polar geysers ("tiger stripes") that Cassini flew through. Faint
+        // jets of ice grains, drawn as soft dots that thin out as they rise. Io gets no effect:
+        // its volcanic plumes reach only ~1/6 of its radius and are not visible at this scale.
+        if (mData.id === 'enceladus') {
+          const jets = [
+            new THREE.Vector3(0.1, -1, 0.05),
+            new THREE.Vector3(-0.12, -1, 0.09),
+            new THREE.Vector3(0.05, -1, -0.15),
+            new THREE.Vector3(-0.07, -1, -0.05),
+          ].map((v) => v.normalize());
+          const count = 150;
+          const pArr = new Float32Array(count * 3);
+          const pCol = new Float32Array(count * 3);
+          const dirs = new Float32Array(count * 3);
+          const age = new Float32Array(count);
+          const d = new THREE.Vector3();
+          for (let pi = 0; pi < count; pi++) {
+            const jet = jets[pi % jets.length];
+            d.set(
+              jet.x + (Math.random() - 0.5) * 0.3,
+              jet.y,
+              jet.z + (Math.random() - 0.5) * 0.3,
+            ).normalize();
+            dirs[pi * 3] = d.x;
+            dirs[pi * 3 + 1] = d.y;
+            dirs[pi * 3 + 2] = d.z;
+            age[pi] = Math.random();
           }
           const pGeo = new THREE.BufferGeometry();
           pGeo.setAttribute('position', new THREE.BufferAttribute(pArr, 3));
+          pGeo.setAttribute('color', new THREE.BufferAttribute(pCol, 3));
           const pMat = new THREE.PointsMaterial({
-            color: isIo ? 0xfbbf24 : 0xbae6fd,
-            size: Math.max(0.025, mData.radius * 0.16),
+            map: getSoftDotTexture(),
+            color: new THREE.Color(0.72, 0.86, 1.0),
+            size: mData.radius * 0.5,
+            vertexColors: true,
             transparent: true,
-            opacity: 0.72,
             blending: THREE.AdditiveBlending,
             depthWrite: false,
             toneMapped: false,
           });
           const plumePts = new THREE.Points(pGeo, pMat);
+          plumePts.frustumCulled = false;
           moonMesh.add(plumePts);
           this.moonPlumes.push({
             points: plumePts,
             radius: mData.radius,
-            dir: plumeDir,
-            speed: isIo ? 0.35 : 0.28,
+            dirs,
+            age,
+            speed: 0.22,
             material: pMat,
             baseColor: pMat.color.clone(),
           });
@@ -3192,10 +3128,13 @@ export class SolarSystemEngine {
         runtime.lastWorldPos.copy(runtime.currentWorldPos);
       }
 
-      if (id === 'comet67p' && this.cometTailGroup) {
-        // Dual Ion + Dust tails strictly point antisolar (away from the Sun at origin)
-        _vec3A.copy(runtime.currentWorldPos).multiplyScalar(2);
-        this.cometTailGroup.lookAt(_vec3A);
+      if (id === 'comet67p' && this.cometFx && kepler) {
+        // Tails point away from the Sun; the dust tail bends back along the orbit, so the
+        // direction of motion is needed: position one day later, in world space
+        computeHeliocentricPosition(kepler, dJ2000 + 1, _vec3B, AU_TO_UNITS);
+        _vec3B.sub(runtime.anchorGroup.position);
+        if (runtime.anchorGroup.parent) _vec3B.transformDirection(runtime.anchorGroup.parent.matrixWorld);
+        this.cometFx.orient(runtime.currentWorldPos, _vec3B);
       }
 
       for (const m of runtime.moons) {
@@ -5145,13 +5084,8 @@ export class SolarSystemEngine {
         sky.material.color.copy(sky.baseColor).multiplyScalar(skyComp);
       }
     }
-    const cometComp = Math.min(1, COMET_MAX_SCREEN_EXPOSURE * inv);
-    if (Math.abs(cometComp - this.lastCometComp) > 1e-4) {
-      this.lastCometComp = cometComp;
-      for (const c of this.cometMats) {
-        c.material.color.copy(c.baseColor).multiplyScalar(cometComp);
-      }
-    }
+    // The comet's coma and tails are thin, faint light: same on-screen brightness at any exposure
+    this.cometFx?.setGain(inv);
     const atmoComp = Math.min(1, OUTER_ATMOSPHERE_MAX_SCREEN_EXPOSURE * inv);
     if (Math.abs(atmoComp - this.lastAtmoComp) > 1e-4) {
       this.lastAtmoComp = atmoComp;
@@ -5222,37 +5156,33 @@ export class SolarSystemEngine {
     for (const aMat of this.auroraMats) {
       aMat.uniforms.uTime.value = this.surfaceElapsed;
     }
-    if (this.saturnIceRingPoints) {
-      this.saturnIceRingPoints.rotation.y += dt * 0.045;
-    }
-    if (this.cometComaPoints) {
-      const cPos = this.cometComaPoints.geometry.attributes.position as THREE.BufferAttribute;
-      const arr = cPos.array as Float32Array;
-      for (let i = 0; i < arr.length; i += 3) {
-        arr[i + 2] += dt * 2.4;
-        if (arr[i + 2] > 6.5) {
-          arr[i] = (Math.random() - 0.5) * 0.25;
-          arr[i + 1] = (Math.random() - 0.5) * 0.25;
-          arr[i + 2] = 0.2;
-        }
-      }
-      cPos.needsUpdate = true;
+    if (this.cometFx) {
+      const comet = this.bodies.get('comet67p');
+      const au = comet ? comet.currentWorldPos.length() / AU_TO_UNITS : 5;
+      this.cometFx.update(dt, this.surfaceElapsed, cometActivity(au));
     }
     for (const plume of this.moonPlumes) {
-      const pPos = plume.points.geometry.attributes.position as THREE.BufferAttribute;
-      const arr = pPos.array as Float32Array;
-      for (let i = 0; i < arr.length; i += 3) {
-        arr[i] += plume.dir.x * dt * plume.speed;
-        arr[i + 1] += plume.dir.y * dt * plume.speed;
-        arr[i + 2] += plume.dir.z * dt * plume.speed;
-        const dist = Math.hypot(arr[i], arr[i + 1], arr[i + 2]);
-        if (dist > plume.radius * 1.95) {
-          arr[i] = plume.dir.x * plume.radius + (Math.random() - 0.5) * 0.03;
-          arr[i + 1] = plume.dir.y * plume.radius + (Math.random() - 0.5) * 0.03;
-          arr[i + 2] = plume.dir.z * plume.radius + (Math.random() - 0.5) * 0.03;
-        }
+      const geo = plume.points.geometry;
+      const pos = geo.attributes.position.array as Float32Array;
+      const col = geo.attributes.color.array as Float32Array;
+      const { dirs, age, radius } = plume;
+      for (let i = 0; i < age.length; i++) {
+        let a = age[i] + dt * plume.speed;
+        if (a > 1) a -= 1;
+        age[i] = a;
+        // Rises up to ~1.4 radii above the pole, spreading slightly, fading as it thins out
+        const h = radius * (0.98 + 1.4 * a);
+        pos[i * 3] = dirs[i * 3] * h * (1 + a * 1.1);
+        pos[i * 3 + 1] = dirs[i * 3 + 1] * h;
+        pos[i * 3 + 2] = dirs[i * 3 + 2] * h * (1 + a * 1.1);
+        // Dim per grain: together they read as a fine mist rather than separate dots
+        const b = 0.22 * THREE.MathUtils.smoothstep(a, 0, 0.08) * Math.pow(1 - a, 1.6);
+        col[i * 3] = b;
+        col[i * 3 + 1] = b;
+        col[i * 3 + 2] = b;
       }
-      pPos.needsUpdate = true;
+      geo.attributes.position.needsUpdate = true;
+      geo.attributes.color.needsUpdate = true;
     }
 
     if (this.asteroidBelt && !this.isPaused) {

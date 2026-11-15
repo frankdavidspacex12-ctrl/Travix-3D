@@ -7,6 +7,7 @@ import {
   MissionRole,
 } from '../data/abandonedMissionsData';
 import { CELESTIAL_BODIES } from '../data/solarSystemData';
+import { getSoftDotTexture } from './cometEffects';
 import {
   CraftTextureSet,
   createCraftTextureSet,
@@ -2431,7 +2432,16 @@ export function createSurfaceDiorama(
   let junoAuroraMesh: THREE.Mesh | null = null;
   let dustPoints: THREE.Points | null = null;
   const dustDevils: Array<{ group: THREE.Group; baseX: number; baseZ: number; phase: number }> = [];
-  const cryoJets: Array<{ points: THREE.Points; origin: THREE.Vector3 }> = [];
+  /** Comet 67P gas / dust jets: soft grains rising and widening, fading as they thin out */
+  const cryoJets: Array<{
+    points: THREE.Points;
+    origin: THREE.Vector3;
+    /** Height of each grain above the vent, 0..JET_HEIGHT */
+    height: Float32Array;
+    /** Sideways drift direction of each grain (x, z) */
+    side: Float32Array;
+  }> = [];
+  const JET_HEIGHT = 12;
 
   if (theme.isDeepSpace) {
     // Deep Space probe (JWST, Voyager 1 & 2): subtle cosmic dust motes drifting past
@@ -3043,29 +3053,36 @@ export function createSurfaceDiorama(
         new THREE.Vector3(7.2, sampleTerrainHeight(7.2, -18, theme), -18),
       ];
       for (const orig of jetOrigins) {
-        const cCount = 120;
+        const cCount = 160;
         const cPos = new Float32Array(cCount * 3);
+        const cCol = new Float32Array(cCount * 3);
+        const height = new Float32Array(cCount);
+        const side = new Float32Array(cCount * 2);
         for (let i = 0; i < cCount; i++) {
-          const t = Math.random();
-          cPos[i * 3] = orig.x + (Math.random() - 0.5) * (0.2 + t * 1.8);
-          cPos[i * 3 + 1] = orig.y + t * 12;
-          cPos[i * 3 + 2] = orig.z + (Math.random() - 0.5) * (0.2 + t * 1.8);
+          height[i] = Math.random() * JET_HEIGHT;
+          const a = Math.random() * Math.PI * 2;
+          const r = Math.sqrt(Math.random());
+          side[i * 2] = Math.cos(a) * r;
+          side[i * 2 + 1] = Math.sin(a) * r;
         }
         const cGeo = new THREE.BufferGeometry();
         cGeo.setAttribute('position', new THREE.BufferAttribute(cPos, 3));
+        cGeo.setAttribute('color', new THREE.BufferAttribute(cCol, 3));
         const cMat = new THREE.PointsMaterial({
-          color: 0xa5f3fc,
-          size: 0.14,
+          map: getSoftDotTexture(),
+          color: 0xc4ecff,
+          size: 0.55,
+          vertexColors: true,
           transparent: true,
-          opacity: 0.48,
           blending: THREE.AdditiveBlending,
           depthWrite: false,
           toneMapped: false,
         });
         const pts = new THREE.Points(cGeo, cMat);
+        pts.frustumCulled = false;
         root.add(pts);
         disposables.push(cGeo, cMat);
-        cryoJets.push({ points: pts, origin: orig });
+        cryoJets.push({ points: pts, origin: orig, height, side });
       }
     }
 
@@ -3224,18 +3241,27 @@ export function createSurfaceDiorama(
     }
 
     for (const jet of cryoJets) {
-      const pos = jet.points.geometry.attributes.position as THREE.BufferAttribute;
-      const arr = pos.array as Float32Array;
-      for (let i = 0; i < arr.length; i += 3) {
-        arr[i + 1] += dt * 3.8;
-        const h = arr[i + 1] - jet.origin.y;
-        if (h > 12) {
-          arr[i] = jet.origin.x + (Math.random() - 0.5) * 0.2;
-          arr[i + 1] = jet.origin.y;
-          arr[i + 2] = jet.origin.z + (Math.random() - 0.5) * 0.2;
-        }
+      const geo = jet.points.geometry;
+      const pos = geo.attributes.position.array as Float32Array;
+      const col = geo.attributes.color.array as Float32Array;
+      const { height, side, origin } = jet;
+      for (let i = 0; i < height.length; i++) {
+        let h = height[i] + dt * 3.2;
+        if (h > JET_HEIGHT) h -= JET_HEIGHT;
+        height[i] = h;
+        // The jet widens as it rises and fades as the gas thins out
+        const spread = 0.15 + h * 0.2;
+        pos[i * 3] = origin.x + side[i * 2] * spread;
+        pos[i * 3 + 1] = origin.y + h;
+        pos[i * 3 + 2] = origin.z + side[i * 2 + 1] * spread;
+        const t = h / JET_HEIGHT;
+        const b = 0.32 * THREE.MathUtils.smoothstep(t, 0, 0.05) * Math.pow(1 - t, 1.4);
+        col[i * 3] = b;
+        col[i * 3 + 1] = b;
+        col[i * 3 + 2] = b;
       }
-      pos.needsUpdate = true;
+      geo.attributes.position.needsUpdate = true;
+      geo.attributes.color.needsUpdate = true;
     }
   };
 
