@@ -141,7 +141,10 @@ interface CompanionLabelProps {
   labelRef: (el: HTMLButtonElement | null) => void;
 }
 
-/** "Luna" tag pointing at the Moon while looking at the Earth; positioned by the engine. */
+/**
+ * "Luna" tag pointing at the Moon while looking at the Earth; positioned by the engine. When the
+ * Moon is off-screen it stays pinned to the edge with an arrow toward it.
+ */
 const CompanionLabel = memo(function CompanionLabel({ onGo, labelRef }: CompanionLabelProps) {
   return (
     <button
@@ -153,9 +156,14 @@ const CompanionLabel = memo(function CompanionLabel({ onGo, labelRef }: Companio
       style={{ opacity: 0, pointerEvents: 'none' }}
       className="fixed top-0 left-0 z-[15] inline-flex flex-col items-center gap-0 text-[10px] font-medium text-slate-100 whitespace-nowrap cursor-pointer transition-opacity duration-300 focus-visible:outline-2 focus-visible:outline-amber-400"
     >
-      <span aria-hidden="true" className="block w-px h-2.5 bg-slate-200/70" />
-      <span className="travix-chip rounded-full px-2 py-0.5 hover:text-white">
-        ☾ <span data-companion-text>Luna</span>
+      <span data-companion-tick aria-hidden="true" className="block w-px h-2.5 bg-slate-200/70" />
+      <span className="travix-chip rounded-full px-2 py-0.5 hover:text-white inline-flex items-center gap-1">
+        <span data-companion-arrow aria-hidden="true" className="inline-flex shrink-0" style={{ display: 'none' }}>
+          <ArrowRight className="w-3 h-3 text-slate-200/90" />
+        </span>
+        <span>
+          ☾ <span data-companion-text>Luna</span>
+        </span>
       </span>
     </button>
   );

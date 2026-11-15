@@ -264,7 +264,11 @@ export function computeAxialRotationRad(id: string, dJ2000: number): number {
   const pm = PRIME_MERIDIAN_J2000[id];
   if (!pm) return 0;
   // Convert IAU W angle to Three.js rotation.y around +Y
-  const wDeg = (pm.w0 + pm.wDot * dJ2000) % 360;
+  // IAU mide W desde el nodo ascendente del ecuador del cuerpo sobre el ecuador ICRF (para la Tierra,
+  // AR = 90°). La Tierra se inclina sobre el equinoccio vernal (+X), donde la longitud 0 de la textura
+  // queda en AR = 0 con rotation.y = 0; por eso se suma 90°: rotation.y = W + 90° = GMST.
+  const offset = id === 'earth' ? 90 : 0;
+  const wDeg = (pm.w0 + offset + pm.wDot * dJ2000) % 360;
   return wDeg * DEG2RAD;
 }
 

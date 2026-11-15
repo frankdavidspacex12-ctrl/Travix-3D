@@ -4,6 +4,7 @@ import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import type { ShipOverlay } from './shipOverlay';
+import { computeIssSubpoint, refreshIssElements, type IssSubpoint } from '../astronomy/iss';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import {
@@ -652,7 +653,10 @@ export class SolarSystemEngine {
   private sunMarkerEl: HTMLElement | null = null;
   private companionLabelEl: HTMLElement | null = null;
   private companionLabelText: HTMLElement | null = null;
-  private companionLabelState = { shown: null as boolean | null, transform: '', text: '' };
+  private readonly issSubpoint: IssSubpoint = { latDeg: 0, lonDeg: 0, altKm: 0 };
+  private companionLabelArrow: HTMLElement | null = null;
+  private companionLabelTick: HTMLElement | null = null;
+  private companionLabelState = { shown: null as boolean | null, transform: '', text: '', arrow: '' };
   private lastCompanionTextAt = 0;
   private sunMarkerArrow: HTMLElement | null = null;
   private sunMarkerText: HTMLElement | null = null;
@@ -774,6 +778,7 @@ export class SolarSystemEngine {
     this.buildMissionBeacons();
     this.buildOrbitingSpacecraftMarkers();
     this.applyJ2000State(daysSinceJ2000(this.simEpochMs), true);
+    void refreshIssElements(); // TLE más reciente de la ISS si hay internet (silencioso si no)
     this.bindEvents();
 
     if (this.isSoftwareGl) {
@@ -1142,7 +1147,14 @@ export class SolarSystemEngine {
       inclinationGroup.add(anchorGroup);
 
       const tiltGroup = new THREE.Group();
-      tiltGroup.rotation.z = THREE.MathUtils.degToRad(data.axialTiltDeg);
+      if (data.id === 'earth') {
+        // Polo norte terrestre real: inclinado hacia la longitud eclíptica 90° (escena: x, z, -y), así que
+        // el giro es alrededor de +X (equinoccio vernal). Con esto, día/noche y estaciones coinciden con
+        // la hora UTC real (punto subsolar verificado contra la fórmula GMST/declinación, error < 1°).
+        tiltGroup.rotation.x = -THREE.MathUtils.degToRad(data.axialTiltDeg);
+      } else {
+        tiltGroup.rotation.z = THREE.MathUtils.degToRad(data.axialTiltDeg);
+      }
       anchorGroup.add(tiltGroup);
 
       const sphereGeo =
@@ -2528,7 +2540,8 @@ export class SolarSystemEngine {
       color: number;
       radialWings?: boolean;
     }> = [
-      { missionId: 'iss', bodyId: 'earth', orbitR: 1.08, inclination: 0.9, speed: 0.55, color: 0xf59e0b },
+      // ISS: no gira en una órbita ficticia; cuelga de su marca, que sigue la posición real (updateIssBeacon)
+      { missionId: 'iss', bodyId: 'earth', orbitR: 0, inclination: 0, speed: 0, color: 0xf59e0b },
       { missionId: 'hubble', bodyId: 'earth', orbitR: 1.15, inclination: 0.5, speed: 0.44, color: 0x60a5fa },
       { missionId: 'lro', bodyId: 'earth', moonId: 'luna', orbitR: 0.34, inclination: 1.45, speed: 0.65, color: 0x93c5fd },
       { missionId: 'mro', bodyId: 'mars', orbitR: 0.72, inclination: 1.52, speed: 0.52, color: 0xf87171 },
@@ -2540,9 +2553,12 @@ export class SolarSystemEngine {
 
     for (let idx = 0; idx < specs.length; idx++) {
       const s = specs[idx];
-      const parentObj = s.moonId
-        ? this.moonsById.get(s.moonId)?.mesh
-        : this.bodies.get(s.bodyId)?.anchorGroup;
+      const parentObj =
+        s.missionId === 'iss'
+          ? this.beaconsByMissionId.get('iss')?.group
+          : s.moonId
+            ? this.moonsById.get(s.moonId)?.mesh
+            : this.bodies.get(s.bodyId)?.anchorGroup;
       if (!parentObj) continue;
 
       const scaleFactor = s.orbitR > 8 ? 2.4 : 1.0;
@@ -2553,7 +2569,9 @@ export class SolarSystemEngine {
       parentObj.add(pivot);
 
       const satGroup = new THREE.Group();
-      satGroup.position.set(s.orbitR, 0, 0);
+      // La ISS va justo encima de su marca (el «arriba» local apunta hacia fuera de la Tierra)
+      if (s.missionId === 'iss') satGroup.position.set(0, 0.05, 0);
+      else satGroup.position.set(s.orbitR, 0, 0);
       satGroup.scale.setScalar(scaleFactor);
       pivot.add(satGroup);
 
@@ -2610,6 +2628,22 @@ export class SolarSystemEngine {
   /**
    * Computes exact J2000 orbital positions, sidereal axial rotations, and lunar tidal-locked positions.
    */
+  /**
+   * La ISS no está fija: su marca (y el modelo en órbita que cuelga de ella) se coloca cada fotograma
+   * sobre el punto real de la Tierra que tiene debajo, calculado desde su TLE para la fecha simulada.
+   * La altura se mantiene exagerada (1,16 radios, como las demás misiones orbitales) para que se vea.
+   */
+  private updateIssBeacon(dJ2000: number): void {
+    const beacon = this.beaconsByMissionId.get('iss');
+    if (!beacon) return;
+    const ms = (dJ2000 + 2451545.0 - 2440587.5) * 86400000;
+    const p = computeIssSubpoint(ms, this.issSubpoint);
+    latLonToLocalVector3(p.latDeg, p.lonDeg, beacon.hostRadius * 1.16, beacon.group.position);
+    _vec3A.copy(beacon.group.position).normalize();
+    beacon.group.quaternion.setFromUnitVectors(_upVec, _vec3A);
+    beacon.group.updateMatrixWorld(true);
+  }
+
   private applyJ2000State(dJ2000: number, snapHistory = false): void {
     this.bodies.forEach((runtime, id) => {
       runtime.lastWorldPos.copy(runtime.currentWorldPos);
@@ -2664,6 +2698,8 @@ export class SolarSystemEngine {
         }
       }
     });
+
+    this.updateIssBeacon(dJ2000);
 
     // Update all surface beacon world positions & outward normals
     this.beaconsByMissionId.forEach((beacon) => {
@@ -3695,7 +3731,9 @@ export class SolarSystemEngine {
   public registerCompanionLabel(el: HTMLElement | null): void {
     this.companionLabelEl = el;
     this.companionLabelText = el?.querySelector<HTMLElement>('[data-companion-text]') ?? null;
-    this.companionLabelState = { shown: null, transform: '', text: '' };
+    this.companionLabelArrow = el?.querySelector<HTMLElement>('[data-companion-arrow]') ?? null;
+    this.companionLabelTick = el?.querySelector<HTMLElement>('[data-companion-tick]') ?? null;
+    this.companionLabelState = { shown: null, transform: '', text: '', arrow: '' };
     this.lastCompanionTextAt = 0;
   }
 
@@ -3725,12 +3763,14 @@ export class SolarSystemEngine {
     _projVec.copy(companion).project(this.camera);
     const w = this.viewportW || window.innerWidth;
     const h = this.viewportH || window.innerHeight;
-    const sx = (_projVec.x * 0.5 + 0.5) * w;
-    const sy = (-_projVec.y * 0.5 + 0.5) * h;
-    if (_projVec.z > 1 || sx < 24 || sx > w - 24 || sy < 70 || sy > h - 110) {
-      setShown(false);
-      return;
-    }
+    const behind = _projVec.z > 1;
+    const nx = behind ? -_projVec.x : _projVec.x;
+    const ny = behind ? -_projVec.y : _projVec.y;
+    const sx = (nx * 0.5 + 0.5) * w;
+    const sy = (-ny * 0.5 + 0.5) * h;
+    const top = Math.max(70, this.viewInsetTop + 16);
+    const bottom = h - Math.max(110, this.viewInsetBottom + 16);
+    const onScreen = !behind && sx >= 24 && sx <= w - 24 && sy >= top && sy <= bottom;
     const now = performance.now();
     if (now - this.lastCompanionTextAt > 500 || !state.text) {
       this.lastCompanionTextAt = now;
@@ -3746,10 +3786,38 @@ export class SolarSystemEngine {
         }
       }
     }
-    const transform = `translate3d(${sx.toFixed(1)}px, ${(sy + 9).toFixed(1)}px, 0) translateX(-50%)`;
+    let transform: string;
+    let arrow = 'none';
+    if (onScreen) {
+      // Right under the Moon's real (tiny) disc, with a tick pointing up at it
+      transform = `translate3d(${sx.toFixed(1)}px, ${(sy + 9).toFixed(1)}px, 0) translateX(-50%)`;
+    } else {
+      // Off-screen (or behind the camera): pinned to the edge of the free area, on the line from its
+      // centre toward the Moon, with an arrow — same idea as the Sun marker, so it can always be found.
+      const left = 70;
+      const right = w - 70;
+      const ox = w / 2;
+      const oy = (top + bottom) / 2;
+      let dx = sx - ox;
+      let dy = sy - oy;
+      if (Math.abs(dx) < 1e-3 && Math.abs(dy) < 1e-3) dy = -1;
+      const tx = dx !== 0 ? (dx > 0 ? right - ox : left - ox) / dx : Infinity;
+      const ty = dy !== 0 ? (dy > 0 ? bottom - oy : top - oy) / dy : Infinity;
+      const t = Math.max(0, Math.min(tx, ty));
+      transform = `translate3d(${(ox + dx * t).toFixed(1)}px, ${(oy + dy * t).toFixed(1)}px, 0) translate(-50%, -50%)`;
+      arrow = `rotate(${Math.atan2(dy, dx).toFixed(3)}rad)`;
+    }
     if (transform !== state.transform) {
       state.transform = transform;
       el.style.transform = transform;
+    }
+    if (arrow !== state.arrow) {
+      state.arrow = arrow;
+      if (this.companionLabelArrow) {
+        this.companionLabelArrow.style.display = arrow === 'none' ? 'none' : '';
+        if (arrow !== 'none') this.companionLabelArrow.style.transform = arrow;
+      }
+      if (this.companionLabelTick) this.companionLabelTick.style.display = arrow === 'none' ? '' : 'none';
     }
     setShown(true);
   }
