@@ -169,7 +169,10 @@ const WarpOverlay: React.FC<WarpOverlayProps> = ({ request, onDone }) => {
           </span>
         </div>
       )}
-      <span className="absolute bottom-5 inset-x-0 text-center text-[10px] text-slate-300/80 pointer-events-none">
+      {/* D05: el hipersalto es una convención visual; las naves reales tardan meses o años */}
+      <span className="absolute bottom-5 inset-x-0 px-4 text-center text-[10px] leading-snug text-slate-300/80 pointer-events-none">
+        Transición visual: las naves reales no viajan así, tardan meses o años
+        <br />
         Toca para saltar
       </span>
     </div>

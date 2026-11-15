@@ -61,43 +61,9 @@ export default defineConfig(() => {
           cleanupOutdatedCaches: true,
           clientsClaim: true,
           skipWaiting: true,
+          // B6: solo la caché de las tipografías de Google; las de jsdelivr, raw.githubusercontent e
+          // images-api.nasa.gov se quitaron porque la app no pide nada a esos sitios (todo es local)
           runtimeCaching: [
-            {
-              urlPattern: /^https:\/\/cdn\.jsdelivr\.net\/.*/i,
-              handler: 'CacheFirst',
-              options: {
-                cacheName: 'nasa-planets-cdn',
-                expiration: {
-                  maxEntries: 80,
-                  maxAgeSeconds: 60 * 60 * 24 * 90,
-                },
-                cacheableResponse: {statuses: [0, 200]},
-              },
-            },
-            {
-              urlPattern: /^https:\/\/raw\.githubusercontent\.com\/nasa\/NASA-3D-Resources\/.*/i,
-              handler: 'CacheFirst',
-              options: {
-                cacheName: 'nasa-3d-resources',
-                expiration: {
-                  maxEntries: 80,
-                  maxAgeSeconds: 60 * 60 * 24 * 90,
-                },
-                cacheableResponse: {statuses: [0, 200]},
-              },
-            },
-            {
-              urlPattern: /^https:\/\/images-(api|assets)\.nasa\.gov\/.*/i,
-              handler: 'CacheFirst',
-              options: {
-                cacheName: 'nasa-images-archive',
-                expiration: {
-                  maxEntries: 140,
-                  maxAgeSeconds: 60 * 60 * 24 * 30,
-                },
-                cacheableResponse: {statuses: [0, 200]},
-              },
-            },
             {
               urlPattern: /^https:\/\/fonts\.(googleapis|gstatic)\.com\/.*/i,
               handler: 'CacheFirst',
@@ -112,8 +78,9 @@ export default defineConfig(() => {
             },
           ],
         },
+        // B7: sin service worker en desarrollo (servía versiones viejas y confundía al probar)
         devOptions: {
-          enabled: true,
+          enabled: false,
           type: 'module',
         },
       }),
