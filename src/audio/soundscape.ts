@@ -146,7 +146,7 @@ class Soundscape {
 
   /**
    * Hipersalto del «Modo nave», sincronizado con WarpOverlay (3,2 s):
-   * 0–0,5 s carga (zumbido que sube) · 0,5 s estallido de arranque · 0,75–2,5 s rugido de
+   * 0–0,5 s rugido que crece (sin silbido de carga) · 0,5 s estallido de arranque · 0,75–2,5 s rugido de
    * hipervelocidad que acelera · 2,5 s caída de tono al salir · 2,72 s golpe grave del destello.
    */
   warp(): void {
@@ -155,19 +155,7 @@ class Soundscape {
     const t = ctx.currentTime;
     this.duckMusic(t, 3.6, 0.2);
 
-    // 1) Carga de los motores: zumbido agudo que sube + rugido que crece
-    const whine = ctx.createOscillator();
-    const whineGain = ctx.createGain();
-    whine.type = 'sine';
-    whine.frequency.setValueAtTime(180, t);
-    whine.frequency.exponentialRampToValueAtTime(1400, t + 0.55);
-    whineGain.gain.setValueAtTime(0.0001, t);
-    whineGain.gain.exponentialRampToValueAtTime(0.09, t + 0.45);
-    whineGain.gain.exponentialRampToValueAtTime(0.0001, t + 0.75);
-    whine.connect(whineGain).connect(this.sfxBus);
-    whine.start(t);
-    whine.stop(t + 0.8);
-
+    // 1) Sin zumbido de carga: el sonido de selección (select) ya marca el inicio del salto.
     // 2) Estallido de arranque
     this.kick(t + 0.5, 120, 32, 0.7, 0.55);
     this.noiseSweep(t + 0.48, 0.5, 2500, 500, 0.3);
