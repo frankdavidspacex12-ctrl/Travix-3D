@@ -146,7 +146,7 @@ const SunMarker = memo(function SunMarker({ onGo, markerRef }: SunMarkerProps) {
       </span>
       <Sun className="w-3 h-3 text-amber-300 shrink-0" />
       <span data-sun-text className="font-mono-tabular">
-        Sol
+        {tr('Sol', 'Sun')}
       </span>
     </button>
   );
