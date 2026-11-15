@@ -5,6 +5,25 @@ function hash2(x: number, y: number): number {
   return s - Math.floor(s);
 }
 
+// Lattice values of hash2 memoised: neighbouring pixels sample the same lattice corners, so
+// Math.sin ran millions of times on the same few thousand points. Same function, same inputs,
+// same numbers (Float64): the textures are bit-for-bit identical, several times faster.
+const LATTICE = 512;
+let latticeCache: Float64Array | null = null;
+function latticeHash(ix: number, iy: number): number {
+  if (ix >= 0 && iy >= 0 && ix < LATTICE && iy < LATTICE) {
+    const cache = (latticeCache ??= new Float64Array(LATTICE * LATTICE).fill(-1));
+    const k = iy * LATTICE + ix;
+    let v = cache[k];
+    if (v < 0) {
+      v = hash2(ix, iy);
+      cache[k] = v;
+    }
+    return v;
+  }
+  return hash2(ix, iy);
+}
+
 function valueNoise(x: number, y: number): number {
   const ix = Math.floor(x);
   const iy = Math.floor(y);
@@ -12,10 +31,10 @@ function valueNoise(x: number, y: number): number {
   const fy = y - iy;
   const ux = fx * fx * (3 - 2 * fx);
   const uy = fy * fy * (3 - 2 * fy);
-  const a = hash2(ix, iy);
-  const b = hash2(ix + 1, iy);
-  const c = hash2(ix, iy + 1);
-  const d = hash2(ix + 1, iy + 1);
+  const a = latticeHash(ix, iy);
+  const b = latticeHash(ix + 1, iy);
+  const c = latticeHash(ix, iy + 1);
+  const d = latticeHash(ix + 1, iy + 1);
   return a + (b - a) * ux + (c - a) * uy + (a - b - c + d) * ux * uy;
 }
 
@@ -1106,4 +1125,38 @@ export function createTerrainPBRTextures(
       metalnessMap.dispose();
     },
   };
+}
+
+/*
+ * The craft and terrain textures are procedural and deterministic: the same pixels every time.
+ * Generating them took about a second of main-thread noise per mission entered (several seconds
+ * on a phone), which froze the app on every stop of the hardware tour. They are now built once
+ * per session and reused by every mission. Leaving a mission still calls dispose(), which frees
+ * their GPU copies; the canvases stay, so the next mission only re-uploads them.
+ */
+const sharedCraftSets = new Map<number, CraftTextureSet>();
+const sharedTerrainSets = new Map<string, TerrainPBRTextures>();
+
+export function getSharedCraftTextureSet(anisotropy = 4): CraftTextureSet {
+  let set = sharedCraftSets.get(anisotropy);
+  if (!set) {
+    set = createCraftTextureSet(anisotropy);
+    sharedCraftSets.set(anisotropy, set);
+    latticeCache = null; // 2 MB, only needed while generating
+  }
+  return set;
+}
+
+export function getSharedTerrainPBRTextures(
+  worldType: Parameters<typeof createTerrainPBRTextures>[0],
+  anisotropy = 4,
+): TerrainPBRTextures {
+  const key = worldType + ':' + anisotropy;
+  let set = sharedTerrainSets.get(key);
+  if (!set) {
+    set = createTerrainPBRTextures(worldType, anisotropy);
+    sharedTerrainSets.set(key, set);
+    latticeCache = null;
+  }
+  return set;
 }

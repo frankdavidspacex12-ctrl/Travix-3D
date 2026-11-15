@@ -1097,8 +1097,13 @@ function buildReliefTextures(
   metalnessMap: THREE.CanvasTexture;
 } {
   const { anisotropy, tileVertical, repeatX, repeatY } = opts;
-  const roughCanvas = pixelsToCanvas(res.rough, w, h);
-  const metalCanvas = pixelsToCanvas(res.metal, w, h);
+  // three.js reads roughness from the G channel and metalness from the B channel, so both maps
+  // share one texture (G = roughness, B = metalness): same shading, a third less memory per body
+  // on the GPU and in canvases (iOS caps total canvas memory).
+  const packed = res.rough;
+  const metal = res.metal;
+  for (let p = 2; p < packed.length; p += 4) packed[p] = metal[p];
+  const packedCanvas = pixelsToCanvas(packed, w, h);
   const normCanvas = pixelsToCanvas(res.normal, w, h);
 
   const normalMap = new THREE.CanvasTexture(normCanvas);
@@ -1109,23 +1114,17 @@ function buildReliefTextures(
   normalMap.anisotropy = anisotropy;
   normalMap.needsUpdate = true;
 
-  const roughnessMap = new THREE.CanvasTexture(roughCanvas);
-  roughnessMap.colorSpace = THREE.NoColorSpace;
-  roughnessMap.wrapS = THREE.RepeatWrapping;
-  roughnessMap.wrapT = tileVertical ? THREE.RepeatWrapping : THREE.ClampToEdgeWrapping;
-  roughnessMap.repeat.set(repeatX, repeatY);
-  roughnessMap.anisotropy = anisotropy;
-  roughnessMap.needsUpdate = true;
+  const roughMetalMap = new THREE.CanvasTexture(packedCanvas);
+  roughMetalMap.colorSpace = THREE.NoColorSpace;
+  roughMetalMap.wrapS = THREE.RepeatWrapping;
+  roughMetalMap.wrapT = tileVertical ? THREE.RepeatWrapping : THREE.ClampToEdgeWrapping;
+  roughMetalMap.repeat.set(repeatX, repeatY);
+  roughMetalMap.anisotropy = anisotropy;
+  roughMetalMap.needsUpdate = true;
 
-  const metalnessMap = new THREE.CanvasTexture(metalCanvas);
-  metalnessMap.colorSpace = THREE.NoColorSpace;
-  metalnessMap.wrapS = THREE.RepeatWrapping;
-  metalnessMap.wrapT = tileVertical ? THREE.RepeatWrapping : THREE.ClampToEdgeWrapping;
-  metalnessMap.repeat.set(repeatX, repeatY);
-  metalnessMap.anisotropy = anisotropy;
-  metalnessMap.needsUpdate = true;
-
-  return { normalMap, roughnessMap, metalnessMap };
+  // Same texture object: callers must not dispose the roughness map while the metalness map
+  // is still in use (and vice versa)
+  return { normalMap, roughnessMap: roughMetalMap, metalnessMap: roughMetalMap };
 }
 
 

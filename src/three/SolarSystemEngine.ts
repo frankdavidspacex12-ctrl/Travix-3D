@@ -676,6 +676,11 @@ export class SolarSystemEngine {
   private shipPass: RenderPass | null = null;
   private shipModeOn = false;
   private renderSuspended = false;
+  // Mission scene being prepared before its first frame (see prepareSurfaceBeforeDrawing)
+  private surfacePrepareToken = 0;
+  private surfaceHoldUntil = 0;
+  private textureUploadQueue: Array<{ tex: THREE.Texture; freeCpu?: boolean; done?: () => void }> =
+    [];
   private shipLoading = false;
   private shipThrust = 0;
   private readonly shipSunDir = new THREE.Vector3();
@@ -1166,7 +1171,7 @@ export class SolarSystemEngine {
    * object's customDepthMaterial) set up from the caster's own material, exactly as
    * WebGLShadowMap.getDepthMaterial does. Swap in an equivalent one, compile, swap back.
    */
-  private compileShadowDepthPrograms(root: THREE.Object3D): Promise<unknown> {
+  private compileShadowDepthPrograms(root: THREE.Object3D, wholeScene = false): Promise<unknown> {
     const sideFor: Record<number, THREE.Side> = {
       [THREE.FrontSide]: THREE.BackSide,
       [THREE.BackSide]: THREE.FrontSide,
@@ -1230,7 +1235,12 @@ export class SolarSystemEngine {
       });
       // The shadow map is a render target, like the composer buffer compileForScreen() targets
       if (swapped.length) {
-        compiled = this.compileForScreen(root, this.camera, this.scene).catch(() => {});
+        // wholeScene: root is already in the scene (see prepareObjectForDrawing)
+        compiled = (
+          wholeScene
+            ? this.compileForScreen(this.scene, this.camera)
+            : this.compileForScreen(root, this.camera, this.scene)
+        ).catch(() => {});
       }
     } catch {
       // compiled on first use instead
@@ -1991,11 +2001,10 @@ export class SolarSystemEngine {
                 }
                 activePlanetMat.normalMap = relief.normalMap;
                 activeBasePbr.normalMap = relief.normalMap;
+                // Roughness and metalness share one packed texture, kept for the metalness
                 if (!data.textures.specularMap) {
                   activePlanetMat.roughnessMap = relief.roughnessMap;
                   activeBasePbr.roughnessMap = relief.roughnessMap;
-                } else {
-                  relief.roughnessMap.dispose();
                 }
                 activePlanetMat.metalnessMap = relief.metalnessMap;
                 activeBasePbr.metalnessMap = relief.metalnessMap;
@@ -2056,11 +2065,10 @@ export class SolarSystemEngine {
                     data.id === 'venus' ? 0.42 : 0.92,
                     data.id === 'venus' ? 0.42 : 0.92,
                   );
+                  // Roughness and metalness share one packed texture, kept for the metalness
                   if (!data.textures.specularMap) {
                     activePlanetMat.roughnessMap = relief.roughnessMap;
                     activeBasePbr.roughnessMap = relief.roughnessMap;
-                  } else {
-                    relief.roughnessMap.dispose();
                   }
                   activePlanetMat.metalnessMap = relief.metalnessMap;
                   activeBasePbr.metalnessMap = relief.metalnessMap;
@@ -3342,6 +3350,10 @@ export class SolarSystemEngine {
       // CPU copy was freed) are gone, so fall back to the regular maps
       this.active8KAbort?.abort();
       this.clearActive8KUpgrade();
+      // The mission scene's HD maps freed their CPU copy too: build the scene again
+      if (this.surfaceDiorama && this.surfaceMission && surfaceModule) {
+        this.enterSurfaceMode(this.surfaceMission);
+      }
     };
 
     dom.addEventListener('pointerdown', onPointerDown);
@@ -3667,6 +3679,22 @@ export class SolarSystemEngine {
     this.exitSurfaceMode();
     this.clearActive8KUpgrade();
     const maxAnisotropy = this.renderer.capabilities.getMaxAnisotropy();
+    mod.setSurfacePreparer({
+      prepareObject: (obj) => this.prepareObjectForDrawing(obj),
+      uploadTextures: (textures, freeCpu) => this.queueTextureUploads(textures, freeCpu),
+      compileChange: (apply, undo) => {
+        let compiled: Promise<unknown> = Promise.resolve();
+        try {
+          apply();
+          compiled = this.compileForScreen(this.scene, this.camera);
+        } catch {
+          // compiled on first use instead
+        } finally {
+          undo();
+        }
+        return compiled.catch(() => {});
+      },
+    });
     const diorama = mod.createSurfaceDiorama(mission, maxAnisotropy, this.pbrCaps);
     this.surfaceDiorama = diorama;
     this.surfaceMission = mission;
@@ -3691,9 +3719,130 @@ export class SolarSystemEngine {
     this.renderer.toneMappingExposure = 1.05;
     this.updateSurfaceSunOrientation();
     this.setSurfaceCameraMode('rover');
+    this.prepareSurfaceBeforeDrawing(diorama.root);
+  }
+
+  /**
+   * A new mission scene used to be drawn right away: its first frame compiled every shader
+   * synchronously and uploaded every texture at once, freezing the app for about a second
+   * (several on a phone). Now its programs (lit and shadow pass) compile in parallel
+   * (KHR_parallel_shader_compile) and its textures upload a few per frame while the last frame
+   * stays on screen, as it did during the freeze; it is drawn as soon as everything is ready
+   * (1.5 s at most). The first frame drawn is the same image as before.
+   */
+  private prepareSurfaceBeforeDrawing(root: THREE.Object3D): void {
+    const token = ++this.surfacePrepareToken;
+    this.surfaceHoldUntil = performance.now() + 1500;
+    const ready = () => {
+      if (token === this.surfacePrepareToken) this.surfaceHoldUntil = 0;
+    };
+    this.prepareObjectForDrawing(root).then(ready, ready);
+  }
+
+  /** Compiles an object's programs in parallel and queues its textures for gradual upload. */
+  private prepareObjectForDrawing(obj: THREE.Object3D): Promise<void> {
+    // Textures of what will be drawn (obj itself may still be hidden until it is ready); hidden
+    // parts keep uploading on first use, as before, so nothing extra lands on the GPU
+    const textures = new Set<THREE.Texture>();
+    const collect = (o: THREE.Object3D) => {
+      if (o !== obj && !o.visible) return;
+      const mat = (o as THREE.Mesh).material;
+      if (mat) {
+        for (const m of Array.isArray(mat) ? mat : [mat]) {
+          for (const value of Object.values(m)) {
+            const tex = value as (THREE.Texture & { isRenderTargetTexture?: boolean }) | null;
+            if (tex && tex.isTexture && !tex.isRenderTargetTexture && tex.version > 0) {
+              textures.add(tex);
+            }
+          }
+        }
+      }
+      for (const c of o.children) collect(c);
+    };
+    collect(obj);
+    // compile() only looks at visible objects: parts shown later (hidden now) are included too
+    const revealed = this.revealHiddenForCompile(obj);
+    let compiled: Promise<unknown> = Promise.resolve();
+    try {
+      // renderer.compile(obj, camera, scene) counts the lights of the scene AND those of obj:
+      // for an object already in the scene its lights were counted twice (the mission sun gave
+      // 2 shadow maps instead of 1), so every program was a variant never drawn and all of them
+      // compiled again on the first frame. The whole scene is compiled instead: programs that
+      // already exist are just looked up.
+      let inScene = false;
+      for (let o: THREE.Object3D | null = obj; o; o = o.parent) if (o === this.scene) inScene = true;
+      compiled = Promise.all([
+        inScene
+          ? this.compileForScreen(this.scene, this.camera)
+          : this.compileForScreen(obj, this.camera, this.scene),
+        this.compileShadowDepthPrograms(obj, inScene),
+      ]);
+    } catch {
+      // compiled on first use instead
+    } finally {
+      for (const o of revealed) o.visible = false;
+    }
+    const uploaded = this.queueTextureUploads([...textures], false);
+    return Promise.all([compiled.catch(() => {}), uploaded]).then(() => {});
+  }
+
+  /**
+   * Queues textures for gradual upload (drainTextureUploads). With freeCpu, a DataTexture's pixel
+   * array is released once it is on the GPU; a lost WebGL context then rebuilds the mission scene.
+   */
+  private queueTextureUploads(textures: THREE.Texture[], freeCpu: boolean): Promise<void> {
+    return new Promise<void>((resolve) => {
+      if (!textures.length) return resolve();
+      textures.forEach((tex, i) => {
+        this.textureUploadQueue.push({
+          tex,
+          freeCpu,
+          done: i === textures.length - 1 ? resolve : undefined,
+        });
+      });
+    });
+  }
+
+  /** Uploads queued textures, about 6 MB per frame instead of all of them in one frame. */
+  private drainTextureUploads(): void {
+    let budget = 6 * 1024 * 1024;
+    while (this.textureUploadQueue.length && budget > 0) {
+      const { tex, done, freeCpu } = this.textureUploadQueue.shift()!;
+      const img = tex.image as { width?: number; height?: number; data?: unknown } | null;
+      try {
+        this.renderer.initTexture(tex);
+        const onGpu = (this.renderer.properties.get(tex) as { __webglTexture?: unknown })
+          .__webglTexture;
+        if (freeCpu && onGpu && (tex as THREE.DataTexture).isDataTexture && img) img.data = null;
+      } catch {
+        // uploaded on first use instead
+      }
+      budget -= (img?.width ?? 256) * (img?.height ?? 256) * 4;
+      done?.();
+    }
+  }
+
+  private clearTextureUploads(): void {
+    const queue = this.textureUploadQueue;
+    this.textureUploadQueue = [];
+    for (const { done } of queue) done?.();
+  }
+
+  /** True while a new mission scene is still being prepared (see prepareSurfaceBeforeDrawing). */
+  private holdSurfaceFrame(): boolean {
+    if (this.surfaceHoldUntil === 0) return false;
+    if (!this.surfaceDiorama || performance.now() > this.surfaceHoldUntil) {
+      this.surfaceHoldUntil = 0;
+      return false;
+    }
+    return true;
   }
 
   private exitSurfaceMode(): void {
+    this.surfacePrepareToken++;
+    this.surfaceHoldUntil = 0;
+    // Textures of the scene being disposed must not be uploaded again
+    this.clearTextureUploads();
     if (this.surfaceDiorama) {
       this.scene.remove(this.surfaceDiorama.root);
       this.surfaceDiorama.dispose();
@@ -5553,8 +5702,11 @@ export class SolarSystemEngine {
       const dt = Math.min(this.clock.getDelta(), 0.1);
       this.updateSimulation(dt);
 
+      this.drainTextureUploads();
       if (this.renderSuspended) {
         // Covered by the hyperspace jump: nothing to draw
+      } else if (this.holdSurfaceFrame()) {
+        // Mission scene still compiling / uploading: the last frame stays on screen
       } else if (this.isSoftwareGl || !this.composer) {
         this.renderer.render(this.scene, this.camera);
         if (this.shipOverlay?.isActive) {

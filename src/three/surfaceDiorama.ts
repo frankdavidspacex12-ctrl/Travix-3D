@@ -19,8 +19,8 @@ import {
 } from './craftModels';
 import {
   CraftTextureSet,
-  createCraftTextureSet,
-  createTerrainPBRTextures,
+  getSharedCraftTextureSet,
+  getSharedTerrainPBRTextures,
 } from './craftTextures';
 import {
   createDetailedSaturnRingTexture,
@@ -29,14 +29,57 @@ import {
   createProceduralPlanetTextureSet,
 } from './proceduralTextures';
 import {
+  FullPbrTextureSet,
   Pbr8KCapabilities,
-  processCraft8KPBR,
-  processSurface8KPBR,
+  processCraft8KPBR as processCraft8KPBRRaw,
+  processSurface8KPBR as processSurface8KPBRRaw,
 } from './highResPbrProcessor';
 import type { CraftPbrProfile, SurfacePbrProfile } from './pbr8k.worker';
 import { isMemoryConstrained } from './deviceProfile';
 
 export type SurfaceCameraMode = 'rover' | 'pov';
+
+/**
+ * Hooks from the engine that prepare content arriving after the mission scene is on screen
+ * (NASA models, HD maps), so it no longer freezes the frame it first appears in.
+ */
+export interface SurfacePreparer {
+  /** Compiles the object's shaders in parallel and uploads its textures a few per frame. */
+  prepareObject(obj: THREE.Object3D): Promise<unknown>;
+  /** Uploads textures a few per frame; with freeCpu, drops their pixel copy once on the GPU. */
+  uploadTextures(textures: THREE.Texture[], freeCpu: boolean): Promise<unknown>;
+  /**
+   * Compiles in parallel the shaders a material change needs (apply, then undo right away);
+   * resolves when they are ready, so the change can be applied without a compile stall.
+   */
+  compileChange(apply: () => void, undo: () => void): Promise<unknown>;
+}
+let preparer: SurfacePreparer | null = null;
+export function setSurfacePreparer(p: SurfacePreparer | null): void {
+  preparer = p;
+}
+
+/**
+ * HD maps (up to 4096 px, 64 MB each) used to be uploaded all together in the first frame that
+ * drew them. Now they reach the GPU one per frame before being applied, and their CPU copy
+ * (outside the JS heap, but counted by phones) is released once uploaded. Same textures,
+ * same sampling: only the timing changes.
+ */
+async function readyOnGpu(
+  set: FullPbrTextureSet | null,
+  signal?: AbortSignal,
+): Promise<FullPbrTextureSet | null> {
+  if (!set || !preparer || signal?.aborted) return set;
+  const list = [set.map, set.normalMap, set.roughnessMap, set.metalnessMap].filter(
+    (t): t is THREE.DataTexture => !!t,
+  );
+  await preparer.uploadTextures(list, true);
+  return set;
+}
+const processCraft8KPBR = (opts: Parameters<typeof processCraft8KPBRRaw>[0]) =>
+  processCraft8KPBRRaw(opts).then((set) => readyOnGpu(set, opts.signal));
+const processSurface8KPBR = (opts: Parameters<typeof processSurface8KPBRRaw>[0]) =>
+  processSurface8KPBRRaw(opts).then((set) => readyOnGpu(set, opts.signal));
 
 // Off on phones and tablets: see SolarSystemEngine.ts
 THREE.Cache.enabled = !isMemoryConstrained();
@@ -261,12 +304,15 @@ function disposeObjectTree(obj: THREE.Object3D): void {
         : [mesh.material];
       for (const m of mats) {
         if (!m) continue;
-        const std = m as THREE.MeshStandardMaterial;
-        std.map?.dispose();
-        std.normalMap?.dispose();
-        std.roughnessMap?.dispose();
-        std.metalnessMap?.dispose();
-        std.emissiveMap?.dispose();
+        // Every texture slot (NASA models also bring aoMap, alphaMap, bumpMap, clearcoat…),
+        // otherwise those stay on the GPU after leaving the mission
+        for (const [key, value] of Object.entries(m)) {
+          const tex = value as THREE.Texture | null;
+          // envMap / render-target textures belong to the scene, not to the model
+          if (!tex || !tex.isTexture || key === 'envMap') continue;
+          if ((tex as THREE.Texture & { isRenderTargetTexture?: boolean }).isRenderTargetTexture) continue;
+          tex.dispose();
+        }
         m.dispose();
       }
     }
@@ -523,23 +569,52 @@ function normalizeAndPrepareGlb(
           set.metalnessMap.repeat.y = -1;
           set.metalnessMap.offset.y = 1;
         }
-        for (const std of mats) {
-          if (set.map) {
-            std.map = set.map;
+        const before = mats.map((std) => ({
+          std,
+          map: std.map,
+          normalMap: std.normalMap,
+          normalScale: std.normalScale,
+          roughnessMap: std.roughnessMap,
+          roughness: std.roughness,
+          metalnessMap: std.metalnessMap,
+        }));
+        const apply = () => {
+          for (const std of mats) {
+            if (set.map) {
+              std.map = set.map;
+            }
+            if (!std.normalMap) {
+              std.normalMap = set.normalMap;
+              std.normalScale = new THREE.Vector2(0.75, hasGltfUv ? -0.75 : 0.75);
+            }
+            if (!std.roughnessMap) {
+              std.roughnessMap = set.roughnessMap;
+              std.roughness = 1.0;
+            }
+            if (!std.metalnessMap && (std.metalness ?? 0) > 0.35) {
+              std.metalnessMap = set.metalnessMap;
+            }
+            std.needsUpdate = true;
           }
-          if (!std.normalMap) {
-            std.normalMap = set.normalMap;
-            std.normalScale = new THREE.Vector2(0.75, hasGltfUv ? -0.75 : 0.75);
+        };
+        const undo = () => {
+          for (const b of before) {
+            Object.assign(b.std, {
+              map: b.map,
+              normalMap: b.normalMap,
+              normalScale: b.normalScale,
+              roughnessMap: b.roughnessMap,
+              roughness: b.roughness,
+              metalnessMap: b.metalnessMap,
+            });
+            b.std.needsUpdate = true;
           }
-          if (!std.roughnessMap) {
-            std.roughnessMap = set.roughnessMap;
-            std.roughness = 1.0;
-          }
-          if (!std.metalnessMap && (std.metalness ?? 0) > 0.35) {
-            std.metalnessMap = set.metalnessMap;
-          }
-          std.needsUpdate = true;
-        }
+        };
+        // Shaders for the new maps compiled in parallel first: no stall when they switch on
+        const ready = preparer ? preparer.compileChange(apply, undo) : Promise.resolve();
+        void ready.then(() => {
+          if (!abortSignal?.aborted) apply();
+        });
       });
     });
   }
@@ -856,6 +931,25 @@ function buildSpacecraftModel(
 ): CraftBuildResult {
   const craftType: CraftModelType = mission.craftType;
   const group = new THREE.Group();
+  // A NASA model arrives after the scene is already on screen: drawing it right away compiled its
+  // shaders and uploaded its textures in one frame (a freeze of up to a second). It is kept hidden
+  // until the engine has prepared it in the background; the end result is the same image.
+  const revealWhenReady = (obj: THREE.Object3D, onShown: () => void): void => {
+    if (!preparer) {
+      onShown();
+      return;
+    }
+    obj.visible = false;
+    let shown = false;
+    const show = () => {
+      if (shown || abortSignal?.aborted) return;
+      shown = true;
+      obj.visible = true;
+      onShown();
+    };
+    window.setTimeout(show, 2500);
+    preparer.prepareObject(obj).then(show, show);
+  };
 
   let modelDisposed = false;
   disposables.push({
@@ -2246,9 +2340,12 @@ function buildSpacecraftModel(
         glbMainRoot = prepared;
         if (mission.id === 'phoenix') adaptInsightToPhoenix(prepared, craftMats(), disposables);
         group.add(prepared);
-        if (!glbSpec.keepFallback) {
-          craftFallbackGroup.visible = false;
-        }
+        // Shown once its shaders and textures are ready (the fallback craft stays until then)
+        revealWhenReady(prepared, () => {
+          if (!glbSpec.keepFallback) {
+            craftFallbackGroup.visible = false;
+          }
+        });
 
         // Play authentic NASA GLB skeletal / part animations safely
         if (mission.id === 'perseverance' || mission.id === 'curiosity') {
@@ -2303,9 +2400,11 @@ function buildSpacecraftModel(
           const r2 = gltf.scene.getObjectByName('rotors_02');
           glbIngenuityRotors = [r1, r2].filter(Boolean) as THREE.Object3D[];
           group.add(comp);
-          if (heliGroup) {
-            heliGroup.visible = false;
-          }
+          revealWhenReady(comp, () => {
+            if (heliGroup) {
+              heliGroup.visible = false;
+            }
+          });
         },
         undefined,
         () => {},
@@ -2358,8 +2457,17 @@ function buildSpacecraftModel(
         },
       );
     }
+    // Only materials some part of this craft really uses: the rebuilt craft (Surveyor, ALSEP,
+    // LRV…) bring their own materials, and HD maps for unused ones were computed and kept in
+    // memory for nothing (192 MB of GPU memory once uploaded)
+    const usedMaterials = new Set<THREE.Material>();
+    group.traverse((o) => {
+      const m = (o as THREE.Mesh).material;
+      if (!m) return;
+      for (const x of Array.isArray(m) ? m : [m]) usedMaterials.add(x);
+    });
     heroUpgrades.forEach((u, idx) => {
-      if (!u.source) return;
+      if (!u.source || !usedMaterials.has(u.mat)) return;
       void processCraft8KPBR({
         albedoSource: u.source,
         craftProfile: u.craftProfile,
@@ -2551,7 +2659,7 @@ export function createSurfaceDiorama(
   const theme = getWorldTheme(mission);
   const root = new THREE.Group();
 
-  const craftTex = createCraftTextureSet(maxAnisotropy);
+  const craftTex = getSharedCraftTextureSet(maxAnisotropy);
   disposables.push(craftTex);
 
   const craftResult = buildSpacecraftModel(
@@ -2902,7 +3010,7 @@ export function createSurfaceDiorama(
     }
   } else {
     // 1. Multi-Scale Photorealistic 3D Planetary Terrain (180x180m) with Normal + Roughness + Streamed NASA Surface Photos
-    const terrainPBR = createTerrainPBRTextures(theme.pbrWorld, maxAnisotropy);
+    const terrainPBR = getSharedTerrainPBRTextures(theme.pbrWorld, maxAnisotropy);
     disposables.push(terrainPBR);
 
     const size = 180;
@@ -3288,6 +3396,9 @@ export function createSurfaceDiorama(
   sunLight.shadow.normalBias = 0.015;
   root.add(sunLight);
   root.add(sunLight.target);
+  // three.js never frees a shadow map by itself: without this every mission visited left its
+  // 2048-4096 px shadow map (16-64 MB) on the GPU
+  disposables.push({ dispose: () => sunLight.dispose() });
 
   const hemiLight = new THREE.HemisphereLight(
     theme.ambientSky,
