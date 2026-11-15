@@ -30,7 +30,7 @@ import {
   SearchTab,
 } from './components/MissionSearch';
 import { PWAControls } from './components/PWAControls';
-import { shouldShowWelcome, TEAM_NAME, WelcomeCredits } from './components/WelcomeCredits';
+import { TEAM_NAME, WelcomeCredits } from './components/WelcomeCredits';
 import { shouldShowTutorial, WelcomeTutorial } from './components/WelcomeTutorial';
 import { subscribeViewInsets, useViewInset } from './ui/viewInsets';
 import type { WarpRequest } from './components/WarpOverlay';
@@ -386,11 +386,10 @@ export default function App() {
     };
   }, [isLibritoShown]);
 
-  const [isWelcomeOpen, setIsWelcomeOpen] = useState(shouldShowWelcome);
-  // Tutorial: first visit only, right after the welcome screen (or at once if that was seen before)
-  const [isTutorialOpen, setIsTutorialOpen] = useState(
-    () => !shouldShowWelcome() && shouldShowTutorial(),
-  );
+  // The team welcome opens every time the app starts
+  const [isWelcomeOpen, setIsWelcomeOpen] = useState(true);
+  // Tutorial: first visit only, right after the welcome screen
+  const [isTutorialOpen, setIsTutorialOpen] = useState(false);
   const handleCloseWelcome = useCallback(() => {
     setIsWelcomeOpen(false);
     if (shouldShowTutorial()) setIsTutorialOpen(true);

@@ -1,7 +1,7 @@
 # Travix 3D — Left Behind, Not Forgotten
 
 **NASA Space Apps Challenge 2026 · Challenge: _Abandoned but not Forgotten: Storytelling about NASA's Discarded Equipment on the Moon and Mars_**
-**Team:** Artemis Colombia — Juan José Quintero Giraldo, Luis Fernando Alzate, Frank David Sierra Guerra, Luz Angela Parra, Ivan Molina
+**Team:** Steps Ahead — Juan José Quintero Giraldo, Luis Fernando Alzate, Frank David Sierra Guerra, Luz Angela Parra, Ivan Molina
 
 🌐 **Live app:** https://travix-3-d.vercel.app (installable PWA, works offline)
 

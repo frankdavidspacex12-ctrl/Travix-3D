@@ -2,7 +2,7 @@ import React, { useEffect, useRef } from 'react';
 import { MapPin, Rocket, X } from 'lucide-react';
 import { tr } from '../i18n';
 
-export const TEAM_NAME = 'Artemis Colombia';
+export const TEAM_NAME = 'Steps Ahead';
 const EVENT_NAME = 'NASA Space Apps Challenge 2026';
 const VENUE_ES = 'Sede presencial San Vicente';
 const TEAM_MEMBERS = [
@@ -12,25 +12,6 @@ const TEAM_MEMBERS = [
   'Luz Angela Parra',
   'Ivan Molina',
 ];
-
-const WELCOME_SEEN_KEY = 'travix-welcome-seen';
-
-/** First visit only (per browser); afterwards it reopens from the Travix logo. */
-export function shouldShowWelcome(): boolean {
-  try {
-    return window.localStorage.getItem(WELCOME_SEEN_KEY) !== '1';
-  } catch {
-    return true;
-  }
-}
-
-function markWelcomeSeen(): void {
-  try {
-    window.localStorage.setItem(WELCOME_SEEN_KEY, '1');
-  } catch {
-    // storage unavailable: it will simply show again next visit
-  }
-}
 
 /** Créditos de datos, modelos, imágenes, sonido, código y uso de IA (ver también README.md). */
 const CREDITS: Array<{ what: string; from: string }> = [
@@ -72,24 +53,19 @@ interface WelcomeCreditsProps {
 }
 
 /**
- * Welcome screen with the Artemis Colombia team that created Travix 3D.
+ * Welcome screen with the Steps Ahead team that created Travix 3D. Shown every time the app starts;
+ * it can also be reopened from the Travix logo.
  * Two columns on wide screens so it fits without scrolling, over an animated starfield.
  */
 export const WelcomeCredits: React.FC<WelcomeCreditsProps> = ({ onClose }) => {
   const startRef = useRef<HTMLButtonElement | null>(null);
 
-  const close = () => {
-    markWelcomeSeen();
-    onClose();
-  };
+  const close = onClose;
 
   useEffect(() => {
     startRef.current?.focus({ preventScroll: true });
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        markWelcomeSeen();
-        onClose();
-      }
+      if (e.key === 'Escape') onClose();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
@@ -127,7 +103,7 @@ export const WelcomeCredits: React.FC<WelcomeCreditsProps> = ({ onClose }) => {
           {/* Columna 1: insignia, título y evento */}
           <div className="text-center">
             <img
-              src="/team/artemis-colombia.jpg"
+              src="/team/steps-ahead.jpg"
               alt={`${tr('Insignia del equipo', 'Team badge')} ${TEAM_NAME}`}
               width={150}
               height={150}
