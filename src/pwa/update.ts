@@ -21,10 +21,35 @@ export function setRegistration(r: ServiceWorkerRegistration | undefined): void 
   registration = r;
 }
 
+/**
+ * Moments when a new version is applied by itself, because nobody is in the middle of anything:
+ * the first seconds after the app opens (the welcome screen is showing) and the first seconds
+ * after coming back to the app from a long time away. Outside them it waits for «System».
+ */
+const OPEN_WINDOW_MS = 60_000;
+const AWAY_MS = 5 * 60_000;
+let autoApplyUntil = Date.now() + OPEN_WINDOW_MS;
+let hiddenAt: number | null = null;
+
+/** Called on every visibility change (main.tsx). */
+export function onVisibilityChange(visible: boolean): void {
+  if (!visible) {
+    hiddenAt = Date.now();
+    return;
+  }
+  if (hiddenAt !== null && Date.now() - hiddenAt >= AWAY_MS) {
+    autoApplyUntil = Date.now() + OPEN_WINDOW_MS;
+    if (applyUpdate()) return;
+  }
+  hiddenAt = null;
+  checkForUpdate();
+}
+
 /** A newer version is installed and waiting. */
 export function markUpdateReady(): void {
   ready = true;
   emit();
+  if (Date.now() < autoApplyUntil) applyUpdate();
 }
 
 export function isUpdateReady(): boolean {

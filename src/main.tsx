@@ -1,6 +1,6 @@
 import { createRoot } from 'react-dom/client';
 import { registerSW } from 'virtual:pwa-register';
-import { checkForUpdate, markUpdateReady, setRegistration, setUpdater } from './pwa/update';
+import { markUpdateReady, onVisibilityChange, setRegistration, setUpdater } from './pwa/update';
 import './i18n/data';
 import App from './App.tsx';
 import './index.css';
@@ -19,9 +19,9 @@ if ('serviceWorker' in navigator) {
         // Offline precache ready silently without noisy UI toasts
       },
       onNeedRefresh() {
-        // A newer version is installed and waiting: it takes over the next time the app is
-        // opened, or when the person taps «System» (see pwa/update.ts). Never reload here: that
-        // threw people out of what they were exploring.
+        // A newer version is installed and waiting. It is applied by itself only right after the
+        // app opens or after coming back from a long time away; otherwise when the person taps
+        // «System» (see pwa/update.ts). Never in the middle of exploring.
         markUpdateReady();
       },
     });
@@ -39,10 +39,9 @@ if ('serviceWorker' in navigator) {
     }
   };
 
-  // Coming back to the app (phones keep it open for days): look for a new version, so the
-  // «System» button can offer it
+  // Phones keep the app open for days: look for a new version when coming back to it
   document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible') checkForUpdate();
+    onVisibilityChange(document.visibilityState === 'visible');
   });
 
   if (document.readyState === 'complete') {
