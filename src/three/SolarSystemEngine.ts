@@ -2769,7 +2769,29 @@ export class SolarSystemEngine {
         }
       }
 
-      const intersects = this.raycaster.intersectObjects(this.hitProxies, false);
+      // 2. Parados en una luna: su zona de clic invisible (mucho mayor que la luna) cubre media pantalla
+      // y la cámara queda dentro de la del planeta, que desde dentro no responde. Se decide con las
+      // superficies reales: la luna o su planeta, gana el que esté más cerca a lo largo del clic.
+      if (this.focusedMoonId && this.focusedBodyId) {
+        const moonRt = this.moonsById.get(this.focusedMoonId);
+        const host = this.bodies.get(this.focusedBodyId);
+        const moonHit = moonRt ? this.raycaster.intersectObject(moonRt.mesh, false)[0] : undefined;
+        const hostHit = host ? this.raycaster.intersectObject(host.mesh, false)[0] : undefined;
+        if (hostHit && (!moonHit || hostHit.distance < moonHit.distance)) {
+          this.flyToBody(this.focusedBodyId);
+          return;
+        }
+        if (moonHit) {
+          this.flyToMoon(this.focusedBodyId, this.focusedMoonId);
+          return;
+        }
+      }
+
+      const allHits = this.raycaster.intersectObjects(this.hitProxies, false);
+      // La zona invisible de la luna actual no cuenta (ya se resolvió arriba con su superficie real)
+      const intersects = this.focusedMoonId
+        ? allHits.filter((i) => i.object.userData.moonId !== this.focusedMoonId)
+        : allHits;
       if (intersects.length > 0) {
         // When focused on a planet, prioritize moon clicks even if inside planet's overview hit proxy
         const preferred =

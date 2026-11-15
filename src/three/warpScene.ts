@@ -15,7 +15,24 @@ export interface WarpTarget {
   color: string;
   /** Self-luminous destination (the Sun, nebulae, black holes...) */
   glow?: boolean;
+  /**
+   * Cuerpos que acompañan al destino (sus lunas principales). Tamaño relativo real respecto al
+   * destino (con un mínimo para que se vean); la distancia se acerca para que quepan en la escena,
+   * porque el hipersalto es una transición visual, no un viaje a escala.
+   */
+  companions?: WarpCompanion[];
 }
+
+export interface WarpCompanion {
+  texture?: string;
+  color: string;
+  /** Radio relativo al del destino (1 = igual de grande) */
+  size: number;
+}
+
+/** Ángulos (rad) donde se reparten los acompañantes alrededor del destino. */
+const COMPANION_ANGLES = [2.5, 0.55, 3.6, -0.35];
+const COMPANION_MAX = COMPANION_ANGLES.length;
 
 const STREAK_PALETTE = [
   new THREE.Color(0xffffff),
@@ -49,6 +66,9 @@ export class WarpScene {
   private targetMat: THREE.MeshStandardMaterial;
   private targetHalo: THREE.Sprite;
   private targetTexUrl = '';
+  private companionGeo: THREE.SphereGeometry;
+  private companionGroup = new THREE.Group();
+  private companionMeshes: Array<{ mesh: THREE.Mesh; mat: THREE.MeshStandardMaterial; angle: number; orbit: number }> = [];
   private textureLoader = new THREE.TextureLoader();
   private time = 0;
   private readonly count: number;
@@ -166,6 +186,11 @@ export class WarpScene {
     this.scene.add(this.targetHalo);
     this.disposables.push(targetGeo, this.targetMat, haloMat);
 
+    // Lunas que acompañan al destino: viajan junto a él (hijas de su grupo, no giran con su textura)
+    this.companionGeo = new THREE.SphereGeometry(TARGET_RADIUS, 32, 24);
+    this.disposables.push(this.companionGeo);
+    this.scene.add(this.companionGroup);
+
     // Light streaks
     this.count = lowPower ? 420 : 760;
     const streakGeo = new THREE.BoxGeometry(1, 1, 1);
@@ -212,6 +237,7 @@ export class WarpScene {
 
   /** Destination shown ahead during the jump (null = no specific target). */
   public setTarget(target: WarpTarget | null): void {
+    this.setCompanions(target?.companions ?? []);
     if (!target) {
       this.target.visible = false;
       this.targetHalo.visible = false;
@@ -261,6 +287,40 @@ export class WarpScene {
       this.targetMat.color.copy(color);
       this.targetMat.needsUpdate = true;
     }
+  }
+
+  /** Reemplaza las lunas acompañantes (libera las anteriores: materiales y texturas). */
+  private setCompanions(list: WarpCompanion[]): void {
+    for (const c of this.companionMeshes) {
+      this.companionGroup.remove(c.mesh);
+      c.mat.map?.dispose();
+      c.mat.dispose();
+    }
+    this.companionMeshes = [];
+    const items = list.slice(0, COMPANION_MAX);
+    items.forEach((item, i) => {
+      const size = THREE.MathUtils.clamp(item.size, 0.07, 0.4);
+      const mat = new THREE.MeshStandardMaterial({ color: new THREE.Color(item.color), roughness: 0.95, metalness: 0 });
+      const mesh = new THREE.Mesh(this.companionGeo, mat);
+      mesh.scale.setScalar(size);
+      // Cada luna un poco más lejos que la anterior, fuera del disco del destino
+      const orbit = TARGET_RADIUS * (1.7 + i * 0.55 + size);
+      this.companionMeshes.push({ mesh, mat, angle: COMPANION_ANGLES[i], orbit });
+      this.companionGroup.add(mesh);
+      if (item.texture) {
+        const url = item.texture;
+        this.textureLoader.load(url, (tex) => {
+          if (this.disposed || !this.companionMeshes.some((c) => c.mat === mat)) {
+            tex.dispose();
+            return;
+          }
+          tex.colorSpace = THREE.SRGBColorSpace;
+          mat.map = tex;
+          mat.color.set(0xffffff);
+          mat.needsUpdate = true;
+        });
+      }
+    });
   }
 
   /** Compile every shader up front so the first jump starts without a hitch. */
@@ -323,6 +383,15 @@ export class WarpScene {
     this.targetHalo.scale.set(halo, halo, 1);
     this.targetHalo.material.opacity = this.target.visible ? 0.35 + 0.25 * approach : 0.9;
 
+    // Lunas acompañantes: alrededor del destino, girando despacio en un plano algo inclinado
+    this.companionGroup.visible = this.target.visible && this.companionMeshes.length > 0;
+    this.companionGroup.position.copy(this.target.position);
+    for (const c of this.companionMeshes) {
+      const a = c.angle + t * 0.12;
+      c.mesh.position.set(Math.cos(a) * c.orbit, Math.sin(a) * c.orbit * 0.28, Math.sin(a) * c.orbit * 0.3);
+      c.mesh.rotation.y = t * 0.1;
+    }
+
     // Ship: gentle sway in flight, enters from below, leaps ahead at the exit
     const ease = (x: number) => 1 - Math.pow(1 - x, 3);
     const inE = ease(Math.min(1, Math.max(0, shipIn)));
@@ -348,6 +417,7 @@ export class WarpScene {
     this.disposables = [];
     this.rig?.dispose();
     this.targetMat.map?.dispose();
+    this.setCompanions([]);
     this.renderer.dispose();
   }
 }

@@ -12,10 +12,50 @@ import {
   Search,
   Sparkles,
   Volume2,
+  VolumeX,
   X,
 } from 'lucide-react';
 
 const TUTORIAL_SEEN_KEY = 'travix-tutorial-seen';
+const TUTORIAL_VOICE_KEY = 'travix-tutorial-voice';
+
+const canSpeak = typeof window !== 'undefined' && 'speechSynthesis' in window;
+
+/** Con voz por defecto; se recuerda la elección de cada navegador. */
+function loadVoicePref(): boolean {
+  try {
+    return window.localStorage.getItem(TUTORIAL_VOICE_KEY) !== '0';
+  } catch {
+    return true;
+  }
+}
+
+function saveVoicePref(on: boolean): void {
+  try {
+    window.localStorage.setItem(TUTORIAL_VOICE_KEY, on ? '1' : '0');
+  } catch {
+    // sin almacenamiento: solo vale para esta visita
+  }
+}
+
+/** Lee el texto con una voz en español del dispositivo (Web Speech; sin archivos ni internet). */
+function speak(text: string): void {
+  if (!canSpeak) return;
+  const synth = window.speechSynthesis;
+  synth.cancel();
+  const u = new SpeechSynthesisUtterance(text);
+  const voices = synth.getVoices();
+  const es =
+    voices.find((v) => /^es[-_](419|CO|MX|US)/i.test(v.lang)) ?? voices.find((v) => /^es\b|^es[-_]/i.test(v.lang));
+  if (es) u.voice = es;
+  u.lang = es?.lang ?? 'es-ES';
+  u.rate = 1;
+  synth.speak(u);
+}
+
+function stopSpeaking(): void {
+  if (canSpeak) window.speechSynthesis.cancel();
+}
 
 /** First visit only (per browser); afterwards it reopens from the "?" button. */
 export function shouldShowTutorial(): boolean {
@@ -146,6 +186,7 @@ export const WelcomeTutorial: React.FC<WelcomeTutorialProps> = ({ onClose }) => 
   const [rect, setRect] = useState<Rect | null>(null);
   const [cardHeight, setCardHeight] = useState(0);
   const [isTouch] = useState(() => window.matchMedia('(pointer: coarse)').matches);
+  const [voiceOn, setVoiceOn] = useState(() => canSpeak && loadVoicePref());
   const dialogRef = useRef<HTMLElement | null>(null);
   const nextRef = useRef<HTMLButtonElement | null>(null);
   const titleId = useId();
@@ -156,9 +197,15 @@ export const WelcomeTutorial: React.FC<WelcomeTutorialProps> = ({ onClose }) => 
   const isLast = index === STEPS.length - 1;
 
   const close = useCallback(() => {
+    stopSpeaking();
     markTutorialSeen();
     onClose();
   }, [onClose]);
+
+  const chooseVoice = useCallback((on: boolean) => {
+    setVoiceOn(on);
+    saveVoicePref(on);
+  }, []);
 
   const goNext = useCallback(() => {
     if (index >= STEPS.length - 1) close();
@@ -272,6 +319,23 @@ export const WelcomeTutorial: React.FC<WelcomeTutorialProps> = ({ onClose }) => 
 
   const tip = isTouch ? step.touchTip : step.mouseTip;
   const Icon = step.icon;
+  const spoken = `${step.title}. ${step.text}${tip ? ` ${tip}` : ''}`;
+
+  // Narración de cada paso (se corta al cambiar de paso, al quitar la voz o al cerrar)
+  useEffect(() => {
+    if (!voiceOn) {
+      stopSpeaking();
+      return;
+    }
+    // Las voces del sistema pueden cargar tarde: se reintenta una vez cuando llegan
+    speak(spoken);
+    const synth = canSpeak ? window.speechSynthesis : null;
+    const onVoices = () => speak(spoken);
+    if (synth && synth.getVoices().length === 0) synth.addEventListener('voiceschanged', onVoices, { once: true });
+    return () => synth?.removeEventListener('voiceschanged', onVoices);
+  }, [spoken, voiceOn]);
+
+  useEffect(() => stopSpeaking, []);
 
   return (
     <div className="fixed inset-0 z-[80]" role="presentation">
@@ -307,7 +371,7 @@ export const WelcomeTutorial: React.FC<WelcomeTutorialProps> = ({ onClose }) => 
           >
             <Icon className="w-5 h-5 text-amber-300" />
           </span>
-          <div className="min-w-0 flex-1 pr-7" aria-live="polite">
+          <div className={`min-w-0 flex-1 ${isFirst || !canSpeak ? "pr-7" : "pr-16"}`} aria-live="polite">
             <p className="text-[11px] font-semibold uppercase tracking-wider text-cyan-300/90">
               Tutorial · Paso {index + 1} de {STEPS.length}
             </p>
@@ -320,6 +384,34 @@ export const WelcomeTutorial: React.FC<WelcomeTutorialProps> = ({ onClose }) => 
             </div>
           </div>
         </div>
+
+        {/* Al principio: ¿con voz o sin voz? (con voz por defecto) */}
+        {isFirst && canSpeak && (
+          <div className="mt-3" role="group" aria-label="¿Quieres el tutorial con voz?">
+            <p className="text-xs text-slate-300 mb-1.5">¿Cómo quieres el tutorial?</p>
+            <div className="grid grid-cols-2 gap-2">
+              {[
+                { on: true, label: 'Con voz', icon: Volume2 },
+                { on: false, label: 'Sin voz', icon: VolumeX },
+              ].map(({ on, label, icon: VIcon }) => (
+                <button
+                  key={label}
+                  type="button"
+                  aria-pressed={voiceOn === on}
+                  onClick={() => chooseVoice(on)}
+                  className={`inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-sm cursor-pointer transition-colors focus-visible:outline-2 focus-visible:outline-amber-400 ${
+                    voiceOn === on
+                      ? 'bg-cyan-500/20 border border-cyan-300/60 text-white'
+                      : 'travix-glass-control text-slate-300 hover:text-white'
+                  }`}
+                >
+                  <VIcon className="w-4 h-4" aria-hidden="true" />
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Progress dots */}
         <div className="mt-3 flex items-center justify-center gap-1.5" aria-hidden="true">
@@ -361,6 +453,19 @@ export const WelcomeTutorial: React.FC<WelcomeTutorialProps> = ({ onClose }) => 
             {!isLast && <ChevronRight className="w-4 h-4" aria-hidden="true" />}
           </button>
         </div>
+
+        {!isFirst && canSpeak && (
+          <button
+            type="button"
+            onClick={() => chooseVoice(!voiceOn)}
+            aria-pressed={voiceOn}
+            aria-label={voiceOn ? 'Quitar la voz del tutorial' : 'Poner la voz del tutorial'}
+            title={voiceOn ? 'Quitar la voz' : 'Poner la voz'}
+            className="absolute top-2 right-10 inline-flex items-center justify-center w-8 h-8 rounded-md text-slate-300 hover:text-white hover:bg-white/12 cursor-pointer focus-visible:outline-2 focus-visible:outline-amber-400"
+          >
+            {voiceOn ? <Volume2 className="w-4 h-4" aria-hidden="true" /> : <VolumeX className="w-4 h-4" aria-hidden="true" />}
+          </button>
+        )}
 
         <button
           type="button"

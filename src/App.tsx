@@ -60,7 +60,12 @@ function warpTargetFor(bodyId: CelestialBodyId, moonId?: string): WarpTarget | u
     const moon = body.moons.find((m) => m.id === moonId);
     if (moon) return { texture: moon.textureUrl, color: '#cbd5e1' };
   }
-  return { texture: body.textures.map, color: body.accentColor, glow: body.id === 'sun' };
+  // Sus lunas principales viajan junto al destino (las más grandes primero, hasta 4)
+  const companions = [...body.moons]
+    .sort((a, b) => b.radius - a.radius)
+    .slice(0, 4)
+    .map((m) => ({ texture: m.textureUrl, color: '#cbd5e1', size: m.radius / body.visualRadius }));
+  return { texture: body.textures.map, color: body.accentColor, glow: body.id === 'sun', companions };
 }
 
 // The engine pushes the simulation clock to React ~8×/s. Only ControlDock shows the clock, so

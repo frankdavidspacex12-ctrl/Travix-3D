@@ -8,6 +8,10 @@ import { createGlowTexture, createShipRig, loadShipTemplate, ShipRig } from './s
  */
 /** Duration of the ship's fade in and out (ship mode toggled). */
 const SHIP_FADE_SECONDS = 0.9;
+/** Pose de reposo (rad): + inclina la nariz hacia arriba/adelante (se ve el lomo); antes era -0,34. */
+const SHIP_REST_PITCH = 0.38;
+/** Pose de reposo (rad): + gira la nariz hacia la izquierda, hacia el centro de la pantalla. */
+const SHIP_REST_YAW = 0.42;
 
 export class ShipOverlay {
   readonly scene = new THREE.Scene();
@@ -171,9 +175,11 @@ export class ShipOverlay {
     // Course attitude with a gentle sway, turned by the hand inspection (screen-space yaw / pitch)
     const bank = THREE.MathUtils.clamp(turn * 0.35, -0.5, 0.5);
     const noseIn = THREE.MathUtils.clamp(turn * 0.15, -0.25, 0.25);
+    // Pose de reposo elegida por el equipo: vista desde arriba y detrás, con la nariz hacia
+    // adelante y un poco a la izquierda (hacia el destino), en lugar de mirar hacia abajo.
     this.baseEuler.set(
-      -0.34 + Math.sin(t * 0.9) * 0.012,
-      Math.sin(t * 0.45) * 0.035 + noseIn,
+      SHIP_REST_PITCH + Math.sin(t * 0.9) * 0.012,
+      SHIP_REST_YAW + Math.sin(t * 0.45) * 0.035 + noseIn,
       Math.sin(t * 0.7) * 0.05 + bank,
     );
     this.baseQuat.setFromEuler(this.baseEuler);
