@@ -355,6 +355,13 @@ const COMET_MAX_SCREEN_EXPOSURE = 6;
 const SUN_OUTER_GLOW_COLOR = new THREE.Color(0xf97316);
 const OUTER_ATMOSPHERE_BODIES = new Set(['uranus', 'neptune', 'pluto']);
 
+/**
+ * Achatamiento real de los gigantes gaseosos (radio polar / ecuatorial): Júpiter 0,935 y Saturno
+ * 0,902. Se aplica igual al planeta, a su brillo de atmósfera y a sus auroras, para que nada
+ * sobresalga de los polos.
+ */
+const POLAR_FLATTENING: Partial<Record<string, number>> = { jupiter: 0.935, saturn: 0.902 };
+
 function createAtmosphereShaderMaterial(
   colorHex: string,
   intensity: number,
@@ -1428,11 +1435,8 @@ export class SolarSystemEngine {
 
         mesh = new THREE.Mesh(sphereGeo, planetMat);
         // True astrophysical equatorial oblateness on rapidly spinning gas giants
-        if (data.id === 'jupiter') {
-          mesh.scale.set(1, 0.935, 1);
-        } else if (data.id === 'saturn') {
-          mesh.scale.set(1, 0.902, 1);
-        }
+        const flattening = POLAR_FLATTENING[data.id];
+        if (flattening) mesh.scale.set(1, flattening, 1);
         if (!this.isSoftwareGl) {
           mesh.castShadow = true;
           mesh.receiveShadow = true;
@@ -1742,19 +1746,23 @@ export class SolarSystemEngine {
       // Day-side atmospheric Fresnel shell
       let atmosphereMesh: THREE.Mesh | undefined;
       if (data.atmosphereColor && data.atmosphereIntensity) {
+        // En los gigantes gaseosos el borde real es una línea fina: cáscara más ceñida (1,5 % en vez
+        // de 4,5 %), más tenue y achatada como el planeta (antes sobresalía en los polos como un aro).
+        const flattening = POLAR_FLATTENING[data.id];
         const atmoGeo = new THREE.SphereGeometry(
-          data.visualRadius * 1.045,
+          data.visualRadius * (flattening ? 1.015 : 1.045),
           48,
           36,
         );
         const atmoMat = createAtmosphereShaderMaterial(
           data.atmosphereColor,
-          data.atmosphereIntensity,
+          data.atmosphereIntensity * (flattening ? 0.55 : 1),
         );
         if (OUTER_ATMOSPHERE_BODIES.has(data.id)) {
           this.outerAtmosphereMats.push({ material: atmoMat, baseIntensity: data.atmosphereIntensity });
         }
         atmosphereMesh = new THREE.Mesh(atmoGeo, atmoMat);
+        if (flattening) atmosphereMesh.scale.set(1, flattening, 1);
         tiltGroup.add(atmosphereMesh);
         this.disposables.push(atmoGeo, atmoMat);
       }
@@ -1910,6 +1918,8 @@ export class SolarSystemEngine {
           roughness: 0.85,
         });
         cloudMesh = new THREE.Mesh(jupCloudGeo, jupCloudMat);
+        // Achatada como el planeta: si no, asomaba sobre los polos como un casquete claro
+        cloudMesh.scale.set(1, POLAR_FLATTENING.jupiter ?? 1, 1);
         if (!this.isSoftwareGl) cloudMesh.receiveShadow = true;
         tiltGroup.add(cloudMesh);
         this.disposables.push(jupCloudGeo, jupCloudTex, jupCloudMat);
@@ -2057,11 +2067,15 @@ export class SolarSystemEngine {
         const auroraColor =
           data.id === 'jupiter' ? new THREE.Color(0x38bdf8) : new THREE.Color(0xa78bfa);
         for (const poleSign of [-1, 1]) {
+          // Óvalo auroral real: anillo fino hacia los 75° de latitud, pegado a la superficie achatada
+          // (antes era un casquete ancho a 0,94 radios, flotando por encima del polo).
+          const aurLat = THREE.MathUtils.degToRad(75);
+          const aurRing = data.visualRadius * Math.cos(aurLat);
           const aurGeo = new THREE.CylinderGeometry(
-            data.visualRadius * 0.34,
-            data.visualRadius * 0.25,
-            data.visualRadius * 0.16,
-            40,
+            aurRing * 1.06,
+            aurRing,
+            data.visualRadius * 0.06,
+            48,
             1,
             true,
           );
@@ -2087,8 +2101,9 @@ export class SolarSystemEngine {
               void main() {
                 float curtain = 0.5 + 0.5 * sin(vUv.x * 25.132 + uTime * 2.1) * cos(vUv.x * 12.566 - uTime * 1.4);
                 float vert = sin(vUv.y * 3.14159);
-                float alpha = vert * (0.18 + 0.52 * curtain);
-                gl_FragColor = vec4(uColor * (1.2 + curtain * 0.8) * uExposureComp, alpha);
+                // Más tenue: casi toda la luz de estas auroras es ultravioleta (invisible al ojo)
+                float alpha = vert * (0.08 + 0.27 * curtain);
+                gl_FragColor = vec4(uColor * (0.9 + curtain * 0.6) * uExposureComp, alpha);
               }
             `,
             transparent: true,
@@ -2097,7 +2112,8 @@ export class SolarSystemEngine {
             side: THREE.DoubleSide,
           });
           const aurMesh = new THREE.Mesh(aurGeo, aurMat);
-          aurMesh.position.y = poleSign * data.visualRadius * 0.94;
+          aurMesh.position.y =
+            poleSign * data.visualRadius * Math.sin(aurLat) * (POLAR_FLATTENING[data.id] ?? 1) * 1.01;
           if (poleSign < 0) aurMesh.rotation.x = Math.PI;
           tiltGroup.add(aurMesh);
           this.auroraMats.push(aurMat);
