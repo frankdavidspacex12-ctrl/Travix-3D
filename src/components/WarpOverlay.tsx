@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { WarpScene, WarpTarget } from '../three/warpScene';
+import { tr } from '../i18n';
 
 export interface WarpRequest {
   id: number;
@@ -162,18 +163,18 @@ const WarpOverlay: React.FC<WarpOverlayProps> = ({ request, onDone }) => {
       {activeLabel && (
         <div className="absolute top-5 inset-x-0 flex flex-col items-center gap-0.5 pointer-events-none px-4 text-center">
           <span className="text-[10px] font-semibold uppercase tracking-[0.3em] text-cyan-200/90">
-            Hipersalto
+            {tr('Hipersalto', 'Hyperspace jump')}
           </span>
           <span className="font-display text-sm sm:text-base font-semibold text-white drop-shadow-[0_1px_6px_rgba(0,0,0,0.9)]">
-            Rumbo a {activeLabel}
+            {tr('Rumbo a', 'Heading to')} {activeLabel}
           </span>
         </div>
       )}
       {/* D05: el hipersalto es una convención visual; las naves reales tardan meses o años */}
       <span className="absolute bottom-5 inset-x-0 px-4 text-center text-[10px] leading-snug text-slate-300/80 pointer-events-none">
-        Transición visual: las naves reales no viajan así, tardan meses o años
+        {tr('Transición visual: las naves reales no viajan así, tardan meses o años', 'Visual transition: real spacecraft do not travel like this, they take months or years')}
         <br />
-        Toca para saltar
+        {tr('Toca para saltar', 'Tap to skip')}
       </span>
     </div>
   );

@@ -1,6 +1,7 @@
 import React, { useMemo } from 'react';
 import { ABANDONED_MISSIONS, AbandonedMission } from '../data/abandonedMissionsData';
 import { CELESTIAL_BODIES, CelestialBodyId } from '../data/solarSystemData';
+import { tr } from '../i18n';
 
 /** Where a linked word takes the user. */
 export type LinkTarget =
@@ -164,8 +165,8 @@ export const LinkedText: React.FC<LinkedTextProps> = ({ text, onNavigate, curren
               e.stopPropagation();
               onNavigate(part.target);
             }}
-            title={`Ir a ${part.target.name}`}
-            aria-label={`${part.alias}: ir a ${part.target.name}`}
+            title={`${tr('Ir a', 'Go to')} ${part.target.name}`}
+            aria-label={`${part.alias}: ${tr('ir a', 'go to')} ${part.target.name}`}
             className="inline p-0 m-0 bg-transparent border-0 font-[inherit] text-[inherit] leading-[inherit] text-cyan-200 underline decoration-cyan-300/50 decoration-dotted underline-offset-2 hover:text-white hover:decoration-solid hover:decoration-cyan-200 cursor-pointer rounded-sm focus-visible:outline-2 focus-visible:outline-amber-400"
           >
             {part.alias}

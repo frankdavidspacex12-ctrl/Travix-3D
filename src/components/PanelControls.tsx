@@ -1,5 +1,6 @@
 import React from 'react';
 import { ChevronDown, ChevronUp, Minus, X } from 'lucide-react';
+import { tr } from '../i18n';
 
 /** Shared icon-button look for panel headers (bigger touch target on phones). */
 export const PANEL_ICON_BUTTON =
@@ -52,8 +53,8 @@ export const PanelControls: React.FC<PanelControlsProps> = ({
         type="button"
         onClick={onToggleMinimize}
         aria-expanded={!minimized}
-        aria-label={minimized ? `Expandir ${label}` : `Minimizar ${label}`}
-        title={minimized ? 'Expandir' : 'Minimizar'}
+        aria-label={minimized ? `${tr('Expandir', 'Expand')} ${label}` : `${tr('Minimizar', 'Minimize')} ${label}`}
+        title={minimized ? tr('Expandir', 'Expand') : tr('Minimizar', 'Minimize')}
         className={PANEL_ICON_BUTTON}
       >
         {minimized ? expandIcon : <Minus className="w-4 h-4" />}
@@ -62,8 +63,8 @@ export const PanelControls: React.FC<PanelControlsProps> = ({
         <button
           type="button"
           onClick={onClose}
-          aria-label={closeTitle ?? `Cerrar ${label}`}
-          title={closeTitle ?? 'Cerrar'}
+          aria-label={closeTitle ?? `${tr('Cerrar', 'Close')} ${label}`}
+          title={closeTitle ?? tr('Cerrar', 'Close')}
           className={PANEL_ICON_BUTTON}
         >
           <X className="w-4 h-4" />

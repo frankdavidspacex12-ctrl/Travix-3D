@@ -46,8 +46,8 @@ Other data: **CelesTrak** orbital elements for the ISS (fetched when online; a c
 
 - **3D models:** NASA 3D Resources (NASA media usage guidelines).
 - **Photos:** NASA Image and Video Library (NASA media usage guidelines). NASA does not endorse this project.
-- **Planet and moon surface maps:** derived from NASA/JPL-Caltech/USGS imagery; distributed in the three.js examples and Planet Pixel Emporium map sets. _(Team: confirm the exact source of each texture before submission.)_
-- **Team starship model:** created by the team. _(Team: confirm whether it was generated with an AI tool — see AI disclosure below.)_
+- **Planet and moon surface maps:** gathered during the initial AI-assisted build of the app in Google AI Studio; they are maps derived from NASA/JPL-Caltech/USGS imagery (the same file sets distributed with the three.js examples and Planet Pixel Emporium). The exact original source of each file was not recorded.
+- **Team starship model:** AI-generated (see AI disclosure below).
 - **Sound:** synthesized in real time with the Web Audio API (no audio files). Voice narration uses the device's built-in speech voices.
 - **Libraries:** React (MIT), three.js (MIT), Vite (MIT), Tailwind CSS (MIT), lucide-react (ISC), vite-plugin-pwa (MIT), Google Draco decoder (Apache 2.0). Fonts: Outfit, Plus Jakarta Sans and JetBrains Mono (SIL Open Font License).
 - No NASA logos or insignia are used.
@@ -56,9 +56,9 @@ Other data: **CelesTrak** orbital elements for the ISS (fetched when online; a c
 
 AI tools were used as accelerators; the idea, the story, the mission selection and every decision are the team's.
 
-- **Code:** large parts of the code were written with AI coding assistants (Claude Code / Claude; an initial prototype from an AI prompt), then reviewed, tested and directed by the team. Git history records each change.
+- **Code:** the first version of the app was generated in **Google AI Studio** (Gemini) from the team's prompt; later work was written with **Claude Code** (Claude). Everything was directed, reviewed and tested by the team, and the git history records each change.
 - **Texts:** mission story texts were drafted with AI help and checked against NSSDCA and NASA mission pages.
-- **Images / 3D:** _(Team: list here any AI-generated image or 3D model shown in the app or the demo, e.g. the team starship. AI-generated images and videos in the demo must carry a visible watermark.)_
+- **Images / 3D:** the team starship was generated with AI: a concept image made with **Google Gemini**, turned into a 3D model with **MakerWorld MakerLab "Image to 3D"** (Bambu Lab), then optimized by the team. The planet and moon textures were gathered during the initial build in Google AI Studio. Any AI-generated image or video used in the demo carries a visible watermark.
 - **Audio:** no AI-generated audio is used in the app (all sounds are synthesized in code).
 
 ## Run it locally

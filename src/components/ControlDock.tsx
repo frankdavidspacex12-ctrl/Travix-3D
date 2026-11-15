@@ -30,6 +30,7 @@ import type { SearchTab } from './MissionSearch';
 import { PanelControls } from './PanelControls';
 import { LinkedText, LinkTarget } from './LinkedText';
 import { setViewInsetSource } from '../ui/viewInsets';
+import { tr } from '../i18n';
 
 interface ControlDockProps {
   selectedBody: CelestialBodyData | null;
@@ -182,7 +183,7 @@ export const ControlDock: React.FC<ControlDockProps> = ({
               />
               <h2 className="font-display text-sm sm:text-base font-semibold text-white tracking-tight break-words min-w-0">
                 {selectedMoon
-                  ? `${selectedMoon.name} · Luna de ${selectedBody.name}`
+                  ? `${selectedMoon.name} · ${tr('Luna de', 'Moon of')} ${selectedBody.name}`
                   : selectedBody.name}
               </h2>
               <span className="hidden sm:inline text-xs text-slate-200 break-words min-w-0">
@@ -204,19 +205,19 @@ export const ControlDock: React.FC<ControlDockProps> = ({
               <button
                 type="button"
                 onClick={() => onOpenSearch('planets')}
-                aria-label="Buscar otro planeta o luna"
-                title="Buscar otro planeta, luna o misión"
+                aria-label={tr('Buscar otro planeta o luna', 'Search another planet or moon')}
+                title={tr('Buscar otro planeta, luna o misión', 'Search another planet, moon or mission')}
                 className="inline-flex items-center gap-1 p-2 sm:px-2.5 sm:py-1 rounded-md travix-glass-control text-xs text-slate-100 hover:text-white whitespace-nowrap shrink-0 cursor-pointer focus-visible:outline-2 focus-visible:outline-amber-400"
               >
                 <Search className="w-3.5 h-3.5 text-amber-400 shrink-0" />
                 <span className="hidden sm:inline">Otro planeta</span>
               </button>
               <PanelControls
-                label={`ficha de ${selectedMoon ? selectedMoon.name : selectedBody.name}`}
+                label={`${tr('ficha de', 'card for')} ${selectedMoon ? selectedMoon.name : selectedBody.name}`}
                 minimized={isInfoMinimized}
                 onToggleMinimize={() => setIsInfoMinimized((prev) => !prev)}
                 onClose={onHidePanel}
-                closeTitle="Cerrar ficha (seguir viendo en 3D)"
+                closeTitle={tr('Cerrar ficha (seguir viendo en 3D)', 'Close card (keep viewing in 3D)')}
                 expandDirection="up"
               />
             </div>
@@ -261,37 +262,37 @@ export const ControlDock: React.FC<ControlDockProps> = ({
           {/* Core Physical NASA Parameters */}
           <div className="mt-2.5 pt-2 border-t border-white/12 grid grid-cols-3 sm:grid-cols-6 gap-x-3 gap-y-1.5">
             <div>
-              <div className="text-[11px] text-slate-200">Distancia media</div>
+              <div className="text-[11px] text-slate-200">{tr('Distancia media', 'Mean distance')}</div>
               <div className="text-xs font-mono-tabular text-white">
                 {selectedBody.stats.distanceAu}
               </div>
             </div>
             <div>
-              <div className="text-[11px] text-slate-200">Diámetro</div>
+              <div className="text-[11px] text-slate-200">{tr('Diámetro', 'Diameter')}</div>
               <div className="text-xs font-mono-tabular text-white">
                 {selectedBody.stats.diameterKm}
               </div>
             </div>
             <div>
-              <div className="text-[11px] text-slate-200">Año orbital</div>
+              <div className="text-[11px] text-slate-200">{tr('Año orbital', 'Orbital year')}</div>
               <div className="text-xs font-mono-tabular text-white">
                 {selectedBody.stats.orbitalPeriod}
               </div>
             </div>
             <div>
-              <div className="text-[11px] text-slate-200">Rotación</div>
+              <div className="text-[11px] text-slate-200">{tr('Rotación', 'Rotation')}</div>
               <div className="text-xs font-mono-tabular text-white">
                 {selectedBody.stats.dayLength}
               </div>
             </div>
             <div>
-              <div className="text-[11px] text-slate-200">Temperatura</div>
+              <div className="text-[11px] text-slate-200">{tr('Temperatura', 'Temperature')}</div>
               <div className="text-xs font-mono-tabular text-white">
                 {selectedBody.stats.temperature}
               </div>
             </div>
             <div>
-              <div className="text-[11px] text-slate-200">Gravedad</div>
+              <div className="text-[11px] text-slate-200">{tr('Gravedad', 'Gravity')}</div>
               <div className="text-xs font-mono-tabular text-white">
                 {selectedBody.stats.gravity}
               </div>
@@ -304,7 +305,7 @@ export const ControlDock: React.FC<ControlDockProps> = ({
               <div className="flex items-center justify-between gap-2 mb-1">
                 <span className="inline-flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wider text-cyan-300/95">
                   <Activity className="w-3 h-3" />
-                  <span>Telemetría orbital J2000 en tiempo real</span>
+                  <span>{tr('Telemetría orbital J2000 en tiempo real', 'Real-time J2000 orbital telemetry')}</span>
                 </span>
                 <span className="text-[11px] text-slate-200 break-words text-right max-w-[55%]">
                   Atmósfera: {selectedBody.stats.atmosphere}
@@ -314,24 +315,24 @@ export const ControlDock: React.FC<ControlDockProps> = ({
               {selectedBody.id === 'sun' ? (
                 <div className="grid grid-cols-3 gap-3 text-xs font-mono-tabular text-slate-100">
                   <div>
-                    <span className="text-slate-200">Vel. galáctica: </span>
+                    <span className="text-slate-200">{tr('Vel. galáctica: ', 'Galactic speed: ')}</span>
                     <span className="text-amber-200">
                       {telemetry.orbitalSpeedKmS.toFixed(1)} km/s
                     </span>
                   </div>
                   <div>
-                    <span className="text-slate-200">Vel. escape: </span>
+                    <span className="text-slate-200">{tr('Vel. escape: ', 'Escape vel.: ')}</span>
                     <span>{selectedBody.stats.escapeVelocity}</span>
                   </div>
                   <div>
-                    <span className="text-slate-200">Sistemas: </span>
+                    <span className="text-slate-200">{tr('Sistemas: ', 'Systems: ')}</span>
                     <span>{selectedBody.stats.moonsCount}</span>
                   </div>
                 </div>
               ) : (
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs font-mono-tabular text-slate-100">
                   <div>
-                    <span className="text-slate-200">Heliocéntrica: </span>
+                    <span className="text-slate-200">{tr('Heliocéntrica: ', 'Heliocentric: ')}</span>
                     <span className="text-cyan-200">
                       {telemetry.distanceAu.toFixed(3)} UA
                     </span>
@@ -340,13 +341,13 @@ export const ControlDock: React.FC<ControlDockProps> = ({
                     </span>
                   </div>
                   <div>
-                    <span className="text-slate-200">Vel. orbital: </span>
+                    <span className="text-slate-200">{tr('Vel. orbital: ', 'Orbital speed: ')}</span>
                     <span className="text-amber-200">
                       {telemetry.orbitalSpeedKmS.toFixed(2)} km/s
                     </span>
                   </div>
                   <div>
-                    <span className="text-slate-200">Luz solar: </span>
+                    <span className="text-slate-200">{tr('Luz solar: ', 'Sunlight: ')}</span>
                     <span>
                       {telemetry.lightTimeMinutes < 1
                         ? `${Math.round(telemetry.lightTimeMinutes * 60)} s`
@@ -354,7 +355,7 @@ export const ControlDock: React.FC<ControlDockProps> = ({
                     </span>
                   </div>
                   <div>
-                    <span className="text-slate-200">Escape · Lon.: </span>
+                    <span className="text-slate-200">{tr('Escape · Lon.: ', 'Escape · Lon.: ')}</span>
                     <span>
                       {selectedBody.stats.escapeVelocity} · {telemetry.heliocentricLonDeg.toFixed(1)}°
                     </span>
@@ -401,8 +402,8 @@ export const ControlDock: React.FC<ControlDockProps> = ({
             type="button"
             onClick={onTogglePlanetInfo}
             aria-expanded={isPlanetInfoOpen}
-            aria-label={`Información científica de ${selectedMoon ? selectedMoon.name : selectedBody.name}`}
-            title={`Información de ${selectedMoon ? selectedMoon.name : selectedBody.name} (diámetro, órbita, rotación)`}
+            aria-label={`${tr('Información científica de', 'Science facts for')} ${selectedMoon ? selectedMoon.name : selectedBody.name}`}
+            title={`${tr('Información de', 'Facts for')} ${selectedMoon ? selectedMoon.name : selectedBody.name} (${tr('diámetro, órbita, rotación', 'diameter, orbit, rotation')})`}
             className={`w-10 h-10 rounded-full flex items-center justify-center transition-colors cursor-pointer shrink-0 focus-visible:outline-2 focus-visible:outline-amber-400 ${
               isPlanetInfoOpen
                 ? 'travix-glass-bar border-amber-400/60 text-amber-300'
@@ -416,7 +417,7 @@ export const ControlDock: React.FC<ControlDockProps> = ({
         <button
           type="button"
           onClick={onToggleCollapse}
-          aria-label={isCollapsed ? 'Mostrar controles' : 'Ocultar controles'}
+          aria-label={isCollapsed ? tr('Mostrar controles', 'Show controls') : tr('Ocultar controles', 'Hide controls')}
           className="inline-flex items-center gap-1 px-3.5 sm:px-2.5 py-1.5 sm:py-0.5 rounded-full travix-glass-bar text-xs text-slate-200 hover:text-white hover:border-white/25 transition-colors whitespace-nowrap shrink-0 cursor-pointer focus-visible:outline-2 focus-visible:outline-amber-400"
           style={{
             transform: isCollapsed ? 'translateY(-44px)' : 'translateY(0)',
@@ -444,8 +445,8 @@ export const ControlDock: React.FC<ControlDockProps> = ({
           type="button"
           onClick={onTogglePause}
           data-tour="pause"
-          aria-label={isPaused ? 'Reanudar simulación' : 'Pausar simulación'}
-          title={isPaused ? 'Reanudar (Espacio)' : 'Pausar (Espacio)'}
+          aria-label={isPaused ? tr('Reanudar simulación', 'Resume simulation') : tr('Pausar simulación', 'Pause simulation')}
+          title={isPaused ? tr('Reanudar (Espacio)', 'Resume (Space)') : tr('Pausar (Espacio)', 'Pause (Space)')}
           className={`inline-flex items-center gap-1.5 p-2.5 sm:px-2.5 sm:py-1 rounded-full text-xs transition-colors whitespace-nowrap shrink-0 cursor-pointer focus-visible:outline-2 focus-visible:outline-amber-400 ${
             isPaused
               ? 'bg-amber-500/22 border border-amber-400/45 text-amber-100'
@@ -455,12 +456,12 @@ export const ControlDock: React.FC<ControlDockProps> = ({
           {isPaused ? (
             <>
               <Play className="w-3.5 h-3.5 sm:w-3 sm:h-3 fill-current text-amber-400" />
-              <span className="hidden sm:inline">Reanudar</span>
+              <span className="hidden sm:inline">{tr('Reanudar', 'Resume')}</span>
             </>
           ) : (
             <>
               <Pause className="w-3.5 h-3.5 sm:w-3 sm:h-3 fill-current text-slate-200" />
-              <span className="hidden sm:inline">Pausar</span>
+              <span className="hidden sm:inline">{tr('Pausar', 'Pause')}</span>
             </>
           )}
         </button>
@@ -469,24 +470,24 @@ export const ControlDock: React.FC<ControlDockProps> = ({
           <button
             type="button"
             onClick={onReleaseCamera}
-            aria-label="Cámara libre"
+            aria-label={tr('Cámara libre', 'Free camera')}
             className="inline-flex items-center gap-1.5 p-2.5 sm:px-2.5 sm:py-1 rounded-full hover:bg-white/12 text-slate-100 hover:text-white text-xs transition-colors whitespace-nowrap shrink-0 cursor-pointer focus-visible:outline-2 focus-visible:outline-amber-400"
-            title="Desacoplar seguimiento orbital (WASD / ratón)"
+            title={tr('Desacoplar seguimiento orbital (WASD / ratón)', 'Stop following (WASD / mouse)')}
           >
             <Compass className="w-3.5 h-3.5 text-cyan-400" />
-            <span className="hidden sm:inline">Libre</span>
+            <span className="hidden sm:inline">{tr('Libre', 'Free')}</span>
           </button>
         )}
 
         <button
           type="button"
           onClick={onToggleOrbits}
-          aria-label="Órbitas"
+          aria-label={tr('Órbitas', 'Orbits')}
           aria-pressed={showOrbits && !orbitsDisabledInCloseUp}
           title={
             orbitsDisabledInCloseUp
-              ? 'Órbitas ocultas al acercarse'
-              : 'Alternar órbitas en vista general'
+              ? tr('Órbitas ocultas al acercarse', 'Orbits hidden up close')
+              : tr('Alternar órbitas en vista general', 'Toggle orbits in the overview')
           }
           className={`inline-flex items-center gap-1.5 p-2.5 sm:px-2.5 sm:py-1 rounded-full text-xs transition-colors whitespace-nowrap shrink-0 cursor-pointer focus-visible:outline-2 focus-visible:outline-amber-400 ${
             showOrbits && !orbitsDisabledInCloseUp
@@ -495,7 +496,7 @@ export const ControlDock: React.FC<ControlDockProps> = ({
           }`}
         >
           <Orbit className="w-3.5 h-3.5" />
-          <span className="hidden sm:inline">Órbitas</span>
+          <span className="hidden sm:inline">{tr('Órbitas', 'Orbits')}</span>
         </button>
 
         {onToggleShipMode && (
@@ -503,12 +504,12 @@ export const ControlDock: React.FC<ControlDockProps> = ({
             type="button"
             onClick={onToggleShipMode}
             data-tour="ship"
-            aria-label="Modo nave: viajar con hipersalto"
+            aria-label={tr('Modo nave: viajar con hipersalto', 'Ship mode: travel with a hyperspace jump')}
             aria-pressed={isShipMode}
             title={
               isShipMode
-                ? 'Modo nave activo: cada viaje es un hipersalto (toca para desactivar)'
-                : 'Viajar en nave con hipersalto por agujero de gusano'
+                ? tr('Modo nave activo: cada viaje es un hipersalto (toca para desactivar)', 'Ship mode on: every trip is a hyperspace jump (tap to turn off)')
+                : tr('Viajar en nave con hipersalto por agujero de gusano', 'Travel by ship with a wormhole hyperspace jump')
             }
             className={`inline-flex items-center gap-1.5 p-2.5 sm:px-2.5 sm:py-1 rounded-full text-xs transition-colors whitespace-nowrap shrink-0 cursor-pointer focus-visible:outline-2 focus-visible:outline-amber-400 ${
               isShipMode
@@ -517,7 +518,7 @@ export const ControlDock: React.FC<ControlDockProps> = ({
             }`}
           >
             <Rocket className={`w-3.5 h-3.5 ${isShipMode ? 'text-cyan-300' : 'text-slate-200'}`} />
-            <span className="hidden sm:inline">Nave</span>
+            <span className="hidden sm:inline">{tr('Nave', 'Ship')}</span>
           </button>
         )}
 
@@ -526,9 +527,9 @@ export const ControlDock: React.FC<ControlDockProps> = ({
             type="button"
             onClick={onToggleSound}
             data-tour="sound"
-            aria-label={isSoundOn ? 'Desactivar música y sonidos' : 'Activar música y sonidos'}
+            aria-label={isSoundOn ? tr('Desactivar música y sonidos', 'Turn off music and sounds') : tr('Activar música y sonidos', 'Turn on music and sounds')}
             aria-pressed={isSoundOn}
-            title={isSoundOn ? 'Sonido activo: música ambiental y efectos (toca para silenciar)' : 'Activar música ambiental y efectos de sonido'}
+            title={isSoundOn ? tr('Sonido activo: música ambiental y efectos (toca para silenciar)', 'Sound on: ambient music and effects (tap to mute)') : tr('Activar música ambiental y efectos de sonido', 'Turn on ambient music and sound effects')}
             className={`inline-flex items-center gap-1.5 p-2.5 sm:px-2.5 sm:py-1 rounded-full text-xs transition-colors whitespace-nowrap shrink-0 cursor-pointer focus-visible:outline-2 focus-visible:outline-amber-400 ${
               isSoundOn
                 ? 'bg-amber-500/22 border border-amber-300/50 text-amber-50'
@@ -540,7 +541,7 @@ export const ControlDock: React.FC<ControlDockProps> = ({
             ) : (
               <VolumeX className="w-3.5 h-3.5 text-slate-200" />
             )}
-            <span className="hidden sm:inline">Sonido</span>
+            <span className="hidden sm:inline">{tr('Sonido', 'Sound')}</span>
           </button>
         )}
 
@@ -548,27 +549,27 @@ export const ControlDock: React.FC<ControlDockProps> = ({
           type="button"
           onClick={onResetOverview}
           data-tour="overview"
-          aria-label="Vista general del sistema"
+          aria-label={tr('Vista general del sistema', 'Solar System overview')}
           className="inline-flex items-center gap-1.5 p-2.5 sm:px-2.5 sm:py-1 rounded-full hover:bg-white/12 text-slate-100 hover:text-white text-xs transition-colors whitespace-nowrap shrink-0 cursor-pointer focus-visible:outline-2 focus-visible:outline-amber-400"
-          title="Volver a la vista general (Esc)"
+          title={tr('Volver a la vista general (Esc)', 'Back to the overview (Esc)')}
         >
           {selectedBody ? (
             <RotateCcw className="w-3.5 h-3.5 text-amber-400" />
           ) : (
             <Globe className="w-3.5 h-3.5 text-amber-400" />
           )}
-          <span className="hidden sm:inline">Sistema</span>
+          <span className="hidden sm:inline">{tr('Sistema', 'System')}</span>
         </button>
 
         <button
           type="button"
           onClick={() => onOpenSearch(selectedBody ? 'planets' : 'surface')}
-          aria-label="Abrir buscador espacial"
-          title="Buscar planetas, lunas, misiones, satélites y Vía Láctea"
+          aria-label={tr('Abrir buscador espacial', 'Open space search')}
+          title={tr('Buscar planetas, lunas, misiones, satélites y Vía Láctea', 'Search planets, moons, missions, satellites and the Milky Way')}
           className="inline-flex items-center gap-1.5 p-2.5 sm:px-2.5 sm:py-1 rounded-full travix-glass-control text-slate-100 hover:text-white text-xs whitespace-nowrap shrink-0 cursor-pointer focus-visible:outline-2 focus-visible:outline-amber-400"
         >
           <Search className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-          <span className="hidden sm:inline">Buscar</span>
+          <span className="hidden sm:inline">{tr('Buscar', 'Search')}</span>
         </button>
       </div>
     </div>

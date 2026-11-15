@@ -7,6 +7,7 @@ import {
 } from '../data/solarSystemData';
 import { ABANDONED_MISSIONS, AbandonedMission } from '../data/abandonedMissionsData';
 import type { FocusSelection } from '../three/SolarSystemEngine';
+import { tr } from '../i18n';
 
 /** A quick-travel shortcut to a gravitationally related object */
 export interface NearbyTarget {
@@ -80,7 +81,7 @@ function moonTargets(body: CelestialBodyData, max: number, skipMoonId?: string):
     .map((m) => ({
       key: `moon:${m.id}`,
       name: m.name,
-      relation: `Luna de ${body.name}`,
+      relation: `${tr('Luna de', 'Moon of')} ${body.name}`,
       color: body.accentColor,
       bodyId: body.id,
       moonId: m.id,
@@ -111,8 +112,8 @@ function neighbourTargets(body: CelestialBodyData): NearbyTarget[] {
   const out: NearbyTarget[] = [];
   const inner = pick('in');
   const outer = pick('out');
-  if (inner) out.push(bodyTarget(inner, `Vecino orbital hacia el Sol (${inner.stats.distanceAu})`));
-  if (outer) out.push(bodyTarget(outer, `Vecino orbital hacia afuera (${outer.stats.distanceAu})`));
+  if (inner) out.push(bodyTarget(inner, `${tr('Vecino orbital hacia el Sol', 'Orbital neighbor toward the Sun')} (${inner.stats.distanceAu})`));
+  if (outer) out.push(bodyTarget(outer, `${tr('Vecino orbital hacia afuera', 'Orbital neighbor farther out')} (${outer.stats.distanceAu})`));
   return out;
 }
 
@@ -136,12 +137,12 @@ export function getNearbyTargets(selection: FocusSelection | null): NearbyTarget
       ...orbitingBodies
         .filter((b) => MAJOR_PLANETS.includes(b.id))
         .slice(0, 3)
-        .map((b) => bodyTarget(b, `Planeta en órbita del Sol (${b.stats.distanceAu})`)),
+        .map((b) => bodyTarget(b, `${tr('Planeta en órbita del Sol', 'Planet orbiting the Sun')} (${b.stats.distanceAu})`)),
     );
   } else if (mission?.sunDistanceAu) {
     // Probes leaving the Solar System: only the Sun still holds them (its marker covers that);
     // offer the last planet they flew by.
-    items.push(bodyTarget(body, 'Último planeta que visitó'));
+    items.push(bodyTarget(body, tr('Último planeta que visitó', 'Last planet it visited')));
   } else if (mission) {
     const moon = mission.targetMoonId
       ? body.moons.find((m) => m.id === mission.targetMoonId)
@@ -150,7 +151,7 @@ export function getNearbyTargets(selection: FocusSelection | null): NearbyTarget
       items.push({
         key: `moon:${moon.id}`,
         name: moon.name,
-        relation: mission.missionRole === 'surface' ? 'Luna donde se encuentra' : 'Luna que orbita',
+        relation: mission.missionRole === 'surface' ? tr('Luna donde se encuentra', 'Moon where it rests') : tr('Luna que orbita', 'Moon it orbits'),
         color: body.accentColor,
         bodyId: body.id,
         moonId: moon.id,
@@ -161,7 +162,7 @@ export function getNearbyTargets(selection: FocusSelection | null): NearbyTarget
       items.push(
         bodyTarget(
           body,
-          mission.missionRole === 'surface' ? 'Planeta donde se encuentra' : 'Planeta que orbita',
+          mission.missionRole === 'surface' ? tr('Planeta donde se encuentra', 'Planet where it rests') : tr('Planeta que orbita', 'Planet it orbits'),
         ),
       );
     }
@@ -169,7 +170,7 @@ export function getNearbyTargets(selection: FocusSelection | null): NearbyTarget
     items.push(...referenceMissionTargets(body.id, mission.id));
     items.push(...neighbourTargets(body));
   } else if (selection.moonId) {
-    items.push(bodyTarget(body, 'Planeta que orbita esta luna'));
+    items.push(bodyTarget(body, tr('Planeta que orbita esta luna', 'Planet this moon orbits')));
     items.push(...referenceMissionTargets(body.id));
     items.push(...moonTargets(body, 2, selection.moonId));
     items.push(...neighbourTargets(body));
@@ -221,17 +222,17 @@ export const NearbyObjects: React.FC<NearbyObjectsProps> = ({ selection, onGoBod
 
   return (
     <nav
-      aria-label="Objetos cercanos"
+      aria-label={tr('Objetos cercanos', 'Nearby objects')}
       className="fixed top-16 right-2 sm:right-4 z-[14] flex flex-col items-end gap-1 pointer-events-none"
     >
       <button
         type="button"
         onClick={() => setCollapsed((c) => !c)}
         aria-expanded={!collapsed}
-        title={collapsed ? 'Mostrar objetos cercanos' : 'Ocultar objetos cercanos'}
+        title={collapsed ? tr('Mostrar objetos cercanos', 'Show nearby objects') : tr('Ocultar objetos cercanos', 'Hide nearby objects')}
         className="pointer-events-auto inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full travix-chip text-[9px] font-semibold uppercase tracking-wider text-slate-300 hover:text-white cursor-pointer focus-visible:outline-2 focus-visible:outline-amber-400"
       >
-        <span>Cerca</span>
+        <span>{tr('Cerca', 'Nearby')}</span>
         {collapsed ? <ChevronDown className="w-2.5 h-2.5" /> : <ChevronUp className="w-2.5 h-2.5" />}
       </button>
       {!collapsed &&
@@ -247,8 +248,8 @@ export const NearbyObjects: React.FC<NearbyObjectsProps> = ({ selection, onGoBod
               else if (it.moonId) onGoMoon(it.bodyId, it.moonId);
               else onGoBody(it.bodyId);
             }}
-            title={`${it.name} · ${it.relation}. Toca para ir.`}
-            aria-label={`Ir a ${it.name} (${it.relation})`}
+            title={`${it.name} · ${it.relation}. ${tr('Toca para ir.', 'Tap to go.')}`}
+            aria-label={`${tr('Ir a', 'Go to')} ${it.name} (${it.relation})`}
             className="pointer-events-auto inline-flex items-center gap-1 pl-1.5 pr-2 py-0.5 rounded-full travix-chip text-[10px] font-medium text-slate-100 whitespace-nowrap hover:text-white transition-colors cursor-pointer focus-visible:outline-2 focus-visible:outline-amber-400"
           >
             <span
@@ -265,10 +266,10 @@ export const NearbyObjects: React.FC<NearbyObjectsProps> = ({ selection, onGoBod
             type="button"
             onClick={() => setSurfaceOpen((o) => !o)}
             aria-expanded={surfaceOpen}
-            title={surfaceOpen ? 'Ocultar las misiones en la superficie' : 'Ver las misiones en la superficie'}
+            title={surfaceOpen ? tr('Ocultar las misiones en la superficie', 'Hide the missions on the surface') : tr('Ver las misiones en la superficie', 'Show the missions on the surface')}
             className="pointer-events-auto mt-1 inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full travix-chip text-[9px] font-semibold uppercase tracking-wider text-amber-200/90 hover:text-white cursor-pointer focus-visible:outline-2 focus-visible:outline-amber-400"
           >
-            <span>En superficie · {surface.length}</span>
+            <span>{tr('En superficie', 'On the surface')} · {surface.length}</span>
             {surfaceOpen ? <ChevronUp className="w-2.5 h-2.5" /> : <ChevronDown className="w-2.5 h-2.5" />}
           </button>
           {surfaceOpen && (
@@ -278,8 +279,8 @@ export const NearbyObjects: React.FC<NearbyObjectsProps> = ({ selection, onGoBod
                   key={m.id}
                   type="button"
                   onClick={() => onGoMission(m)}
-                  title={`${m.name} · ${m.region}. Toca para ir.`}
-                  aria-label={`Ir a ${m.name} (${m.region})`}
+                  title={`${m.name} · ${m.region}. ${tr('Toca para ir.', 'Tap to go.')}`}
+                  aria-label={`${tr('Ir a', 'Go to')} ${m.name} (${m.region})`}
                   className="inline-flex items-center gap-1 pl-1.5 pr-2 py-0.5 rounded-full travix-chip text-[10px] font-medium text-slate-100 whitespace-nowrap max-w-[11rem] hover:text-white transition-colors cursor-pointer focus-visible:outline-2 focus-visible:outline-amber-400"
                 >
                   <span className="shrink-0 w-1.5 h-1.5 rotate-45" style={{ backgroundColor: m.accentColor }} aria-hidden="true" />

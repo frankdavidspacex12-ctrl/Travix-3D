@@ -53,6 +53,7 @@ import type {
   SurfaceCameraMode,
   SurfaceDioramaRuntime,
 } from './surfaceDiorama';
+import { locale, tr } from '../i18n';
 
 // surfaceDiorama.ts used to enable this as an import side effect at startup; keep it identical now
 // that the module is code-split.
@@ -3956,8 +3957,8 @@ export class SolarSystemEngine {
       if (st.missionId !== p.mission.id) {
         st.missionId = p.mission.id;
         lab.el.dataset.missionId = p.mission.id;
-        lab.el.setAttribute('aria-label', `Ir a ${p.mission.name}`);
-        lab.el.title = `${p.mission.name} · ${p.mission.region}. Toca para ir.`;
+        lab.el.setAttribute('aria-label', `${tr('Ir a', 'Go to')} ${p.mission.name}`);
+        lab.el.title = `${p.mission.name} · ${p.mission.region}. ${tr('Toca para ir.', 'Tap to go.')}`;
       }
       const text = p.count > 1 ? `${p.mission.name} +${p.count - 1}` : p.mission.name;
       if (text !== st.text) {
@@ -4058,8 +4059,8 @@ export class SolarSystemEngine {
         st.text = '';
         lab.el.dataset.bodyId = bodyId;
         lab.el.dataset.moonId = moonId; // vacío = el planeta
-        lab.el.setAttribute('aria-label', `Ir a ${p.name}`);
-        lab.el.title = `${p.name} en su posición real. Toca para ir.`;
+        lab.el.setAttribute('aria-label', `${tr('Ir a', 'Go to')} ${p.name}`);
+        lab.el.title = `${p.name} ${tr('en su posición real. Toca para ir.', 'at its real position. Tap to go.')}`;
       }
       if (refreshText || !st.text) {
         // ☾ para lunas, ● para el planeta
@@ -4069,7 +4070,7 @@ export class SolarSystemEngine {
           // Órbita de la Luna en la escena: 55,5 unidades para los 384.400 km reales
           const luna = this.moonsById.get('luna');
           const km = luna ? (planet.currentWorldPos.distanceTo(p.pos) / luna.data.orbitRadius) * 384400 : 384400;
-          text = `☾ Luna · ${(Math.round(km / 100) * 100).toLocaleString('es-ES')} km`;
+          text = `☾ ${p.name} · ${(Math.round(km / 100) * 100).toLocaleString(locale())} km`;
         }
         if (text !== st.text) {
           st.text = text;
@@ -4124,15 +4125,15 @@ export class SolarSystemEngine {
 
   private formatSunDistance(au: number): { dist: string; light: string } {
     const fmt = (v: number, d: number) =>
-      v.toLocaleString('es-ES', { minimumFractionDigits: d, maximumFractionDigits: d });
+      v.toLocaleString(locale(), { minimumFractionDigits: d, maximumFractionDigits: d });
     const lightMin = au * 8.3167;
     const light =
       lightMin < 1
-        ? `${Math.max(1, Math.round(lightMin * 60))} s luz`
+        ? `${Math.max(1, Math.round(lightMin * 60))} ${tr('s luz', 'light-s')}`
         : lightMin < 60
-          ? `${fmt(lightMin, 1)} min luz`
-          : `${fmt(lightMin / 60, 1)} h luz`;
-    const dist = au < 0.05 ? `${fmt(au * 149.6, 1)} M km` : `${fmt(au, au < 10 ? 2 : 1)} UA`;
+          ? `${fmt(lightMin, 1)} ${tr('min luz', 'light-min')}`
+          : `${fmt(lightMin / 60, 1)} ${tr('h luz', 'light-h')}`;
+    const dist = au < 0.05 ? `${fmt(au * 149.6, 1)} M km` : `${fmt(au, au < 10 ? 2 : 1)} ${tr('UA', 'AU')}`;
     return { dist, light };
   }
 
@@ -4190,18 +4191,18 @@ export class SolarSystemEngine {
       let detail: string;
       if (this.deepSpaceDiorama) {
         const t = DEEP_SPACE_TARGETS.find((d) => d.id === this.activeDeepSpaceId);
-        text = t ? t.distanceLabel : 'Brazo de Orión';
-        detail = `Sol · ${text}`;
+        text = t ? t.distanceLabel : tr('Brazo de Orión', 'Orion Arm');
+        detail = `${tr('Sol', 'Sun')} · ${text}`;
       } else {
         const d = this.formatSunDistance(this.currentSunDistanceAu());
         text = d.dist;
-        detail = `Sol · ${d.dist} · ${d.light}`;
+        detail = `${tr('Sol', 'Sun')} · ${d.dist} · ${d.light}`;
       }
       if (text !== state.text) {
         state.text = text;
         if (this.sunMarkerText) this.sunMarkerText.textContent = text;
-        el.title = `${detail}. Toca para ir al Sol.`;
-        el.setAttribute('aria-label', `Ir al Sol (${detail})`);
+        el.title = `${detail}. ${tr('Toca para ir al Sol.', 'Tap to go to the Sun.')}`;
+        el.setAttribute('aria-label', `${tr('Ir al Sol', 'Go to the Sun')} (${detail})`);
         state.w = el.offsetWidth;
         state.h = el.offsetHeight;
       }

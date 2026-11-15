@@ -26,7 +26,7 @@ export interface LandingInfo {
   text: string;
 }
 
-const METHOD_BY_CRAFT: Record<string, { method: LandingMethod; title: string; text: string }> = {
+export const LANDING_BY_CRAFT: Record<string, { method: LandingMethod; title: string; text: string }> = {
   rover_msl: {
     method: 'skycrane',
     title: 'Grúa espacial',
@@ -132,7 +132,7 @@ function worldFor(m: AbandonedMission): LandingWorld | null {
 /** Cómo aterrizó la misión, o null si no es de superficie o no hay datos. */
 export function getLandingInfo(m: AbandonedMission): LandingInfo | null {
   if (m.missionRole !== 'surface') return null;
-  const base = METHOD_BY_CRAFT[m.craftType];
+  const base = LANDING_BY_CRAFT[m.craftType];
   const world = worldFor(m);
   if (!base || !world) return null;
   return { ...base, world };

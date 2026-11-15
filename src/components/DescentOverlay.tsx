@@ -2,6 +2,7 @@ import React, { useEffect, useRef } from 'react';
 import type { AbandonedMission } from '../data/abandonedMissionsData';
 import type { LandingInfo, LandingWorld } from '../data/landingMethods';
 import { soundscape } from '../audio/soundscape';
+import { tr } from '../i18n';
 
 /** Duración de la animación (s); se puede saltar en cualquier momento. */
 const DURATION = 4.8;
@@ -122,7 +123,7 @@ export const DescentOverlay: React.FC<DescentOverlayProps> = ({ request, onDone 
     >
       <canvas ref={canvasRef} className="absolute inset-0 w-full h-full" aria-hidden="true" />
       <div className="absolute inset-x-0 top-0 px-5 pt-[max(1.25rem,env(safe-area-inset-top))] text-center pointer-events-none">
-        <p className="text-[11px] font-semibold uppercase tracking-[0.25em] text-cyan-300/90">Así aterrizó</p>
+        <p className="text-[11px] font-semibold uppercase tracking-[0.25em] text-cyan-300/90">{tr('Así aterrizó', 'How it landed')}</p>
         <h2 className="mt-1 font-display text-lg sm:text-xl font-semibold text-white">{mission.name}</h2>
         <div role="status" aria-live="polite" className="mx-auto mt-2 max-w-md rounded-xl travix-glass-panel px-3.5 py-2.5">
           <p className="text-sm font-semibold text-amber-300">{landing.title}</p>
@@ -130,7 +131,7 @@ export const DescentOverlay: React.FC<DescentOverlayProps> = ({ request, onDone 
         </div>
       </div>
       <p className="absolute inset-x-0 bottom-0 pb-[max(1rem,env(safe-area-inset-bottom))] text-center text-xs text-slate-300/80 pointer-events-none">
-        Ilustración esquemática · Toca para saltar
+        {tr('Ilustración esquemática · Toca para saltar', 'Schematic illustration · Tap to skip')}
       </p>
     </div>
   );

@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { lazy, memo, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, lazy, memo, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowRight, FileText, HelpCircle, Search, Sun } from 'lucide-react';
 import { MemoNearbyObjects } from './components/NearbyObjects';
 import { DescentOverlay, type DescentRequest } from './components/DescentOverlay';
@@ -37,6 +37,7 @@ import type { WarpRequest } from './components/WarpOverlay';
 import { soundscape } from './audio/soundscape';
 import type { WarpTarget } from './three/warpScene';
 import type { LinkTarget } from './components/LinkedText';
+import { getLang, setLang, tr, useLang } from './i18n';
 
 // Hyperspace jump of "Modo nave": its own chunk, loaded only when ship mode is turned on
 const WarpOverlay = lazy(() => import('./components/WarpOverlay'));
@@ -135,8 +136,8 @@ const SunMarker = memo(function SunMarker({ onGo, markerRef }: SunMarkerProps) {
       ref={markerRef}
       type="button"
       onClick={onGo}
-      aria-label="Ir al Sol, referencia del Sistema Solar"
-      title="El Sol: referencia universal del Sistema Solar. Toca para ir."
+      aria-label={tr('Ir al Sol, referencia del Sistema Solar', 'Go to the Sun, the Solar System reference')}
+      title={tr('El Sol: referencia universal del Sistema Solar. Toca para ir.', 'The Sun: the universal reference of the Solar System. Tap to go.')}
       style={{ opacity: 0, pointerEvents: 'none' }}
       className="fixed top-0 left-0 z-[15] inline-flex items-center gap-1 pl-1.5 pr-2 py-0.5 rounded-full travix-chip border-amber-300/30 text-[10px] font-medium text-slate-100 whitespace-nowrap cursor-pointer transition-opacity duration-300 hover:text-white focus-visible:outline-2 focus-visible:outline-amber-400"
     >
@@ -172,8 +173,8 @@ const CompanionLabel = memo(function CompanionLabel({ index, onGo, labelRef }: C
         // Sin luna = la etiqueta señala al planeta (cuando se está parado en una de sus lunas)
         if (bodyId) onGo(bodyId as CelestialBodyId, moonId ?? '');
       }}
-      aria-label="Ir a la luna"
-      title="La luna en su posición real. Toca para ir."
+      aria-label={tr('Ir a la luna', 'Go to the moon')}
+      title={tr('La luna en su posición real. Toca para ir.', 'The moon at its real position. Tap to go.')}
       style={{ opacity: 0, pointerEvents: 'none' }}
       className="fixed top-0 left-0 z-[15] inline-flex flex-col items-center gap-0 text-[10px] font-medium text-slate-100 whitespace-nowrap cursor-pointer transition-opacity duration-300 focus-visible:outline-2 focus-visible:outline-amber-400"
     >
@@ -183,7 +184,7 @@ const CompanionLabel = memo(function CompanionLabel({ index, onGo, labelRef }: C
           <ArrowRight className="w-3 h-3 text-slate-200/90" />
         </span>
         <span>
-          <span data-companion-text>☾ Luna</span>
+          <span data-companion-text>☾</span>
         </span>
       </span>
     </button>
@@ -209,16 +210,18 @@ const SurfaceLabel = memo(function SurfaceLabel({ index, onGo, labelRef }: Surfa
         const id = e.currentTarget.dataset.missionId;
         if (id) onGo(id);
       }}
-      aria-label="Ir a la misión"
+      aria-label={tr('Ir a la misión', 'Go to the mission')}
       style={{ opacity: 0, pointerEvents: 'none' }}
       className="fixed top-0 left-0 z-[15] rounded-full travix-chip px-1.5 py-px text-[9px] font-medium text-amber-100 whitespace-nowrap max-w-[9.5rem] truncate cursor-pointer transition-opacity duration-300 hover:text-white focus-visible:outline-2 focus-visible:outline-amber-400"
     >
-      <span data-surface-text>Misión</span>
+      <span data-surface-text></span>
     </button>
   );
 });
 
 export default function App() {
+  // Idioma (inglés por defecto): al cambiarlo se vuelve a montar la interfaz, no el lienzo 3D
+  const lang = useLang();
   const canvasMountRef = useRef<HTMLDivElement | null>(null);
   const engineRef = useRef<SolarSystemEngine | null>(null);
   const labelElementsRef = useRef(new Map<CelestialBodyId, HTMLElement>());
@@ -725,18 +728,19 @@ export default function App() {
       <div
         ref={canvasMountRef}
         className="fixed inset-0 w-full h-full"
-        aria-label="Simulador espacial 3D en tiempo real Travix 3D"
+        aria-label={tr('Simulador espacial 3D en tiempo real Travix 3D', 'Travix 3D real-time 3D space simulator')}
       />
+
+      <Fragment key={lang}>
 
       {webglError && (
         <div className="fixed inset-0 z-40 flex items-center justify-center bg-[#04060D] p-6">
           <div className="max-w-md rounded-xl border border-white/12 bg-[#0B0E17] p-6 text-center">
             <h1 className="font-display text-xl font-semibold text-white">
-              No se pudo inicializar WebGL
+              {tr('No se pudo inicializar WebGL', 'WebGL could not start')}
             </h1>
             <p className="mt-2 text-sm text-slate-300">
-              Tu navegador no tiene habilitada la aceleración gráfica 3D para
-              ejecutar el simulador espacial.
+              {tr('Tu navegador no tiene habilitada la aceleración gráfica 3D para ejecutar el simulador espacial.', 'Your browser does not have 3D graphics acceleration enabled to run the space simulator.')}
             </p>
           </div>
         </div>
@@ -773,8 +777,8 @@ export default function App() {
           <button
             type="button"
             onClick={() => setIsWelcomeOpen(true)}
-            aria-label={`Travix 3D · Acerca del equipo ${TEAM_NAME}`}
-            title={`Creado por el equipo ${TEAM_NAME}`}
+            aria-label={`Travix 3D · ${tr('Acerca del equipo', 'About team')} ${TEAM_NAME}`}
+            title={`${tr('Creado por el equipo', 'Created by team')} ${TEAM_NAME}`}
             className="pointer-events-auto rounded-lg cursor-pointer focus-visible:outline-2 focus-visible:outline-amber-400"
           >
             <img
@@ -794,11 +798,21 @@ export default function App() {
           type="button"
           onClick={handleOpenTutorial}
           data-tour="tutorial"
-          aria-label="Ver el tutorial de Travix 3D"
-          title="Tutorial: aprende a usar Travix 3D"
+          aria-label={tr('Ver el tutorial de Travix 3D', 'Show the Travix 3D tutorial')}
+          title={tr('Tutorial: aprende a usar Travix 3D', 'Tutorial: learn how to use Travix 3D')}
           className="pointer-events-auto w-10 h-10 rounded-full flex items-center justify-center travix-glass-bar text-slate-100 hover:text-white hover:border-white/35 transition-colors cursor-pointer shrink-0 focus-visible:outline-2 focus-visible:outline-amber-400"
         >
           <HelpCircle className="w-4 h-4 text-amber-400 shrink-0" aria-hidden="true" />
+        </button>
+        <button
+          type="button"
+          onClick={() => setLang(getLang() === 'en' ? 'es' : 'en')}
+          lang={lang === 'en' ? 'es' : 'en'}
+          aria-label={lang === 'en' ? 'Cambiar a español' : 'Switch to English'}
+          title={lang === 'en' ? 'Ver en español' : 'View in English'}
+          className="pointer-events-auto h-10 min-w-10 px-2.5 rounded-full flex items-center justify-center travix-glass-bar text-xs font-bold tracking-wide text-amber-300 hover:text-white hover:border-white/35 transition-colors cursor-pointer shrink-0 focus-visible:outline-2 focus-visible:outline-amber-400"
+        >
+          {lang === 'en' ? 'ES' : 'EN'}
         </button>
       </header>
 
@@ -829,7 +843,7 @@ export default function App() {
             className="inline-flex items-center gap-1.5 px-3.5 py-2 sm:px-3 sm:py-1.5 rounded-full travix-glass-bar text-xs text-slate-100 hover:text-white transition-colors cursor-pointer"
           >
             <FileText className="w-3.5 h-3.5 text-amber-400" />
-            <span>Ver ficha</span>
+            <span>{tr('Ver ficha', 'View card')}</span>
           </button>
           <button
             type="button"
@@ -842,12 +856,12 @@ export default function App() {
                     : 'planets',
               )
             }
-            aria-label="Buscar otro destino"
-            title="Buscar planetas, misiones o galaxia"
+            aria-label={tr('Buscar otro destino', 'Search another destination')}
+            title={tr('Buscar planetas, misiones o galaxia', 'Search planets, missions or the galaxy')}
             className="inline-flex items-center gap-1.5 px-3.5 py-2 sm:px-3 sm:py-1.5 rounded-full travix-glass-bar text-xs text-slate-100 hover:text-white transition-colors cursor-pointer"
           >
             <Search className="w-3.5 h-3.5 text-amber-400" />
-            <span>Buscar</span>
+            <span>{tr('Buscar', 'Search')}</span>
           </button>
         </div>
       )}
@@ -912,6 +926,7 @@ export default function App() {
       )}
 
       {descent && <DescentOverlay key={descent.id} request={descent} onDone={handleDescentDone} />}
+      </Fragment>
     </main>
   );
 }

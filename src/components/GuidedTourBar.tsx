@@ -15,6 +15,7 @@ import {
 import type { SearchTab } from './MissionSearch';
 import { PANEL_ICON_BUTTON, PanelControls } from './PanelControls';
 import { useViewInset } from '../ui/viewInsets';
+import { tr } from '../i18n';
 
 interface GuidedTourBarProps {
   onSelectStep: (step: GuidedTourStep) => void;
@@ -97,14 +98,14 @@ export const GuidedTourBar: React.FC<GuidedTourBarProps> = ({
           setMenuOpen((prev) => !prev);
         }}
         aria-expanded={menuOpen}
-        aria-label="Guías interactivas NASA"
+        aria-label={tr('Guías interactivas NASA', 'Interactive NASA guides')}
         data-tour="tours"
         className={`pointer-events-auto w-10 h-10 rounded-full flex items-center justify-center transition-colors cursor-pointer shrink-0 focus-visible:outline-2 focus-visible:outline-amber-400 ${
           activeTour || menuOpen
             ? 'travix-glass-bar border-amber-400/60 text-amber-300'
             : 'travix-glass-bar text-slate-100 hover:text-white hover:border-white/35'
         }`}
-        title="Guías interactivas científicas basadas en datos abiertos de la NASA"
+        title={tr('Guías interactivas científicas basadas en datos abiertos de la NASA', 'Interactive science guides based on NASA open data')}
       >
         <Compass className="w-4 h-4 text-amber-400 shrink-0" />
       </button>
@@ -119,11 +120,11 @@ export const GuidedTourBar: React.FC<GuidedTourBarProps> = ({
           >
             <div className="min-w-0">
               <div className="text-xs font-semibold text-white break-words">
-                Guías Interactivas NASA
+                {tr('Guías Interactivas NASA', 'Interactive NASA Guides')}
               </div>
               {!menuMinimized && (
                 <div className="text-[11px] text-slate-200 break-words">
-                  Recorridos científicos guiados 100% offline
+                  {tr('Recorridos científicos guiados 100% offline', 'Guided science tours, 100% offline')}
                 </div>
               )}
             </div>
@@ -135,15 +136,15 @@ export const GuidedTourBar: React.FC<GuidedTourBarProps> = ({
                     setMenuOpen(false);
                     onOpenSearch('planets');
                   }}
-                  aria-label="Buscar planetas y misiones"
-                  title="Buscar planetas, misiones o galaxia"
+                  aria-label={tr('Buscar planetas y misiones', 'Search planets and missions')}
+                  title={tr('Buscar planetas, misiones o galaxia', 'Search planets, missions or the galaxy')}
                   className={`${PANEL_ICON_BUTTON} travix-glass-control text-amber-300 hover:text-amber-200`}
                 >
                   <Search className="w-3.5 h-3.5" />
                 </button>
               )}
               <PanelControls
-                label="selector de guías"
+                label={tr('selector de guías', 'guide selector')}
                 minimized={menuMinimized}
                 onToggleMinimize={() => setMenuMinimized((prev) => !prev)}
                 onClose={() => setMenuOpen(false)}
@@ -193,7 +194,7 @@ export const GuidedTourBar: React.FC<GuidedTourBarProps> = ({
       {activeTour && currentStep && (
         <aside
           ref={cardRef}
-          aria-label={`Guía NASA: ${activeTour.name}`}
+          aria-label={`${tr('Guía NASA', 'NASA guide')}: ${activeTour.name}`}
           className="travix-mobile-top-sheet fixed top-16 right-4 z-20 w-[min(340px,88vw)] max-h-[calc(100dvh-9rem)] rounded-xl travix-glass-panel overflow-hidden pointer-events-auto flex flex-col"
         >
           <div
@@ -213,7 +214,7 @@ export const GuidedTourBar: React.FC<GuidedTourBarProps> = ({
                 {autoPlay && (
                   <Play
                     className="w-2.5 h-2.5 shrink-0 fill-current text-amber-300"
-                    aria-label="Reproducción automática activa"
+                    aria-label={tr('Reproducción automática activa', 'Autoplay on')}
                   />
                 )}
               </div>
@@ -231,8 +232,8 @@ export const GuidedTourBar: React.FC<GuidedTourBarProps> = ({
                       setAutoPlay(false);
                       goToStep(stepIdx - 1);
                     }}
-                    aria-label="Parada anterior"
-                    title="Anterior"
+                    aria-label={tr('Parada anterior', 'Previous stop')}
+                    title={tr('Anterior', 'Previous')}
                     className={PANEL_ICON_BUTTON}
                   >
                     <ChevronLeft className="w-4 h-4" />
@@ -243,8 +244,8 @@ export const GuidedTourBar: React.FC<GuidedTourBarProps> = ({
                       setAutoPlay(false);
                       goToStep(stepIdx + 1);
                     }}
-                    aria-label="Parada siguiente"
-                    title="Siguiente"
+                    aria-label={tr('Parada siguiente', 'Next stop')}
+                    title={tr('Siguiente', 'Next')}
                     className={`${PANEL_ICON_BUTTON} text-amber-200`}
                   >
                     <ChevronRight className="w-4 h-4" />
@@ -255,8 +256,8 @@ export const GuidedTourBar: React.FC<GuidedTourBarProps> = ({
                   <button
                     type="button"
                     onClick={() => onOpenSearch('planets')}
-                    aria-label="Buscar planetas o misiones"
-                    title="Buscar otro planeta, satélite o misión"
+                    aria-label={tr('Buscar planetas o misiones', 'Search planets or missions')}
+                    title={tr('Buscar otro planeta, satélite o misión', 'Search another planet, satellite or mission')}
                     className={`${PANEL_ICON_BUTTON} travix-glass-control text-amber-300 hover:text-amber-200`}
                   >
                     <Search className="w-3.5 h-3.5" />
@@ -264,11 +265,11 @@ export const GuidedTourBar: React.FC<GuidedTourBarProps> = ({
                 )
               )}
               <PanelControls
-                label="guía NASA"
+                label={tr('guía NASA', 'NASA guide')}
                 minimized={cardMinimized}
                 onToggleMinimize={() => setCardMinimized((prev) => !prev)}
                 onClose={endTour}
-                closeTitle="Terminar guía NASA"
+                closeTitle={tr('Terminar guía NASA', 'End NASA guide')}
               />
             </div>
           </div>
@@ -295,7 +296,7 @@ export const GuidedTourBar: React.FC<GuidedTourBarProps> = ({
                   className="inline-flex items-center gap-1 px-2.5 py-2 sm:py-1 rounded-md travix-glass-control text-xs text-slate-100 cursor-pointer"
                 >
                   <ChevronLeft className="w-3.5 h-3.5" />
-                  <span>Anterior</span>
+                  <span>{tr('Anterior', 'Previous')}</span>
                 </button>
 
                 <button
@@ -310,7 +311,7 @@ export const GuidedTourBar: React.FC<GuidedTourBarProps> = ({
                   {autoPlay ? (
                     <>
                       <Pause className="w-3 h-3" />
-                      <span>Pausar</span>
+                      <span>{tr('Pausar', 'Pause')}</span>
                     </>
                   ) : (
                     <>
@@ -328,7 +329,7 @@ export const GuidedTourBar: React.FC<GuidedTourBarProps> = ({
                   }}
                   className="inline-flex items-center gap-1 px-2.5 py-2 sm:py-1 rounded-md travix-glass-control border-amber-400/45 text-xs text-amber-100 cursor-pointer"
                 >
-                  <span>Siguiente</span>
+                  <span>{tr('Siguiente', 'Next')}</span>
                   <ChevronRight className="w-3.5 h-3.5" />
                 </button>
               </div>

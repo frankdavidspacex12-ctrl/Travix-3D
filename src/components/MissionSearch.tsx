@@ -31,7 +31,8 @@ import {
   resolveSpaceQuery,
 } from '../data/spaceKnowledgeSearch';
 import { PanelControls } from './PanelControls';
-import { getMissionState, MISSION_STATE_LABEL, MISSION_STATE_STYLE } from '../data/missionState';
+import { getMissionState, missionStateLabel, MISSION_STATE_STYLE } from '../data/missionState';
+import { tr, destinationLabel } from '../i18n';
 
 export type SearchTab = 'surface' | 'orbitals' | 'planets' | 'galaxy';
 
@@ -56,16 +57,16 @@ interface MissionSearchProps {
 }
 
 const SURFACE_CATEGORIES: Array<{ id: 'all' | MissionCategory; label: string }> = [
-  { id: 'all', label: 'Todos' },
-  { id: 'rover', label: 'Rovers' },
-  { id: 'lander', label: 'Apolo y Landers' },
+  { id: 'all', get label() { return tr('Todos', 'All'); } },
+  { id: 'rover', get label() { return tr('Rovers', 'Rovers'); } },
+  { id: 'lander', get label() { return tr('Apolo y Landers', 'Apollo and landers'); } },
 ];
 
 const MILKYWAY_CATEGORIES: Array<{ id: 'all' | DeepSpaceCategory; label: string }> = [
-  { id: 'all', label: 'Todos' },
-  { id: 'black_hole', label: 'Agujeros Negros' },
-  { id: 'pulsar', label: 'Púlsares' },
-  { id: 'nebula', label: 'Nebulosas' },
+  { id: 'all', get label() { return tr('Todos', 'All'); } },
+  { id: 'black_hole', get label() { return tr('Agujeros Negros', 'Black holes'); } },
+  { id: 'pulsar', get label() { return tr('Púlsares', 'Pulsars'); } },
+  { id: 'nebula', get label() { return tr('Nebulosas', 'Nebulae'); } },
 ];
 
 const DESTINATIONS: Array<'Todos' | MissionDestinationGroup> = [
@@ -240,9 +241,9 @@ export const MissionSearch: React.FC<MissionSearchProps> = ({
         type="button"
         onClick={() => onOpenChange(!isOpen)}
         aria-expanded={isOpen}
-        aria-label="Buscar misiones, satélites, planetas y preguntas del cosmos"
+        aria-label={tr('Buscar misiones, satélites, planetas y preguntas del cosmos', 'Search missions, satellites, planets and space questions')}
         data-tour="search"
-        title="Buscador espacial (misiones, preguntas, planetas, Vía Láctea)"
+        title={tr('Buscador espacial (misiones, preguntas, planetas, Vía Láctea)', 'Space search (missions, questions, planets, Milky Way)')}
         className={`pointer-events-auto w-10 h-10 rounded-full flex items-center justify-center transition-colors cursor-pointer focus-visible:outline-2 focus-visible:outline-amber-400 ${
           isOpen
             ? 'travix-glass-bar border-amber-400/55 bg-amber-500/20 text-amber-200'
@@ -274,7 +275,7 @@ export const MissionSearch: React.FC<MissionSearchProps> = ({
                 if (isMinimized) setIsMinimized(false);
               }}
               onKeyDown={handleInputKeyDown}
-              placeholder="Busca planeta, misión o pregunta (ej. primera misión a la Luna, Marte...)"
+              placeholder={tr('Busca planeta, misión o pregunta (ej. primera misión a la Luna, Marte...)', 'Search a planet, mission or question (e.g. Opportunity, Mars...)')}
               autoFocus={autoFocusInput}
               enterKeyHint="search"
               className="w-full min-w-0 bg-transparent text-base sm:text-xs text-white placeholder-slate-300 placeholder:text-xs focus:outline-none"
@@ -283,8 +284,8 @@ export const MissionSearch: React.FC<MissionSearchProps> = ({
               <button
                 type="button"
                 onClick={() => setQuery('')}
-                aria-label="Borrar texto de búsqueda"
-                title="Borrar texto"
+                aria-label={tr('Borrar texto de búsqueda', 'Clear search text')}
+                title={tr('Borrar texto', 'Clear text')}
                 className="p-1.5 rounded text-slate-300 hover:text-white hover:bg-white/10 cursor-pointer shrink-0"
               >
                 <Delete className="w-4 h-4" />
@@ -292,7 +293,7 @@ export const MissionSearch: React.FC<MissionSearchProps> = ({
             )}
             <span className="h-4 w-px bg-white/15 shrink-0" aria-hidden="true" />
             <PanelControls
-              label="buscador"
+              label={tr('buscador', 'search')}
               minimized={isMinimized}
               onToggleMinimize={() => setIsMinimized((prev) => !prev)}
               onClose={() => onOpenChange(false)}
@@ -318,7 +319,7 @@ export const MissionSearch: React.FC<MissionSearchProps> = ({
                 }`}
               >
                 <MapPin className="w-3 h-3 shrink-0" />
-                <span>Superficie</span>
+                <span>{tr('Superficie', 'Surface')}</span>
               </button>
               <button
                 type="button"
@@ -333,7 +334,7 @@ export const MissionSearch: React.FC<MissionSearchProps> = ({
                 }`}
               >
                 <Satellite className="w-3 h-3 shrink-0" />
-                <span>Satélites</span>
+                <span>{tr('Satélites', 'Satellites')}</span>
               </button>
               <button
                 type="button"
@@ -345,7 +346,7 @@ export const MissionSearch: React.FC<MissionSearchProps> = ({
                 }`}
               >
                 <Globe className="w-3 h-3 shrink-0" />
-                <span>Planetas</span>
+                <span>{tr('Planetas', 'Planets')}</span>
               </button>
               <button
                 type="button"
@@ -357,7 +358,7 @@ export const MissionSearch: React.FC<MissionSearchProps> = ({
                 }`}
               >
                 <Sparkles className="w-3 h-3 shrink-0" />
-                <span>Vía Láctea</span>
+                <span>{tr('Vía Láctea', 'Milky Way')}</span>
               </button>
             </div>
 
@@ -382,13 +383,13 @@ export const MissionSearch: React.FC<MissionSearchProps> = ({
                   </div>
                 )}
 
-                <div className="flex items-center gap-1 overflow-x-auto no-scrollbar pb-0.5" role="group" aria-label="Estado de la misión">
+                <div className="flex items-center gap-1 overflow-x-auto no-scrollbar pb-0.5" role="group" aria-label={tr('Estado de la misión', 'Mission status')}>
                   {(
                     [
-                      ['all', 'Todas'],
-                      ['leftBehind', 'Dejado atrás'],
-                      ['active', 'Activas'],
-                    ] as const
+                      ['all', tr('Todas', 'All')],
+                      ['leftBehind', tr('Dejado atrás', 'Left behind')],
+                      ['active', tr('Activas', 'Active')],
+                    ] as Array<['all' | 'leftBehind' | 'active', string]>
                   ).map(([id, label]) => (
                     <button
                       key={id}
@@ -418,7 +419,7 @@ export const MissionSearch: React.FC<MissionSearchProps> = ({
                           : 'text-slate-200 hover:text-white hover:bg-white/[0.06] border border-transparent'
                       }`}
                     >
-                      {dest}
+                      {destinationLabel(dest)}
                     </button>
                   ))}
                 </div>
@@ -477,8 +478,8 @@ export const MissionSearch: React.FC<MissionSearchProps> = ({
               filteredMissions.length === 0 ? (
                 <div className="p-5 text-center text-xs text-slate-200">
                   {smartAnswer
-                    ? 'Haz clic en la respuesta directa de arriba o pulsa Enter para viajar en 3D.'
-                    : 'No se encontraron misiones con esos filtros.'}
+                    ? tr('Haz clic en la respuesta directa de arriba o pulsa Enter para viajar en 3D.', 'Click the direct answer above or press Enter to fly there in 3D.')
+                    : tr('No se encontraron misiones con esos filtros.', 'No missions match these filters.')}
                 </div>
               ) : (
                 filteredMissions.map((mission) => {
@@ -508,7 +509,7 @@ export const MissionSearch: React.FC<MissionSearchProps> = ({
                           <span
                             className={`shrink-0 px-1 py-px rounded-full border text-[9px] font-semibold ${MISSION_STATE_STYLE[getMissionState(mission)]}`}
                           >
-                            {MISSION_STATE_LABEL[getMissionState(mission)]}
+                            {missionStateLabel(getMissionState(mission))}
                           </span>
                         </div>
                         <div className="mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs text-slate-200">
@@ -534,8 +535,8 @@ export const MissionSearch: React.FC<MissionSearchProps> = ({
               filteredBodies.length === 0 ? (
                 <div className="p-5 text-center text-xs text-slate-200">
                   {smartAnswer
-                    ? 'Haz clic en la respuesta directa de arriba o pulsa Enter para viajar en 3D.'
-                    : 'No se encontraron cuerpos celestes.'}
+                    ? tr('Haz clic en la respuesta directa de arriba o pulsa Enter para viajar en 3D.', 'Click the direct answer above or press Enter to fly there in 3D.')
+                    : tr('No se encontraron cuerpos celestes.', 'No celestial bodies found.')}
                 </div>
               ) : (
                 filteredBodies.map((body) => {
@@ -569,7 +570,7 @@ export const MissionSearch: React.FC<MissionSearchProps> = ({
                           <span aria-hidden="true">·</span>
                           <span>
                             {body.moons.length > 0
-                              ? `${body.moons.length} lunas principales`
+                              ? `${body.moons.length} ${tr('lunas principales', 'main moons')}`
                               : body.classification}
                           </span>
                         </div>
@@ -582,8 +583,8 @@ export const MissionSearch: React.FC<MissionSearchProps> = ({
             ) : filteredDeepSpace.length === 0 ? (
               <div className="p-5 text-center text-xs text-slate-200">
                 {smartAnswer
-                  ? 'Haz clic en la respuesta directa de arriba o pulsa Enter para viajar en 3D.'
-                  : 'No se encontraron objetos en la Vía Láctea.'}
+                  ? tr('Haz clic en la respuesta directa de arriba o pulsa Enter para viajar en 3D.', 'Click the direct answer above or press Enter to fly there in 3D.')
+                  : tr('No se encontraron objetos en la Vía Láctea.', 'No Milky Way objects found.')}
               </div>
             ) : (
               filteredDeepSpace.map((target: DeepSpaceTarget) => {

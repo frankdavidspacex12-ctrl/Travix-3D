@@ -16,6 +16,8 @@ import {
   VolumeX,
   X,
 } from 'lucide-react';
+import { getLang, tr } from '../i18n';
+import { narrate } from '../audio/narration';
 
 const TUTORIAL_SEEN_KEY = 'travix-tutorial-seen';
 const TUTORIAL_VOICE_KEY = 'travix-tutorial-voice';
@@ -39,19 +41,9 @@ function saveVoicePref(on: boolean): void {
   }
 }
 
-/** Lee el texto con una voz en español del dispositivo (Web Speech; sin archivos ni internet). */
+/** Lee el texto con la voz del dispositivo en el idioma actual (Web Speech; sin archivos ni internet). */
 function speak(text: string): void {
-  if (!canSpeak) return;
-  const synth = window.speechSynthesis;
-  synth.cancel();
-  const u = new SpeechSynthesisUtterance(text);
-  const voices = synth.getVoices();
-  const es =
-    voices.find((v) => /^es[-_](419|CO|MX|US)/i.test(v.lang)) ?? voices.find((v) => /^es\b|^es[-_]/i.test(v.lang));
-  if (es) u.voice = es;
-  u.lang = es?.lang ?? 'es-ES';
-  u.rate = 1;
-  synth.speak(u);
+  narrate(text);
 }
 
 function stopSpeaking(): void {
@@ -180,6 +172,65 @@ function findTarget(name: string | undefined): HTMLElement | null {
   return null;
 }
 
+
+/** English text for each step, keyed by the Spanish title. */
+const STEP_EN: Record<string, Pick<TutorialStep, 'title' | 'text' | 'touchTip' | 'mouseTip'>> = {
+  '¡Hola, explorador!': {
+    title: 'Hello, explorer!',
+    text: 'Travix 3D is a map of space. Here you will find the robots and spacecraft NASA left on the Moon, on Mars and farther away. We will show you how to use it in a few steps.',
+  },
+  'Mira a tu alrededor': {
+    title: 'Look around',
+    text: 'Turn the view to look at the Solar System. Tap a planet or its name to travel there.',
+    touchTip: 'Drag with one finger to turn, and pinch with two fingers to zoom in.',
+    mouseTip: 'Drag with the mouse to turn and use the wheel to zoom in.',
+  },
+  'Busca una misión': {
+    title: 'Find a mission',
+    text: 'With the magnifying glass you can find rovers, Apollo missions, satellites, planets and the Milky Way. Type a name and tap a result to go there.',
+  },
+  'Lee su historia': {
+    title: 'Read its story',
+    text: 'When you reach a mission, its card opens: what it did and why it was left there. On a planet, the book button shows its facts. The X closes the card and you keep viewing in 3D.',
+  },
+  'Viajes guiados': {
+    title: 'Guided tours',
+    text: 'Tap the compass and pick a tour. Travix takes you from place to place and tells you what you see.',
+  },
+  'Modo nave': {
+    title: 'Ship mode',
+    text: 'Turn on the rocket to travel in a starship. Every long trip becomes a hyperspace jump!',
+  },
+  'Música y sonidos': {
+    title: 'Music and sounds',
+    text: 'This button turns the space music and sound effects on or off. It starts off.',
+  },
+  'Llévala contigo': {
+    title: 'Take it with you',
+    text: 'From this button you can install Travix 3D as an app on your phone or computer and use it offline.',
+  },
+  'Volver al inicio': {
+    title: 'Back to the start',
+    text: 'If you get lost, tap “System” to return to the view of the whole Solar System.',
+    mouseTip: 'You can also press the Esc key.',
+  },
+  'Pausa y atajos': {
+    title: 'Pause and shortcuts',
+    text: 'This button stops or resumes the motion of the planets.',
+    touchTip: 'The arrow at the bottom hides the controls so you can see better.',
+    mouseTip: 'Shortcuts: Space pauses, H hides the controls and, with the free camera, W A S D or the arrow keys move you.',
+  },
+  '¡Listo para explorar!': {
+    title: 'Ready to explore!',
+    text: 'If you want to see this tutorial again, tap the question-mark button. The ES/EN button next to it switches the language.',
+  },
+};
+
+/** The step in the current language. */
+function localStep(s: TutorialStep): TutorialStep {
+  return getLang() === 'en' ? { ...s, ...(STEP_EN[s.title] ?? {}) } : s;
+}
+
 interface WelcomeTutorialProps {
   onClose: () => void;
 }
@@ -199,7 +250,7 @@ export const WelcomeTutorial: React.FC<WelcomeTutorialProps> = ({ onClose }) => 
   const titleId = useId();
   const bodyId = useId();
 
-  const step = STEPS[index];
+  const step = localStep(STEPS[index]);
   const isFirst = index === 0;
   const isLast = index === STEPS.length - 1;
 
@@ -380,7 +431,7 @@ export const WelcomeTutorial: React.FC<WelcomeTutorialProps> = ({ onClose }) => 
           </span>
           <div className={`min-w-0 flex-1 ${isFirst || !canSpeak ? "pr-7" : "pr-16"}`} aria-live="polite">
             <p className="text-[11px] font-semibold uppercase tracking-wider text-cyan-300/90">
-              Tutorial · Paso {index + 1} de {STEPS.length}
+              {tr('Tutorial · Paso', 'Tutorial · Step')} {index + 1} {tr('de', 'of')} {STEPS.length}
             </p>
             <h2 id={titleId} className="mt-0.5 font-display text-lg font-semibold text-white leading-tight">
               {step.title}
@@ -394,12 +445,12 @@ export const WelcomeTutorial: React.FC<WelcomeTutorialProps> = ({ onClose }) => 
 
         {/* Al principio: ¿con voz o sin voz? (con voz por defecto) */}
         {isFirst && canSpeak && (
-          <div className="mt-3" role="group" aria-label="¿Quieres el tutorial con voz?">
-            <p className="text-xs text-slate-300 mb-1.5">¿Cómo quieres el tutorial?</p>
+          <div className="mt-3" role="group" aria-label={tr('¿Quieres el tutorial con voz?', 'Do you want the tutorial with voice?')}>
+            <p className="text-xs text-slate-300 mb-1.5">{tr('¿Cómo quieres el tutorial?', 'How do you want the tutorial?')}</p>
             <div className="grid grid-cols-2 gap-2">
               {[
-                { on: true, label: 'Con voz', icon: Volume2 },
-                { on: false, label: 'Sin voz', icon: VolumeX },
+                { on: true, label: tr('Con voz', 'With voice'), icon: Volume2 },
+                { on: false, label: tr('Sin voz', 'Without voice'), icon: VolumeX },
               ].map(({ on, label, icon: VIcon }) => (
                 <button
                   key={label}
@@ -438,17 +489,17 @@ export const WelcomeTutorial: React.FC<WelcomeTutorialProps> = ({ onClose }) => 
             onClick={close}
             className="mr-auto px-2.5 py-2 rounded-lg text-sm text-slate-300 hover:text-white hover:bg-white/10 cursor-pointer focus-visible:outline-2 focus-visible:outline-amber-400"
           >
-            Saltar tutorial
+            {tr('Saltar tutorial', 'Skip tutorial')}
           </button>
           <button
             type="button"
             onClick={goPrev}
             disabled={isFirst}
-            aria-label="Paso anterior"
+            aria-label={tr('Paso anterior', 'Previous step')}
             className="inline-flex items-center gap-1 px-3 py-2 rounded-lg travix-glass-control text-sm text-slate-100 hover:text-white cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed focus-visible:outline-2 focus-visible:outline-amber-400"
           >
             <ChevronLeft className="w-4 h-4" aria-hidden="true" />
-            <span className="hidden min-[400px]:inline">Anterior</span>
+            <span className="hidden min-[400px]:inline">{tr('Anterior', 'Previous')}</span>
           </button>
           <button
             ref={nextRef}
@@ -456,7 +507,7 @@ export const WelcomeTutorial: React.FC<WelcomeTutorialProps> = ({ onClose }) => 
             onClick={goNext}
             className="inline-flex items-center gap-1 px-3.5 py-2 rounded-lg bg-amber-500/90 hover:bg-amber-400 text-slate-950 text-sm font-semibold cursor-pointer transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-300"
           >
-            <span>{isLast ? '¡A explorar!' : 'Siguiente'}</span>
+            <span>{isLast ? tr('¡A explorar!', 'Let\'s explore!') : tr('Siguiente', 'Next')}</span>
             {!isLast && <ChevronRight className="w-4 h-4" aria-hidden="true" />}
           </button>
         </div>
@@ -466,8 +517,8 @@ export const WelcomeTutorial: React.FC<WelcomeTutorialProps> = ({ onClose }) => 
             type="button"
             onClick={() => chooseVoice(!voiceOn)}
             aria-pressed={voiceOn}
-            aria-label={voiceOn ? 'Quitar la voz del tutorial' : 'Poner la voz del tutorial'}
-            title={voiceOn ? 'Quitar la voz' : 'Poner la voz'}
+            aria-label={voiceOn ? tr('Quitar la voz del tutorial', 'Turn off the tutorial voice') : tr('Poner la voz del tutorial', 'Turn on the tutorial voice')}
+            title={voiceOn ? tr('Quitar la voz', 'Turn off voice') : tr('Poner la voz', 'Turn on voice')}
             className="absolute top-2 right-10 inline-flex items-center justify-center w-8 h-8 rounded-md text-slate-300 hover:text-white hover:bg-white/12 cursor-pointer focus-visible:outline-2 focus-visible:outline-amber-400"
           >
             {voiceOn ? <Volume2 className="w-4 h-4" aria-hidden="true" /> : <VolumeX className="w-4 h-4" aria-hidden="true" />}
@@ -477,7 +528,7 @@ export const WelcomeTutorial: React.FC<WelcomeTutorialProps> = ({ onClose }) => 
         <button
           type="button"
           onClick={close}
-          aria-label="Cerrar tutorial"
+          aria-label={tr('Cerrar tutorial', 'Close tutorial')}
           className="absolute top-2 right-2 inline-flex items-center justify-center w-8 h-8 rounded-md text-slate-300 hover:text-white hover:bg-white/12 cursor-pointer focus-visible:outline-2 focus-visible:outline-amber-400"
         >
           <X className="w-4 h-4" aria-hidden="true" />

@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { getLang } from '../i18n';
 
 export const AU_TO_UNITS = 1000;
 const DEG2RAD = Math.PI / 180;
@@ -301,7 +302,7 @@ export function latLonToLocalVector3(
 export function formatCoordinates(latDeg: number, lonDeg: number): string {
   const latHem = latDeg >= 0 ? 'N' : 'S';
   const lonSigned = (((lonDeg + 180) % 360) + 360) % 360 - 180;
-  const lonHem = lonSigned >= 0 ? 'E' : 'O';
+  const lonHem = lonSigned >= 0 ? 'E' : getLang() === 'en' ? 'W' : 'O';
   return `${Math.abs(latDeg).toFixed(3)}° ${latHem} · ${Math.abs(lonSigned).toFixed(3)}° ${lonHem} (${lonDeg.toFixed(2)}° E)`;
 }
 

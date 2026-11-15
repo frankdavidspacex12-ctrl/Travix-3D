@@ -18,7 +18,7 @@ import {
 import { formatCoordinates } from '../astronomy/ephemeris';
 import { AbandonedMission } from '../data/abandonedMissionsData';
 import { getLeftBehindNote } from '../data/leftBehindNotes';
-import { getMissionState, MISSION_STATE_LABEL, MISSION_STATE_STYLE } from '../data/missionState';
+import { getMissionState, missionStateLabel, MISSION_STATE_STYLE } from '../data/missionState';
 import { canNarrate, narrate, stopNarration } from '../audio/narration';
 import { LinkedText, LinkTarget } from './LinkedText';
 import {
@@ -30,6 +30,7 @@ import type { SurfaceCameraMode } from '../three/surfaceDiorama';
 import type { SearchTab } from './MissionSearch';
 import { PANEL_ICON_BUTTON, PanelControls } from './PanelControls';
 import { useViewInset } from '../ui/viewInsets';
+import { tr } from '../i18n';
 
 interface MissionDossierProps {
   mission?: AbandonedMission | null;
@@ -96,7 +97,7 @@ export const MissionDossier: React.FC<MissionDossierProps> = ({
   // En la galería, una frase que no es transmisión literal se marca como interpretación.
   const activeQuote = mission
     ? leftBehindNote?.farewellNote
-      ? `${mission.farewellMessage} (frase atribuida, no transmitida)`
+      ? `${mission.farewellMessage} (${tr('frase atribuida, no transmitida', 'attributed phrase, not transmitted')})`
       : mission.farewellMessage
     : deepSpaceTarget?.classification ?? '';
 
@@ -136,10 +137,10 @@ export const MissionDossier: React.FC<MissionDossierProps> = ({
   const storyText = mission
     ? [
         mission.name + '.',
-        'Primer acto: su misión. ' + mission.whatItDid,
-        'Segundo acto: lo que nos enseñó. ' + mission.whyImportant,
-        leftBehindNote ? 'Tercer acto: por qué se quedó allí. ' + leftBehindNote.leftBehind : '',
-        'Último acto: hoy y su legado. ' + mission.status,
+        tr('Primer acto: su misión. ', 'Act one: its mission. ') + mission.whatItDid,
+        tr('Segundo acto: lo que nos enseñó. ', 'Act two: what it taught us. ') + mission.whyImportant,
+        leftBehindNote ? tr('Tercer acto: por qué se quedó allí. ', 'Act three: why it was left there. ') + leftBehindNote.leftBehind : '',
+        tr('Último acto: hoy y su legado. ', 'Final act: today and its legacy. ') + mission.status,
       ]
         .filter(Boolean)
         .join(' ')
@@ -168,7 +169,7 @@ export const MissionDossier: React.FC<MissionDossierProps> = ({
       {/* Compact Left-Side Historical / Astrophysical Text Card */}
       <aside
         ref={asideRef}
-        aria-label={`Información de ${activeName}`}
+        aria-label={`${tr('Información de', 'Information about')} ${activeName}`}
         className="travix-mobile-sheet fixed top-14 left-4 z-20 w-[min(320px,86vw)] max-h-[calc(100dvh-145px)] rounded-xl travix-glass-panel flex flex-col overflow-hidden"
       >
         <div
@@ -184,7 +185,7 @@ export const MissionDossier: React.FC<MissionDossierProps> = ({
               <span aria-hidden="true">·</span>
               <span className="font-mono-tabular text-amber-300 shrink-0">
                 {mission
-                  ? `Lanzado en ${mission.launchYear}`
+                  ? `${tr('Lanzado en', 'Launched in')} ${mission.launchYear}`
                   : deepSpaceTarget?.discoveryYear}
               </span>
             </div>
@@ -195,7 +196,7 @@ export const MissionDossier: React.FC<MissionDossierProps> = ({
               <span
                 className={`mt-1 inline-flex items-center px-1.5 py-px rounded-full border text-[10px] font-semibold ${MISSION_STATE_STYLE[getMissionState(mission)]}`}
               >
-                {MISSION_STATE_LABEL[getMissionState(mission)]}
+                {missionStateLabel(getMissionState(mission))}
               </span>
             )}
           </div>
@@ -205,8 +206,8 @@ export const MissionDossier: React.FC<MissionDossierProps> = ({
               <button
                 type="button"
                 onClick={openGallery}
-                aria-label="Volver a las fotos NASA"
-                title="Volver a las fotos NASA"
+                aria-label={tr('Volver a las fotos NASA', 'Back to the NASA photos')}
+                title={tr('Volver a las fotos NASA', 'Back to the NASA photos')}
                 className={`${PANEL_ICON_BUTTON} travix-glass-control text-amber-300`}
               >
                 <Camera className="w-4 h-4" />
@@ -217,8 +218,8 @@ export const MissionDossier: React.FC<MissionDossierProps> = ({
                 type="button"
                 onClick={toggleNarration}
                 aria-pressed={isNarrating}
-                aria-label={isNarrating ? 'Detener la narración' : `Escuchar la historia de ${activeName}`}
-                title={isNarrating ? 'Detener la narración' : 'Escuchar su historia'}
+                aria-label={isNarrating ? tr('Detener la narración', 'Stop the narration') : `${tr('Escuchar la historia de', 'Listen to the story of')} ${activeName}`}
+                title={isNarrating ? tr('Detener la narración', 'Stop the narration') : tr('Escuchar su historia', 'Listen to its story')}
                 className={`${PANEL_ICON_BUTTON} travix-glass-control ${isNarrating ? 'text-cyan-300' : 'text-amber-300 hover:text-amber-200'}`}
               >
                 {isNarrating ? <VolumeX className="w-3.5 h-3.5" /> : <Volume2 className="w-3.5 h-3.5" />}
@@ -228,19 +229,19 @@ export const MissionDossier: React.FC<MissionDossierProps> = ({
               <button
                 type="button"
                 onClick={() => onOpenSearch(preferredSearchTab)}
-                aria-label="Buscar misiones, planetas o galaxia"
-                title="Buscar otro destino o misión"
+                aria-label={tr('Buscar misiones, planetas o galaxia', 'Search missions, planets or the galaxy')}
+                title={tr('Buscar otro destino o misión', 'Search another destination or mission')}
                 className={`${PANEL_ICON_BUTTON} travix-glass-control text-amber-300 hover:text-amber-200`}
               >
                 <Search className="w-3.5 h-3.5" />
               </button>
             )}
             <PanelControls
-              label={`ficha de ${activeName}`}
+              label={`${tr('ficha de', 'card for')} ${activeName}`}
               minimized={isMinimized}
               onToggleMinimize={() => setIsMinimized((prev) => !prev)}
               onClose={onClose}
-              closeTitle="Cerrar ficha (seguir viendo en 3D)"
+              closeTitle={tr('Cerrar ficha (seguir viendo en 3D)', 'Close card (keep viewing in 3D)')}
               expandDirection="responsive"
             />
           </div>
@@ -261,7 +262,7 @@ export const MissionDossier: React.FC<MissionDossierProps> = ({
 
           <div>
             <div className="text-xs font-medium text-amber-300/95">
-              {mission ? '1 · Su misión' : 'Qué es y estructura'}
+              {mission ? tr('1 · Su misión', '1 · Its mission') : tr('Qué es y estructura', 'What it is')}
             </div>
             <p className="mt-0.5 text-slate-100 leading-relaxed">
               {linked(mission ? mission.whatItDid : deepSpaceTarget?.whatItIs)}
@@ -270,7 +271,7 @@ export const MissionDossier: React.FC<MissionDossierProps> = ({
 
           <div>
             <div className="text-xs font-medium text-amber-300/95">
-              {mission ? '2 · Lo que nos enseñó' : 'Por qué es tan importante'}
+              {mission ? tr('2 · Lo que nos enseñó', '2 · What it taught us') : tr('Por qué es tan importante', 'Why it matters')}
             </div>
             <p className="mt-0.5 text-slate-100 leading-relaxed">
               {linked(mission ? mission.whyImportant : deepSpaceTarget?.whyImportant)}
@@ -281,8 +282,8 @@ export const MissionDossier: React.FC<MissionDossierProps> = ({
             <div>
               <div className="text-xs font-medium text-amber-300/95">
                 {mission?.id === 'perseverance'
-                  ? '3 · Qué pasó con Ingenuity'
-                  : '3 · Por qué se quedó allí'}
+                  ? tr('3 · Qué pasó con Ingenuity', '3 · What happened to Ingenuity')
+                  : tr('3 · Por qué se quedó allí', '3 · Why it was left there')}
               </div>
               <p className="mt-0.5 text-slate-100 leading-relaxed">
                 {linked(leftBehindNote.leftBehind)}
@@ -293,7 +294,7 @@ export const MissionDossier: React.FC<MissionDossierProps> = ({
           {mission && (
             <div>
               <div className="text-xs font-medium text-amber-300/95">
-                {leftBehindNote ? '4 · Hoy y su legado' : '3 · Hoy y su legado'}
+                {leftBehindNote ? tr('4 · Hoy y su legado', '4 · Today and its legacy') : tr('3 · Hoy y su legado', '3 · Today and its legacy')}
               </div>
               <p className="mt-0.5 text-slate-100 leading-relaxed">
                 {linked(mission.status)}
@@ -304,7 +305,7 @@ export const MissionDossier: React.FC<MissionDossierProps> = ({
           {mission?.farewellMessage && (
             <div className="p-2.5 rounded-lg travix-glass-subcard">
               <div className="text-xs font-medium text-amber-300/95">
-                {leftBehindNote?.farewellNote ? 'Frase que se le atribuye' : 'Su historia en una frase'}
+                {leftBehindNote?.farewellNote ? tr('Frase que se le atribuye', 'Phrase attributed to it') : tr('Su historia en una frase', 'Its story in one line')}
               </div>
               <p className="mt-0.5 text-slate-100 leading-relaxed italic">
                 {linked(mission.farewellMessage)}
@@ -320,7 +321,7 @@ export const MissionDossier: React.FC<MissionDossierProps> = ({
           {leftBehindNote && leftBehindNote.sources.length > 0 && (
             <div>
               <div className="text-xs font-medium text-amber-300/95">
-                Fuentes NASA <span className="text-slate-200 font-normal">(requieren internet)</span>
+                {tr('Fuentes NASA', 'NASA sources')} <span className="text-slate-200 font-normal">({tr('requieren internet', 'need internet')})</span>
               </div>
               <ul className="mt-0.5 space-y-0.5">
                 {leftBehindNote.sources.map((source) => (
@@ -362,12 +363,12 @@ export const MissionDossier: React.FC<MissionDossierProps> = ({
                     {isSunlit ? (
                       <>
                         <Sun className="w-3 h-3 text-amber-400" />
-                        <span>Día</span>
+                        <span>{tr('Día', 'Day')}</span>
                       </>
                     ) : (
                       <>
                         <Moon className="w-3 h-3 text-slate-300" />
-                        <span>Noche</span>
+                        <span>{tr('Noche', 'Night')}</span>
                       </>
                     )}
                   </span>
@@ -396,7 +397,7 @@ export const MissionDossier: React.FC<MissionDossierProps> = ({
                   }`}
                 >
                   <Box className="w-3.5 h-3.5" />
-                  <span>Modelo 3D</span>
+                  <span>{tr('Modelo 3D', '3D model')}</span>
                 </button>
                 <button
                   type="button"
@@ -408,7 +409,7 @@ export const MissionDossier: React.FC<MissionDossierProps> = ({
                   }`}
                 >
                   <Eye className="w-3.5 h-3.5" />
-                  <span>Lo que ve</span>
+                  <span>{tr('Lo que ve', 'What it sees')}</span>
                 </button>
               </div>
             )}
@@ -422,7 +423,7 @@ export const MissionDossier: React.FC<MissionDossierProps> = ({
                 }`}
               >
                 <Camera className="w-3.5 h-3.5 text-amber-400" />
-                <span>{galleryParked ? 'Volver a fotos' : 'Fotos NASA'}</span>
+                <span>{galleryParked ? tr('Volver a fotos', 'Back to photos') : tr('Fotos NASA', 'NASA photos')}</span>
               </button>
               <button
                 type="button"
@@ -430,7 +431,7 @@ export const MissionDossier: React.FC<MissionDossierProps> = ({
                 className="inline-flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-lg travix-glass-control text-xs text-slate-100 cursor-pointer"
               >
                 <Orbit className="w-3.5 h-3.5 text-cyan-400" />
-                <span>{mission ? 'Ver planeta' : 'Sistema'}</span>
+                <span>{mission ? tr('Ver planeta', 'View planet') : tr('Sistema', 'System')}</span>
               </button>
             </div>
 
@@ -441,7 +442,7 @@ export const MissionDossier: React.FC<MissionDossierProps> = ({
                 className="inline-flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-lg travix-glass-control text-xs text-slate-100 cursor-pointer"
               >
                 <Sparkles className="w-3.5 h-3.5 text-indigo-300" />
-                <span>Mapa Vía Láctea</span>
+                <span>{tr('Mapa Vía Láctea', 'Milky Way map')}</span>
               </button>
             )}
           </div>
@@ -454,7 +455,7 @@ export const MissionDossier: React.FC<MissionDossierProps> = ({
         <div
           role="dialog"
           aria-modal="true"
-          aria-label={`Archivo fotográfico NASA de ${activeName}`}
+          aria-label={`${tr('Archivo fotográfico NASA de', 'NASA photo archive for')} ${activeName}`}
           onClick={closeGallery}
           className="fixed inset-0 z-40 bg-black/72 backdrop-blur-sm flex items-center justify-center p-2 sm:p-4"
         >
@@ -470,7 +471,7 @@ export const MissionDossier: React.FC<MissionDossierProps> = ({
                   </h3>
                   <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-emerald-500/18 border border-emerald-400/35 text-[11px] font-medium text-emerald-200 shrink-0">
                     <HardDrive className="w-2.5 h-2.5" />
-                    <span>Sin internet</span>
+                    <span>{tr('Sin internet', 'Offline')}</span>
                   </span>
                 </div>
                 <div className="text-xs text-slate-200 break-words">
@@ -484,8 +485,8 @@ export const MissionDossier: React.FC<MissionDossierProps> = ({
                     setIsGalleryMinimized(true);
                     setIsMinimized(false);
                   }}
-                  aria-label="Minimizar galería (se guarda en la ficha)"
-                  title="Minimizar (vuelve desde la ficha)"
+                  aria-label={tr('Minimizar galería (se guarda en la ficha)', 'Minimize gallery (kept in the card)')}
+                  title={tr('Minimizar (vuelve desde la ficha)', 'Minimize (reopen from the card)')}
                   className={PANEL_ICON_BUTTON}
                 >
                   <Minus className="w-4 h-4" />
@@ -493,7 +494,7 @@ export const MissionDossier: React.FC<MissionDossierProps> = ({
                 <button
                   type="button"
                   onClick={closeGallery}
-                  aria-label="Cerrar galería"
+                  aria-label={tr('Cerrar galería', 'Close gallery')}
                   title="Cerrar"
                   className={PANEL_ICON_BUTTON}
                 >
@@ -511,7 +512,7 @@ export const MissionDossier: React.FC<MissionDossierProps> = ({
                       onClick={() => setLightboxPhoto(null)}
                       className="px-2.5 py-1 rounded bg-white/8 hover:bg-white/14 text-xs text-slate-200 cursor-pointer"
                     >
-                      Volver a galería
+                      {tr('Volver a galería', 'Back to gallery')}
                     </button>
                     <div className="text-xs font-mono-tabular text-amber-300/90">
                       {lightboxPhoto.nasaId} · {lightboxPhoto.instrument} ·{' '}
