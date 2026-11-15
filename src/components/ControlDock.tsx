@@ -228,7 +228,7 @@ export const ControlDock: React.FC<ControlDockProps> = ({
           {searchContext && (
             <div className="mb-2.5 p-2 rounded-lg travix-glass-subcard border-amber-400/35">
               <div className="text-[11px] font-semibold uppercase tracking-wider text-amber-300">
-                Respuesta · {searchContext.headline}
+                {tr('Respuesta', 'Answer')} · {searchContext.headline}
               </div>
               <p className="mt-0.5 text-xs text-slate-100 leading-relaxed">
                 {onNavigateLink ? (

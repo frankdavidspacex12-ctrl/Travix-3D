@@ -38,6 +38,7 @@ import { soundscape } from './audio/soundscape';
 import type { WarpTarget } from './three/warpScene';
 import type { LinkTarget } from './components/LinkedText';
 import { getLang, setLang, tr, useLang } from './i18n';
+import { localizeAnswer } from './i18n/data';
 
 // Hyperspace jump of "Modo nave": its own chunk, loaded only when ship mode is turned on
 const WarpOverlay = lazy(() => import('./components/WarpOverlay'));
@@ -721,8 +722,10 @@ export default function App() {
   const activeSearchContext = useMemo(() => {
     if (!searchAnswer || !activeTargetKey) return null;
     if (searchAnswer.targetKey !== activeTargetKey) return null;
-    return { headline: searchAnswer.headline, answer: searchAnswer.answer };
-  }, [searchAnswer, activeTargetKey]);
+    return localizeAnswer(searchAnswer.headline, searchAnswer.answer);
+    // lang: the answer is shown again in the newly chosen language
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchAnswer, activeTargetKey, lang]);
 
   const hasActiveDossier = Boolean(selectedMission || selectedDeepSpace);
 
@@ -931,6 +934,17 @@ export default function App() {
             onCoverChange={handleWarpCover}
           />
         </Suspense>
+      )}
+
+      {/* Space Apps rule: AI-generated images must carry a visible watermark. The team starship
+          (shown while ship mode is on, also over the hyperspace jump) was generated with AI. */}
+      {isShipMode && (
+        <div
+          className="fixed left-3 bottom-16 sm:bottom-20 z-[61] pointer-events-none select-none rounded-full border border-white/25 bg-black/55 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider text-white/85 backdrop-blur-sm"
+          role="note"
+        >
+          {tr('Nave generada con IA', 'AI-generated ship')}
+        </div>
       )}
 
       {descent && <DescentOverlay key={descent.id} request={descent} onDone={handleDescentDone} />}

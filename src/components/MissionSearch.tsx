@@ -456,10 +456,10 @@ export const MissionSearch: React.FC<MissionSearchProps> = ({
               <div className="flex items-center justify-between gap-2 text-[11px] font-medium text-amber-300/95 uppercase tracking-wider">
                 <span className="inline-flex items-center gap-1">
                   <Sparkles className="w-3 h-3" />
-                  <span>Respuesta directa · {smartAnswer.destinationLabel}</span>
+                  <span>{tr('Respuesta directa', 'Direct answer')} · {smartAnswer.destinationLabel}</span>
                 </span>
                 <span className="inline-flex items-center gap-0.5 text-amber-200 normal-case">
-                  <span>Ver en 3D</span>
+                  <span>{tr('Ver en 3D', 'View in 3D')}</span>
                   <ArrowRight className="w-3 h-3" />
                 </span>
               </div>

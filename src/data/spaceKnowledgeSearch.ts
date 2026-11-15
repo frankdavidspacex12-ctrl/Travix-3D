@@ -11,6 +11,7 @@ import {
   DeepSpaceTargetId,
   MoonData,
 } from './solarSystemData';
+import { tr } from '../i18n';
 
 export type SpaceTargetRef =
   | { type: 'mission'; mission: AbandonedMission }
@@ -88,6 +89,27 @@ const SPANISH_STOPWORDS = new Set([
   'su',
   'sus',
   'lo',
+  // English
+  'the',
+  'and',
+  'was',
+  'were',
+  'what',
+  'which',
+  'who',
+  'how',
+  'where',
+  'when',
+  'with',
+  'for',
+  'from',
+  'its',
+  'are',
+  'did',
+  'does',
+  'that',
+  'this',
+  'there',
 ]);
 
 interface SemanticKnowledgeRule {
@@ -101,7 +123,7 @@ interface SemanticKnowledgeRule {
   answer: string;
 }
 
-const KNOWLEDGE_RULES: SemanticKnowledgeRule[] = [
+export const KNOWLEDGE_RULES: SemanticKnowledgeRule[] = [
   {
     keywords: [
       'primera mision luna',
@@ -634,7 +656,7 @@ export function resolveSpaceQuery(rawQuery: string): SpaceAnswerResult | null {
         target.type === 'mission'
           ? `${target.mission.categoryLabel} · ${target.mission.destinationLabel}`
           : target.type === 'moon'
-            ? `Luna de ${target.body.name}`
+            ? `${tr('Luna de', 'Moon of')} ${target.body.name}`
             : target.type === 'body'
               ? target.body.classification
               : target.target.classification;
@@ -739,9 +761,12 @@ export function resolveSpaceQuery(rawQuery: string): SpaceAnswerResult | null {
           score: mScore,
           result: {
             target: { type: 'moon', bodyId: body.id, moonId: moon.id, body, moon },
-            headline: `${moon.name} · Luna de ${body.name}`,
-            answer: `${moon.name} orbita ${body.name} con un periodo de ${Math.abs(moon.orbitalPeriodDays).toFixed(1)} días.`,
-            destinationLabel: `Satélite natural de ${body.name}`,
+            headline: `${moon.name} · ${tr('Luna de', 'Moon of')} ${body.name}`,
+            answer: tr(
+              `${moon.name} orbita ${body.name} con un periodo de ${Math.abs(moon.orbitalPeriodDays).toFixed(1)} días.`,
+              `${moon.name} orbits ${body.name} with a period of ${Math.abs(moon.orbitalPeriodDays).toFixed(1)} days.`,
+            ),
+            destinationLabel: `${tr('Satélite natural de', 'Natural satellite of')} ${body.name}`,
             accentColor: body.accentColor,
           },
         };

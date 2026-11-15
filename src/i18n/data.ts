@@ -7,6 +7,8 @@ import { CELESTIAL_BODIES, DEEP_SPACE_TARGETS } from '../data/solarSystemData';
 import { LANDING_BY_CRAFT } from '../data/landingMethods';
 import { NASA_GUIDED_TOURS } from '../data/guidedToursData';
 import { TOURS_EN, TOUR_STEPS_EN } from './toursEn';
+import { KNOWLEDGE_RULES } from '../data/spaceKnowledgeSearch';
+import { KNOWLEDGE_EN } from './knowledgeEn';
 import { MISSIONS_EN } from './missionsEn';
 import { NOTES_EN, sourceLabelEn } from './notesEn';
 import { LANDING_EN } from './landingEn';
@@ -33,6 +35,24 @@ function swap(obj: object, en: Record<string, unknown> | undefined, lang: Lang):
 
 const CATEGORY_EN: Record<string, string> = { Satélite: 'Satellite', Sonda: 'Probe' };
 
+// English keywords are added once, so questions typed in English also find the direct answers
+const EN_TO_ES = new Map<string, { headline: string; answer: string }>();
+for (const rule of KNOWLEDGE_RULES) {
+  const en = KNOWLEDGE_EN[rule.headline];
+  if (!en) continue;
+  rule.keywords.push(...en.keywords);
+  EN_TO_ES.set(en.headline, { headline: rule.headline, answer: rule.answer });
+}
+
+/** A direct answer (found in either language) in the current language. */
+export function localizeAnswer(headline: string, answer: string): { headline: string; answer: string } {
+  const es = EN_TO_ES.get(headline) ?? (KNOWLEDGE_EN[headline] ? { headline, answer } : null);
+  if (!es) return { headline, answer };
+  if (getLang() === 'es') return es;
+  const en = KNOWLEDGE_EN[es.headline];
+  return { headline: en.headline, answer: en.answer };
+}
+
 export function applyLanguageToData(lang: Lang): void {
   for (const m of ABANDONED_MISSIONS) {
     const en: Record<string, unknown> = { ...(MISSIONS_EN[m.id] ?? {}) };
@@ -54,6 +74,11 @@ export function applyLanguageToData(lang: Lang): void {
   for (const t of NASA_GUIDED_TOURS) {
     swap(t, TOURS_EN[t.id], lang);
     for (const st of t.steps) swap(st, TOUR_STEPS_EN[st.id], lang);
+  }
+  for (const rule of KNOWLEDGE_RULES) {
+    const es = (originals.get(rule)?.headline as string) ?? rule.headline;
+    const en = KNOWLEDGE_EN[es];
+    if (en) swap(rule, { headline: en.headline, answer: en.answer }, lang);
   }
 }
 
