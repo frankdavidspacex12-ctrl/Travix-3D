@@ -6,6 +6,7 @@ import { QUIZ_QUESTIONS, type QuizQuestion } from '../data/quizData';
 import type { GuidedTourTarget } from '../data/guidedToursData';
 import { getLang, tr } from '../i18n';
 import { ShareButton } from './ShareButton';
+import GlossaryView from './GlossaryView';
 
 const ANSWERED_KEY = 'travix-quiz-answered';
 const TOTAL = QUIZ_QUESTIONS.length;
@@ -62,6 +63,10 @@ interface Round {
  */
 let savedRound: Round | null = null;
 
+/** Tab of the «Learn» panel (kept across the language switch and reopening). */
+type LearnTab = 'quiz' | 'glossary';
+let savedTab: LearnTab = 'quiz';
+
 interface QuizPanelProps {
   onClose: () => void;
   onGo: (target: GuidedTourTarget) => void;
@@ -71,6 +76,11 @@ const COUNT_CHOICES = [5, 10, 20];
 
 const QuizPanel: React.FC<QuizPanelProps> = ({ onClose, onGo }) => {
   const [answered, setAnswered] = useState<AnsweredMap>(loadAnswered);
+  const [tab, setTabState] = useState<LearnTab>(savedTab);
+  const setTab = (t: LearnTab) => {
+    savedTab = t;
+    setTabState(t);
+  };
   const [round, setRoundState] = useState<Round | null>(savedRound);
   const remainingIds = useMemo(() => QUIZ_QUESTIONS.filter((q) => !(q.id in answered)).map((q) => q.id), [answered]);
   const remaining = remainingIds.length;
@@ -118,6 +128,8 @@ const QuizPanel: React.FC<QuizPanelProps> = ({ onClose, onGo }) => {
         onClose();
         return;
       }
+      // In the glossary the keys are for typing in its search box
+      if (tab !== 'quiz') return;
       if (!round || finished || !current) return;
       // Enter on a focused button already clicks it
       if (e.key === 'Enter' && e.target instanceof HTMLButtonElement) return;
@@ -382,7 +394,7 @@ const QuizPanel: React.FC<QuizPanelProps> = ({ onClose, onGo }) => {
             <GraduationCap className="w-5 h-5 text-amber-300" aria-hidden="true" />
           </span>
           <h2 id="quiz-title" className="flex-1 text-lg font-bold text-white">
-            {tr('Pon a prueba tus conocimientos', 'Test your knowledge')}
+            {tr('Aprende', 'Learn')}
           </h2>
           <button
             type="button"
@@ -393,7 +405,26 @@ const QuizPanel: React.FC<QuizPanelProps> = ({ onClose, onGo }) => {
             <X className="w-5 h-5" aria-hidden="true" />
           </button>
         </div>
-        {body}
+        <div className="mb-3 grid grid-cols-2 gap-1 rounded-full bg-black/35 p-1" role="tablist" aria-label={tr('Secciones', 'Sections')}>
+          {([
+            ['quiz', tr('Pon a prueba', 'Test yourself')],
+            ['glossary', tr('Glosario', 'Glossary')],
+          ] as Array<[LearnTab, string]>).map(([t, label]) => (
+            <button
+              key={t}
+              type="button"
+              role="tab"
+              aria-selected={tab === t}
+              onClick={() => setTab(t)}
+              className={`h-9 rounded-full text-sm font-semibold cursor-pointer transition-colors ${
+                tab === t ? 'bg-amber-500 text-slate-950' : 'text-slate-200 hover:text-white'
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        {tab === 'glossary' ? <GlossaryView onGo={onGo} onClose={onClose} /> : body}
       </section>
     </div>
   );

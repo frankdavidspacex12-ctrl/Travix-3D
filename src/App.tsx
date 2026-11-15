@@ -847,8 +847,8 @@ export default function App() {
           type="button"
           onClick={() => setIsQuizOpen(true)}
           data-tour="quiz"
-          aria-label={tr('Pon a prueba tus conocimientos', 'Test your knowledge')}
-          title={tr('Pon a prueba tus conocimientos: 100 preguntas', 'Test your knowledge: 100 questions')}
+          aria-label={tr('Aprende: glosario y preguntas', 'Learn: glossary and quiz')}
+          title={tr('Aprende: glosario del espacio y 100 preguntas', 'Learn: space glossary and 100 questions')}
           className="pointer-events-auto w-10 h-10 rounded-full flex items-center justify-center travix-glass-bar text-slate-100 hover:text-white hover:border-white/35 transition-colors cursor-pointer shrink-0 focus-visible:outline-2 focus-visible:outline-amber-400"
         >
           <GraduationCap className="w-4 h-4 text-amber-400 shrink-0" aria-hidden="true" />
