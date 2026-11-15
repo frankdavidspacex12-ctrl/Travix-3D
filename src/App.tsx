@@ -6,6 +6,8 @@
 import { lazy, memo, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowRight, FileText, HelpCircle, Search, Sun } from 'lucide-react';
 import { MemoNearbyObjects } from './components/NearbyObjects';
+import { DescentOverlay, type DescentRequest } from './components/DescentOverlay';
+import { getLandingInfo } from './data/landingMethods';
 import {
   ABANDONED_MISSIONS,
   AbandonedMission,
@@ -227,6 +229,9 @@ export default function App() {
   useViewInset('app-header', headerRef, 'top');
 
   const [selection, setSelection] = useState<FocusSelection | null>(null);
+  // Animación «Así aterrizó» al entrar en una misión de superficie
+  const [descent, setDescent] = useState<DescentRequest | null>(null);
+  const descentIdRef = useRef(0);
   const [activeDeepSpaceId, setActiveDeepSpaceId] =
     useState<DeepSpaceTargetId | null>(null);
   const [hoveredId, setHoveredId] = useState<CelestialBodyId | null>(null);
@@ -310,7 +315,18 @@ export default function App() {
           }));
         },
         onSurfaceModeChange: (active, viewMode) => {
-          if (active && !lastSurfaceActive) soundscape.appear();
+          if (active && !lastSurfaceActive) {
+            soundscape.appear();
+            // «Así aterrizó»: cómo llegó de verdad esta misión (se omite con «reducir movimiento»)
+            const missionId = arrivalContextRef.current.selection?.missionId;
+            const mission = missionId ? ABANDONED_MISSIONS.find((m) => m.id === missionId) : undefined;
+            const landing = mission ? getLandingInfo(mission) : null;
+            const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+            if (mission && landing && !reduced) {
+              setDescent({ id: ++descentIdRef.current, mission, landing });
+            }
+          }
+          if (!active) setDescent(null);
           lastSurfaceActive = active;
           setIsSurfaceActive(active);
           setSurfaceViewMode(viewMode);
@@ -439,6 +455,10 @@ export default function App() {
   }, []);
   const handleToggleSound = useCallback(() => {
     soundscape.setEnabled(!soundscape.isEnabled());
+  }, []);
+
+  const handleDescentDone = useCallback((id: number) => {
+    setDescent((cur) => (cur && cur.id === id ? null : cur));
   }, []);
 
   const handleWarpDone = useCallback((id: number) => {
@@ -890,6 +910,8 @@ export default function App() {
           <WarpOverlay request={warpRequest} onDone={handleWarpDone} />
         </Suspense>
       )}
+
+      {descent && <DescentOverlay key={descent.id} request={descent} onDone={handleDescentDone} />}
     </main>
   );
 }
