@@ -4,7 +4,7 @@
  */
 
 import { Fragment, lazy, memo, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowRight, FileText, GraduationCap, HelpCircle, Search, Sun } from 'lucide-react';
+import { ArrowRight, FileText, GraduationCap, HelpCircle, Sun } from 'lucide-react';
 import { MemoNearbyObjects } from './components/NearbyObjects';
 import { DescentOverlay, type DescentRequest } from './components/DescentOverlay';
 import { getLandingInfo } from './data/landingMethods';
@@ -883,7 +883,8 @@ export default function App() {
         onSelectDeepSpace={handleSelectDeepSpace}
       />
 
-      {/* Restore Ficha / Search buttons when user closes X on Mission / Deep Space dossier */}
+      {/* «View card» after closing the mission / deep-space card with X (search is already in the
+          header and the dock, so no third search button here) */}
       {isInfoHidden && hasActiveDossier && (
         <div className="travix-mobile-sheet fixed top-14 left-4 z-20 flex items-center gap-2">
           <button
@@ -893,24 +894,6 @@ export default function App() {
           >
             <FileText className="w-3.5 h-3.5 text-amber-400" />
             <span>{tr('Ver ficha', 'View card')}</span>
-          </button>
-          <button
-            type="button"
-            onClick={() =>
-              handleOpenSearch(
-                selectedMission
-                  ? 'surface'
-                  : selectedDeepSpace
-                    ? 'galaxy'
-                    : 'planets',
-              )
-            }
-            aria-label={tr('Buscar otro destino', 'Search another destination')}
-            title={tr('Buscar planetas, misiones o galaxia', 'Search planets, missions or the galaxy')}
-            className="inline-flex items-center gap-1.5 px-3.5 py-2 sm:px-3 sm:py-1.5 rounded-full travix-glass-bar text-xs text-slate-100 hover:text-white transition-colors cursor-pointer"
-          >
-            <Search className="w-3.5 h-3.5 text-amber-400" />
-            <span>{tr('Buscar', 'Search')}</span>
           </button>
         </div>
       )}
