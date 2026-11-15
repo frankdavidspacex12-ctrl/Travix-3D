@@ -20,7 +20,7 @@ School-age explorers fly through the Solar System, find each artifact at its rea
 
 | Challenge goal | What Travix 3D does |
 |---|---|
-| Tell the story of equipment left on the Moon, Mars and beyond | 55 missions on their real coordinates; every artifact from the challenge's NASA resource list has its own story card |
+| Tell the story of equipment left on the Moon, Mars and beyond | 54 missions on their real coordinates; every artifact from the challenge's NASA resource list has its own story card |
 | Explain what it is, why it was sent and what science it made possible | Each story card covers: what it did, why it matters, **why it was left there** (the engineering decision or the end of the mission) and its legacy |
 | Make it engaging for school-age audiences | Real-time 3D flight, a "ship mode" with hyperspace jumps, short texts for students, a narrated welcome tutorial, and a **"How it landed"** animation for every surface mission (sky crane, airbags, retro-rockets, parachutes in Titan's haze…) |
 | Accuracy | Facts and dates checked against NSSDCA and science.nasa.gov; the source is linked on every card. Poetic phrases are labeled as interpretation (e.g. Opportunity's famous "My battery is low…" is an interpretation of its last telemetry, not a literal message) |
