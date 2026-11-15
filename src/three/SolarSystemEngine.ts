@@ -360,6 +360,56 @@ const OUTER_ATMOSPHERE_BODIES = new Set(['uranus', 'neptune', 'pluto']);
  * 0,902. Se aplica igual al planeta, a su brillo de atmósfera y a sus auroras, para que nada
  * sobresalga de los polos.
  */
+/**
+ * Si un mapa de luna tiene grandes zonas negras (superficie que ninguna nave fotografió), devuelve
+ * una imagen nueva con esas zonas rellenas por la textura procedural; null si el mapa está completo.
+ */
+async function fillUnmappedMoonAreas(
+  img: HTMLImageElement,
+  getProcedural: () => CanvasImageSource,
+): Promise<HTMLImageElement | null> {
+  const w = img.naturalWidth;
+  const h = img.naturalHeight;
+  if (!w || !h) return null;
+  const canvas = document.createElement('canvas');
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  if (!ctx) return null;
+  ctx.drawImage(img, 0, 0);
+  const real = ctx.getImageData(0, 0, w, h);
+  const rd = real.data;
+  let black = 0;
+  for (let i = 0; i < rd.length; i += 16) if (rd[i] + rd[i + 1] + rd[i + 2] < 24) black++;
+  if (black / (rd.length / 16) < 0.3) return null; // mapa completo: no se toca
+  ctx.drawImage(getProcedural(), 0, 0, w, h);
+  const base = ctx.getImageData(0, 0, w, h);
+  const bd = base.data;
+  for (let i = 0; i < rd.length; i += 4) {
+    // Peso de la foto real: 0 en lo negro (sin datos), 1 donde hay imagen (transición suave)
+    const lum = (rd[i] + rd[i + 1] + rd[i + 2]) / 3;
+    const t = Math.min(1, Math.max(0, (lum - 6) / 22));
+    const k = t * t * (3 - 2 * t);
+    bd[i] = bd[i] + (rd[i] - bd[i]) * k;
+    bd[i + 1] = bd[i + 1] + (rd[i + 1] - bd[i + 1]) * k;
+    bd[i + 2] = bd[i + 2] + (rd[i + 2] - bd[i + 2]) * k;
+  }
+  ctx.putImageData(base, 0, 0);
+  const blob = await new Promise<Blob | null>((res) => canvas.toBlob(res, 'image/jpeg', 0.9));
+  if (!blob) return null;
+  const url = URL.createObjectURL(blob);
+  // La URL no se libera: la imagen la siguen usando WebGL y el procesador 8K (solo pasa con Tritón)
+  try {
+    const out = new Image();
+    out.src = url;
+    await out.decode();
+    return out;
+  } catch {
+    URL.revokeObjectURL(url);
+    return null;
+  }
+}
+
 /** Lunas principales de cada planeta que llevan etiqueta al mirarlo (máximo 4 por planeta). */
 const MAIN_MOONS: Partial<Record<string, string[]>> = {
   earth: ['luna'],
@@ -2281,10 +2331,29 @@ export class SolarSystemEngine {
         if (mData.textureUrl) {
           loader.load(
             mData.textureUrl,
-            (tex) => {
+            async (loadedTex) => {
               if (this.disposed) {
-                tex.dispose();
+                loadedTex.dispose();
                 return;
+              }
+              // Mapas incompletos (p. ej. Tritón: Voyager 2 solo fotografió ~1/5 de su superficie y el
+              // resto del mapa es negro): lo no fotografiado se rellena con la textura procedural
+              // del mismo tipo de luna; la foto real se conserva tal cual donde existe.
+              let tex = loadedTex;
+              if (tex.image instanceof HTMLImageElement) {
+                const filled = await fillUnmappedMoonAreas(
+                  tex.image,
+                  () => getMoonProceduralSet().map.image as CanvasImageSource,
+                );
+                if (this.disposed) {
+                  loadedTex.dispose();
+                  return;
+                }
+                if (filled) {
+                  loadedTex.dispose();
+                  tex = new THREE.Texture(filled);
+                  tex.needsUpdate = true;
+                }
               }
               tex.colorSpace = THREE.SRGBColorSpace;
               tex.wrapS = THREE.RepeatWrapping;
