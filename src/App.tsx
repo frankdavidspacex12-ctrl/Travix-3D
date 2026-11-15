@@ -65,7 +65,15 @@ function warpTargetFor(bodyId: CelestialBodyId, moonId?: string): WarpTarget | u
     .sort((a, b) => b.radius - a.radius)
     .slice(0, 4)
     .map((m) => ({ texture: m.textureUrl, color: '#cbd5e1', size: m.radius / body.visualRadius }));
-  return { texture: body.textures.map, color: body.accentColor, glow: body.id === 'sun', companions };
+  const rings = body.rings
+    ? {
+        inner: body.rings.innerMultiplier,
+        outer: body.rings.outerMultiplier,
+        opacity: body.rings.opacity,
+        saturn: body.rings.hasCassiniDetail,
+      }
+    : undefined;
+  return { texture: body.textures.map, color: body.accentColor, glow: body.id === 'sun', companions, rings };
 }
 
 // The engine pushes the simulation clock to React ~8×/s. Only ControlDock shows the clock, so

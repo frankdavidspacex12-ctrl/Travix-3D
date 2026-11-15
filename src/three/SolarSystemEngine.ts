@@ -563,6 +563,7 @@ export class SolarSystemEngine {
   private sunSurfaceMat: THREE.ShaderMaterial | null = null;
   private sunChromoMat: THREE.ShaderMaterial | null = null;
   private sunProminenceMats: THREE.ShaderMaterial[] = [];
+  private sunProminences: Array<{ mesh: THREE.Mesh; mat: THREE.ShaderMaterial; period: number; offset: number }> = [];
   private sunInnerGlowMat: THREE.SpriteMaterial | null = null;
   private sunInnerGlow: THREE.Sprite | null = null;
   private sunOuterGlow: THREE.Sprite | null = null;
@@ -1312,6 +1313,8 @@ export class SolarSystemEngine {
               uFocusBoost: { value: 0 },
       uExposureComp: { value: 1 },
               uSeed: { value: p * 1.9 },
+              uLife: { value: 1 },
+              uFlare: { value: 0 },
             },
             vertexShader: `
               varying vec2 vUv;
@@ -1325,13 +1328,17 @@ export class SolarSystemEngine {
               uniform float uFocusBoost;
               uniform float uExposureComp;
               uniform float uSeed;
+              uniform float uLife;
+              uniform float uFlare;
               varying vec2 vUv;
               void main() {
-                float flow = 0.55 + 0.45 * sin(vUv.x * 18.0 - uTime * 2.4 + uSeed);
+                // Plasma que corre a lo largo del arco (más rápido que antes para que se note)
+                float flow = 0.55 + 0.45 * sin(vUv.x * 18.0 - uTime * 3.4 + uSeed);
                 float edgeFade = sin(vUv.x * 3.14159);
                 vec3 col = mix(vec3(1.0, 0.42, 0.12), vec3(1.0, 0.86, 0.42), flow);
-                float alpha = edgeFade * (0.38 + 0.42 * flow) * mix(0.75, 1.5, uFocusBoost);
-                gl_FragColor = vec4(col * mix(1.35, 2.55, uFocusBoost) * uExposureComp, alpha);
+                col = mix(col, vec3(1.0, 0.95, 0.75), uFlare * 0.6);
+                float alpha = edgeFade * (0.38 + 0.42 * flow) * mix(0.75, 1.5, uFocusBoost) * uLife;
+                gl_FragColor = vec4(col * mix(1.35, 2.55, uFocusBoost) * (1.0 + uFlare * 1.4) * uExposureComp, alpha);
               }
             `,
             transparent: true,
@@ -1351,6 +1358,8 @@ export class SolarSystemEngine {
           arcMesh.rotateZ(sp.tilt);
           tiltGroup.add(arcMesh);
           this.sunProminenceMats.push(arcMat);
+          // Cada arco vive su propio ciclo (nace, sube, a veces estalla, se apaga), desfasado de los demás
+          this.sunProminences.push({ mesh: arcMesh, mat: arcMat, period: 9 + p * 2.3, offset: p * 3.7 });
           this.disposables.push(arcGeo, arcMat);
         }
 
@@ -4408,13 +4417,25 @@ export class SolarSystemEngine {
     const dJ2000 = daysSinceJ2000(this.simEpochMs);
     this.applyJ2000State(dJ2000, false);
 
+    // Ilustrativo (no son las erupciones reales de hoy): la superficie hierve el doble de rápido
+    // que antes para que en tiempo real (1×) no parezca quieta.
     this.sunAnimTime +=
-      dt * (this.isPaused ? 0.2 : 1 + Math.log10(Math.max(1, this.timeMultiplier)) * 0.4);
+      dt * 2 * (this.isPaused ? 0.2 : 1 + Math.log10(Math.max(1, this.timeMultiplier)) * 0.4);
     if (this.sunSurfaceMat) {
       this.sunSurfaceMat.uniforms.uTime.value = this.sunAnimTime;
     }
     for (const pMat of this.sunProminenceMats) {
       pMat.uniforms.uTime.value = this.surfaceElapsed;
+    }
+    // Ciclo de vida de cada protuberancia: crece y sube, brilla en su punto más alto
+    // (destello breve, como una erupción) y se desvanece antes de volver a nacer.
+    for (const pr of this.sunProminences) {
+      const u = (((this.surfaceElapsed + pr.offset) / pr.period) % 1 + 1) % 1;
+      const life = Math.pow(Math.sin(Math.PI * u), 0.7);
+      const grow = 0.55 + 0.75 * (u * u * (3 - 2 * u));
+      pr.mesh.scale.setScalar(grow);
+      pr.mat.uniforms.uLife.value = life;
+      pr.mat.uniforms.uFlare.value = Math.exp(-Math.pow((u - 0.62) / 0.06, 2));
     }
     for (const aMat of this.auroraMats) {
       aMat.uniforms.uTime.value = this.surfaceElapsed;

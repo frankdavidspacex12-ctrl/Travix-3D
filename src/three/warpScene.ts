@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { createGlowTexture, createShipRig, loadShipTemplate, ShipRig } from './shipModel';
+import { createDetailedSaturnRingTexture, createUranusRingTexture } from './proceduralTextures';
 
 /**
  * Hyperspace / wormhole jump used by "Modo nave": radial light streaks, a flowing tunnel, the
@@ -21,7 +22,26 @@ export interface WarpTarget {
    * porque el hipersalto es una transición visual, no un viaje a escala.
    */
   companions?: WarpCompanion[];
+  /** Anillos del destino (Saturno, Urano), en múltiplos de su radio, como en la vista 3D. */
+  rings?: { inner: number; outer: number; opacity: number; saturn: boolean };
 }
+
+/** Anillo plano (en XZ) con UV radial: u = de dentro hacia fuera, igual que en la vista 3D. */
+function createRingGeometry(inner: number, outer: number): THREE.RingGeometry {
+  const geo = new THREE.RingGeometry(inner, outer, 128, 4);
+  const pos = geo.attributes.position;
+  const uv = geo.attributes.uv;
+  for (let i = 0; i < pos.count; i++) {
+    const r = Math.hypot(pos.getX(i), pos.getY(i));
+    uv.setXY(i, THREE.MathUtils.clamp((r - inner) / (outer - inner), 0, 1), 0.5);
+  }
+  uv.needsUpdate = true;
+  geo.rotateX(-Math.PI / 2);
+  return geo;
+}
+
+/** Inclinación con la que se ven los anillos durante el salto (rad): de frente serían una línea. */
+const RING_VIEW_TILT = 0.42;
 
 export interface WarpCompanion {
   texture?: string;
@@ -69,6 +89,8 @@ export class WarpScene {
   private companionGeo: THREE.SphereGeometry;
   private companionGroup = new THREE.Group();
   private companionMeshes: Array<{ mesh: THREE.Mesh; mat: THREE.MeshStandardMaterial; angle: number; orbit: number }> = [];
+  private ringMesh: THREE.Mesh<THREE.RingGeometry, THREE.MeshStandardMaterial> | null = null;
+  private ringKey = '';
   private textureLoader = new THREE.TextureLoader();
   private time = 0;
   private readonly count: number;
@@ -237,7 +259,8 @@ export class WarpScene {
 
   /** Destination shown ahead during the jump (null = no specific target). */
   public setTarget(target: WarpTarget | null): void {
-    this.setCompanions(target?.companions ?? []);
+    this.setRings(target?.rings ?? null);
+    this.setCompanions(target?.companions ?? [], target?.rings?.outer ?? 0);
     if (!target) {
       this.target.visible = false;
       this.targetHalo.visible = false;
@@ -289,8 +312,37 @@ export class WarpScene {
     }
   }
 
+  /** Crea (o quita) los anillos del destino; se reutilizan si el destino no cambió. */
+  private setRings(rings: WarpTarget['rings'] | null): void {
+    const key = rings ? `${rings.inner}:${rings.outer}:${rings.opacity}:${rings.saturn}` : '';
+    if (key === this.ringKey) return;
+    this.ringKey = key;
+    if (this.ringMesh) {
+      this.scene.remove(this.ringMesh);
+      this.ringMesh.geometry.dispose();
+      this.ringMesh.material.map?.dispose();
+      this.ringMesh.material.dispose();
+      this.ringMesh = null;
+    }
+    if (!rings) return;
+    const tex = rings.saturn ? createDetailedSaturnRingTexture(4) : createUranusRingTexture(4);
+    const mat = new THREE.MeshStandardMaterial({
+      map: tex,
+      transparent: true,
+      opacity: rings.opacity,
+      side: THREE.DoubleSide,
+      roughness: 0.8,
+      metalness: 0.04,
+      depthWrite: false,
+      alphaTest: 0.015,
+    });
+    this.ringMesh = new THREE.Mesh(createRingGeometry(TARGET_RADIUS * rings.inner, TARGET_RADIUS * rings.outer), mat);
+    this.ringMesh.rotation.set(RING_VIEW_TILT, 0, -0.18);
+    this.scene.add(this.ringMesh);
+  }
+
   /** Reemplaza las lunas acompañantes (libera las anteriores: materiales y texturas). */
-  private setCompanions(list: WarpCompanion[]): void {
+  private setCompanions(list: WarpCompanion[], ringOuter = 0): void {
     for (const c of this.companionMeshes) {
       this.companionGroup.remove(c.mesh);
       c.mat.map?.dispose();
@@ -304,7 +356,7 @@ export class WarpScene {
       const mesh = new THREE.Mesh(this.companionGeo, mat);
       mesh.scale.setScalar(size);
       // Cada luna un poco más lejos que la anterior, fuera del disco del destino
-      const orbit = TARGET_RADIUS * (1.7 + i * 0.55 + size);
+      const orbit = TARGET_RADIUS * (Math.max(1.7, ringOuter + 0.35) + i * 0.55 + size);
       this.companionMeshes.push({ mesh, mat, angle: COMPANION_ANGLES[i], orbit });
       this.companionGroup.add(mesh);
       if (item.texture) {
@@ -383,6 +435,12 @@ export class WarpScene {
     this.targetHalo.scale.set(halo, halo, 1);
     this.targetHalo.material.opacity = this.target.visible ? 0.35 + 0.25 * approach : 0.9;
 
+    // Anillos: acompañan al destino con una inclinación fija (no giran con su textura)
+    if (this.ringMesh) {
+      this.ringMesh.visible = this.target.visible;
+      this.ringMesh.position.copy(this.target.position);
+    }
+
     // Lunas acompañantes: alrededor del destino, girando despacio en un plano algo inclinado
     this.companionGroup.visible = this.target.visible && this.companionMeshes.length > 0;
     this.companionGroup.position.copy(this.target.position);
@@ -418,6 +476,7 @@ export class WarpScene {
     this.rig?.dispose();
     this.targetMat.map?.dispose();
     this.setCompanions([]);
+    this.setRings(null);
     this.renderer.dispose();
   }
 }

@@ -82,13 +82,29 @@ class Soundscape {
    */
   resumeOnFirstGesture(): void {
     if (!this.enabled) return;
+    // En pantallas táctiles el permiso de audio llega al levantar el dedo (pointerup/touchend/click),
+    // no al tocar (pointerdown): si se creaba el audio en pointerdown quedaba bloqueado («suspended»)
+    // y no se reintentaba, así que había que apagar y encender el sonido. Ahora se reintenta en cada
+    // gesto hasta que el audio esté realmente sonando.
+    const events = ['pointerdown', 'pointerup', 'touchend', 'click', 'keydown'] as const;
+    const stop = () => events.forEach((ev) => window.removeEventListener(ev, start, true));
     const start = () => {
-      window.removeEventListener('pointerdown', start);
-      window.removeEventListener('keydown', start);
-      if (this.enabled && !this.ctx) this.setEnabled(true);
+      if (!this.enabled) {
+        stop();
+        return;
+      }
+      if (!this.ctx) {
+        this.setEnabled(true);
+      } else if (this.ctx.state !== 'running') {
+        void this.ctx.resume();
+      }
+      if (this.ctx?.state === 'running') stop();
+      else
+        void this.ctx?.resume().then(() => {
+          if (this.ctx?.state === 'running') stop();
+        });
     };
-    window.addEventListener('pointerdown', start, { once: true });
-    window.addEventListener('keydown', start, { once: true });
+    events.forEach((ev) => window.addEventListener(ev, start, { capture: true, passive: true }));
   }
 
   // ---------------------------------------------------------------- efectos
