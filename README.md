@@ -6,7 +6,7 @@
 🌐 **Live app:** https://travix-3-d.vercel.app (installable PWA, works offline)
 
 > Independent educational project. Not affiliated with, endorsed by, or sponsored by NASA.
-> The interface is in Spanish (our audience is Spanish-speaking school students); this README and the project page are in English.
+> The app opens in **English**; the **ES/EN** button (next to the "?" tutorial button) switches every text, story card, guided tour and the voice narration to Spanish for our Spanish-speaking school audience.
 
 ---
 
