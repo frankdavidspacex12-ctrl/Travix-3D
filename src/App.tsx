@@ -198,6 +198,12 @@ export default function App() {
     () => window.matchMedia('(max-width: 639.98px)').matches,
   );
 
+  // The librito (planet / moon panel) opens by itself every time the camera arrives at a body.
+  // Read from the engine's arrival callback, so the latest values live in refs.
+  const [planetInfoRequest, setPlanetInfoRequest] = useState({ id: 0, minimized: false });
+  const arrivalContextRef = useRef({ selection, activeDeepSpaceId, isPhone, isTourCardOpen });
+  arrivalContextRef.current = { selection, activeDeepSpaceId, isPhone, isTourCardOpen };
+
   useEffect(() => {
     const mq = window.matchMedia('(max-width: 639.98px)');
     const onChange = () => setIsPhone(mq.matches);
@@ -232,8 +238,20 @@ export default function App() {
           setIsSiteSunlit(sunlit);
         },
         onCameraModeChange: (mode) => setCameraMode(mode),
-        // Sonido de llegada cuando la cámara termina el viaje
-        onArrive: () => soundscape.arrive(),
+        // Sonido de llegada cuando la cámara termina el viaje, y el librito se abre solo
+        onArrive: () => {
+          soundscape.arrive();
+          const ctx = arrivalContextRef.current;
+          // Missions have their own ficha; deep-space views have no librito
+          if (!ctx.selection || ctx.selection.missionId || ctx.activeDeepSpaceId) return;
+          setIsDockCollapsed(false);
+          setIsPlanetInfoOpen(true);
+          // Phones with the guide card open: slim bar, so the planet stays in view (one tap opens it)
+          setPlanetInfoRequest((r) => ({
+            id: r.id + 1,
+            minimized: ctx.isPhone && ctx.isTourCardOpen,
+          }));
+        },
         onSurfaceModeChange: (active, viewMode) => {
           if (active && !lastSurfaceActive) soundscape.appear();
           lastSurfaceActive = active;
@@ -265,9 +283,10 @@ export default function App() {
     };
   }, []);
 
-  // Phones only: tell the engine which screen bands the panels cover so the focused planet,
-  // moon or spacecraft stays fully visible in the free area. From `sm` up panels sit at the sides
-  // and the desktop framing stays exactly as before.
+  // Tell the engine which screen bands the panels cover so the focused planet, moon or spacecraft
+  // stays fully visible in the free area. Phones: always. Desktop: only the bottom band while the
+  // librito is open (it opens by itself on arrival); otherwise the desktop framing is unchanged.
+  const isLibritoShown = isPlanetInfoOpen && !isDockCollapsed && !selection?.missionId;
   useEffect(() => {
     const phone = window.matchMedia('(max-width: 639.98px)');
     let latest = { top: 0, bottom: 0 };
@@ -275,7 +294,7 @@ export default function App() {
       const engine = engineRef.current;
       if (!engine) return;
       if (phone.matches) engine.setViewInsets(latest.top, latest.bottom);
-      else engine.setViewInsets(0, 0);
+      else engine.setViewInsets(0, isLibritoShown ? latest.bottom : 0);
     };
     const unsubscribe = subscribeViewInsets((insets) => {
       latest = insets;
@@ -288,7 +307,7 @@ export default function App() {
       unsubscribe();
       phone.removeEventListener('change', push);
     };
-  }, []);
+  }, [isLibritoShown]);
 
   const [isWelcomeOpen, setIsWelcomeOpen] = useState(shouldShowWelcome);
   const handleCloseWelcome = useCallback(() => setIsWelcomeOpen(false), []);
@@ -313,10 +332,21 @@ export default function App() {
   }, []);
 
   /** Runs `go` directly, or wrapped in a hyperspace jump when ship mode is on. */
-  const travel = useCallback((label: string, go: () => void, target?: WarpTarget) => {
+  /**
+   * `hostKey` = the body the destination is on / around ("earth:", "earth:luna"). When it is the
+   * body the user is already at (Earth -> ISS, Mars -> a Martian rover), the ship flies there over
+   * the planet in the 3D view itself: no hyperspace jump for a trip that never leaves the planet.
+   */
+  const travel = useCallback((label: string, go: () => void, target?: WarpTarget, hostKey?: string) => {
     const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     soundscape.select();
-    if (!shipModeRef.current || reducedMotion) {
+    const here = arrivalContextRef.current;
+    const currentHost =
+      here.selection && !here.activeDeepSpaceId
+        ? `${here.selection.bodyId}:${here.selection.moonId ?? ''}`
+        : null;
+    const sameBody = Boolean(hostKey && currentHost && hostKey === currentHost);
+    if (!shipModeRef.current || reducedMotion || sameBody) {
       soundscape.travel();
       go();
       return;
@@ -348,7 +378,7 @@ export default function App() {
     (id: CelestialBodyId, context?: ActiveSearchAnswer) => {
       setSearchAnswer(context ?? null);
       setIsPlanetInfoOpen(Boolean(context));
-      travel(bodyName(id), () => engineRef.current?.flyToBody(id), warpTargetFor(id));
+      travel(bodyName(id), () => engineRef.current?.flyToBody(id), warpTargetFor(id), `${id}:`);
     },
     [travel],
   );
@@ -360,7 +390,12 @@ export default function App() {
       const moonName =
         CELESTIAL_BODIES.find((b) => b.id === bodyId)?.moons.find((m) => m.id === moonId)?.name ??
         moonId;
-      travel(moonName, () => engineRef.current?.flyToMoon(bodyId, moonId), warpTargetFor(bodyId, moonId));
+      travel(
+        moonName,
+        () => engineRef.current?.flyToMoon(bodyId, moonId),
+        warpTargetFor(bodyId, moonId),
+        `${bodyId}:${moonId}`,
+      );
     },
     [travel],
   );
@@ -373,6 +408,10 @@ export default function App() {
         mission.name,
         () => engineRef.current?.flyToMission(mission),
         warpTargetFor(mission.targetBodyId, mission.targetMoonId),
+        // Probes in deep space are never "on" the planet they are listed under
+        mission.missionRole === 'deepspace'
+          ? undefined
+          : `${mission.targetBodyId}:${mission.targetMoonId ?? ''}`,
       );
     },
     [travel],
@@ -715,6 +754,7 @@ export default function App() {
         selectedMoon={selectedMoon}
         selectedMission={selectedMission}
         isPlanetInfoOpen={isPlanetInfoOpen}
+        planetInfoRequest={planetInfoRequest}
         searchContext={activeSearchContext}
         cameraMode={cameraMode}
         simEpochMs={simEpochMs}

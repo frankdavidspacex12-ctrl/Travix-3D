@@ -110,15 +110,29 @@ export interface ShipRig {
    * glowScale shrinks the engine glow for the small always-on ship
    */
   update: (time: number, power: number, gain: number, glowScale?: number) => void;
+  /** Hull opacity 0..1 (fade in / out); fully opaque rendering at 1 */
+  setOpacity: (opacity: number) => void;
   dispose: () => void;
 }
 
 /** A ship instance (shares the template's geometry and material) with blue-violet engine thrust. */
 export function createShipRig(template: THREE.Group, glowTex: THREE.Texture): ShipRig {
   const group = new THREE.Group();
-  group.add(template.clone(true));
+  const model = template.clone(true);
+  group.add(model);
 
   const disposables: Array<{ dispose: () => void }> = [];
+  // Own copy of the hull materials (textures stay shared) so each ship can fade on its own
+  const hullMats: THREE.Material[] = [];
+  model.traverse((o) => {
+    const mesh = o as THREE.Mesh;
+    if (!mesh.isMesh) return;
+    const mat = (mesh.material as THREE.Material).clone();
+    mesh.material = mat;
+    hullMats.push(mat);
+    disposables.push(mat);
+  });
+  let hullOpacity = 1;
   const plumeMat = new THREE.ShaderMaterial({
     uniforms: { uTime: { value: 0 }, uPower: { value: 1 }, uGain: { value: 1 } },
     vertexShader: `
@@ -196,6 +210,20 @@ export function createShipRig(template: THREE.Group, glowTex: THREE.Texture): Sh
       for (const g of glows) {
         const s = g.size * (2.4 + power * 1.4) * flick * glowScale;
         g.sprite.scale.set(s, s, 1);
+      }
+    },
+    setOpacity(opacity) {
+      const o = THREE.MathUtils.clamp(opacity, 0, 1);
+      if (Math.abs(o - hullOpacity) < 1e-3) return;
+      const wasOpaque = hullOpacity >= 0.999;
+      hullOpacity = o;
+      const opaque = o >= 0.999;
+      for (const m of hullMats) {
+        m.opacity = o;
+        m.transparent = !opaque;
+        // Keep depth writes so the hull does not show its own inner faces while fading
+        m.depthWrite = true;
+        if (wasOpaque !== opaque) m.needsUpdate = true;
       }
     },
     dispose() {

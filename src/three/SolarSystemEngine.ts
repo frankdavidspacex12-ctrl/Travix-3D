@@ -573,6 +573,10 @@ export class SolarSystemEngine {
   private shipLoading = false;
   private shipThrust = 0;
   private readonly shipSunDir = new THREE.Vector3();
+  /** Camera turn rate (rad/s, + = turning left) so the ship banks into turns while flying */
+  private shipTurn = 0;
+  private readonly prevCamQuat = new THREE.Quaternion();
+  private readonly turnQuat = new THREE.Quaternion();
   private cometMats: Array<{ material: THREE.MeshBasicMaterial | THREE.PointsMaterial; baseColor: THREE.Color }> = [];
   private lastCometComp = -1;
   private sunOuterGlowMat: THREE.SpriteMaterial | null = null;
@@ -2844,6 +2848,7 @@ export class SolarSystemEngine {
 
   public flyToBody(id: CelestialBodyId): void {
     this.navRequestToken++;
+    this.shipOverlay?.resetInspection();
     const runtime = this.bodies.get(id);
     if (!runtime) return;
 
@@ -2892,6 +2897,7 @@ export class SolarSystemEngine {
 
   public flyToMoon(bodyId: CelestialBodyId, moonId: string): void {
     this.navRequestToken++;
+    this.shipOverlay?.resetInspection();
     const moon = this.moonsById.get(moonId);
     if (!moon || moon.parentId !== bodyId) return;
 
@@ -2937,6 +2943,7 @@ export class SolarSystemEngine {
 
   public flyToMission(mission: AbandonedMission): void {
     const token = ++this.navRequestToken;
+    this.shipOverlay?.resetInspection();
     const needsDioramaNow =
       (this.surfaceDiorama && this.surfaceMission?.id !== mission.id) ||
       (!this.surfaceDiorama && mission.missionRole === 'deepspace');
@@ -2999,6 +3006,7 @@ export class SolarSystemEngine {
 
   public flyToDeepSpace(id: DeepSpaceTargetId): void {
     const token = ++this.navRequestToken;
+    this.shipOverlay?.resetInspection();
     const mod = deepSpaceModule;
     if (!mod) {
       void loadDeepSpaceModule()
@@ -3313,6 +3321,7 @@ export class SolarSystemEngine {
 
   public resetToOverview(): void {
     this.navRequestToken++;
+    this.shipOverlay?.resetInspection();
     this.pendingSurfaceMission = null;
     this.clearActive8KUpgrade();
     if (this.deepSpaceDiorama) {
@@ -3393,6 +3402,7 @@ export class SolarSystemEngine {
         overlay.setViewport(this.viewportW, this.viewportH, this.viewInsetTop, this.viewInsetBottom);
         overlay.setVisible(this.shipModeOn);
         this.shipOverlay = overlay;
+        this.setupShipInteraction();
         if (this.composer) {
           // Drawn right after the 3D view, on a cleared depth buffer: never clips into planets
           const pass = new RenderPass(overlay.scene, overlay.camera);
@@ -3450,6 +3460,110 @@ export class SolarSystemEngine {
     return { x: (_projVec.x * 0.5 + 0.5) * w, y: (-_projVec.y * 0.5 + 0.5) * h, r };
   }
 
+  /**
+   * Hand inspection of the ship: press on it to grab it (the 3D view camera stays put), drag to
+   * turn it, wheel / two-finger pinch to bring it closer, double click to send it back on course.
+   */
+  private setupShipInteraction(): void {
+    const el = this.container;
+    const canvas = this.renderer.domElement;
+    const pointers = new Map<number, { x: number; y: number }>();
+    let pinchDist = 0;
+    const local = (e: { clientX: number; clientY: number }) => {
+      const r = el.getBoundingClientRect();
+      return { x: e.clientX - r.left, y: e.clientY - r.top };
+    };
+    const onShip = (e: { clientX: number; clientY: number }) => {
+      const o = this.shipOverlay;
+      if (!o) return false;
+      const p = local(e);
+      return o.hitTest(p.x, p.y);
+    };
+    const setCursor = (c: string) => {
+      if (canvas.style.cursor !== c) canvas.style.cursor = c;
+    };
+
+    const onDown = (e: PointerEvent) => {
+      if (e.pointerType === 'mouse' && e.button !== 0) return;
+      // A second finger joins an ongoing ship grab: pinch
+      if (pointers.size === 0 && !onShip(e)) return;
+      e.stopPropagation();
+      e.preventDefault();
+      pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      try {
+        el.setPointerCapture(e.pointerId);
+      } catch {
+        // pointer already released
+      }
+      if (pointers.size === 2) {
+        const [a, b] = [...pointers.values()];
+        pinchDist = Math.hypot(a.x - b.x, a.y - b.y);
+      }
+      setCursor('grabbing');
+    };
+    const onMove = (e: PointerEvent) => {
+      const prev = pointers.get(e.pointerId);
+      if (!prev) {
+        if (e.pointerType === 'mouse' && e.buttons === 0) setCursor(onShip(e) ? 'grab' : '');
+        return;
+      }
+      e.stopPropagation();
+      e.preventDefault();
+      const o = this.shipOverlay;
+      if (pointers.size >= 2) {
+        pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+        const [a, b] = [...pointers.values()];
+        const d = Math.hypot(a.x - b.x, a.y - b.y);
+        if (pinchDist > 0 && d > 0) o?.zoomBy(d / pinchDist);
+        pinchDist = d;
+        return;
+      }
+      o?.rotateBy(e.clientX - prev.x, e.clientY - prev.y);
+      pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    };
+    const onUp = (e: PointerEvent) => {
+      if (!pointers.has(e.pointerId)) return;
+      e.stopPropagation();
+      pointers.delete(e.pointerId);
+      pinchDist = 0;
+      try {
+        el.releasePointerCapture(e.pointerId);
+      } catch {
+        // already released
+      }
+      if (pointers.size === 0) setCursor(e.pointerType === 'mouse' && onShip(e) ? 'grab' : '');
+    };
+    const onWheel = (e: WheelEvent) => {
+      if (!onShip(e)) return;
+      e.stopPropagation();
+      e.preventDefault();
+      this.shipOverlay?.zoomBy(Math.exp(-e.deltaY * 0.0015));
+    };
+    const onDblClick = (e: MouseEvent) => {
+      if (!onShip(e)) return;
+      e.stopPropagation();
+      this.shipOverlay?.resetInspection();
+    };
+
+    // Capture phase on the container: runs before the camera controls on the canvas
+    el.addEventListener('pointerdown', onDown, { capture: true });
+    el.addEventListener('pointermove', onMove, { capture: true });
+    el.addEventListener('pointerup', onUp, { capture: true });
+    el.addEventListener('pointercancel', onUp, { capture: true });
+    el.addEventListener('wheel', onWheel, { capture: true, passive: false });
+    el.addEventListener('dblclick', onDblClick, { capture: true });
+    this.disposables.push({
+      dispose: () => {
+        el.removeEventListener('pointerdown', onDown, { capture: true });
+        el.removeEventListener('pointermove', onMove, { capture: true });
+        el.removeEventListener('pointerup', onUp, { capture: true });
+        el.removeEventListener('pointercancel', onUp, { capture: true });
+        el.removeEventListener('wheel', onWheel, { capture: true });
+        el.removeEventListener('dblclick', onDblClick, { capture: true });
+      },
+    });
+  }
+
   private updateShipOverlay(dt: number): void {
     const overlay = this.shipOverlay;
     if (!overlay) return;
@@ -3462,7 +3576,20 @@ export class SolarSystemEngine {
     }
     this.shipThrust = THREE.MathUtils.damp(this.shipThrust, this.isFlying ? 1 : 0.12, 3, dt);
     const inv = this.composer ? 1 / Math.max(this.currentExposure, 1e-3) : 1;
-    overlay.update(dt, this.camera, this.shipSunDir, inv, this.shipThrust, this.getFocusScreenCircle());
+    // Yaw rate of the view in its own frame (small-angle: 2 * q.y / dt)
+    this.turnQuat.copy(this.prevCamQuat).invert().multiply(this.camera.quaternion);
+    this.prevCamQuat.copy(this.camera.quaternion);
+    const yawRate = dt > 0 ? THREE.MathUtils.clamp((2 * this.turnQuat.y) / dt, -2, 2) : 0;
+    this.shipTurn = THREE.MathUtils.damp(this.shipTurn, yawRate, 4, dt);
+    overlay.update(
+      dt,
+      this.camera,
+      this.shipSunDir,
+      inv,
+      this.shipThrust,
+      this.getFocusScreenCircle(),
+      this.shipTurn,
+    );
     if (this.shipPass) this.shipPass.enabled = overlay.isActive;
   }
 
