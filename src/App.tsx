@@ -994,7 +994,7 @@ export default function App() {
           (shown while ship mode is on, also over the hyperspace jump) was generated with AI. */}
       {isShipMode && (
         <div
-          className="fixed right-3 bottom-[calc(env(safe-area-inset-bottom)+8.5rem)] z-[61] pointer-events-none select-none rounded-full border border-white/10 px-2 py-0.5 text-[9px] font-medium uppercase tracking-wider text-white/40"
+          className="fixed right-3 bottom-[calc(env(safe-area-inset-bottom)+8.5rem)] z-[61] pointer-events-none select-none rounded-full border border-white/30 bg-black/55 px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-wider text-white/85"
           role="note"
         >
           {tr('Nave generada con IA', 'AI-generated ship')}
