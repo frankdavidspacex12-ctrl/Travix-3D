@@ -59,7 +59,7 @@ AI tools were used as accelerators; the idea, the story, the mission selection a
 
 - **Code:** the first version of the app was generated in **Google AI Studio** (Gemini) from the team's prompt; later work was written with **Claude Code** (Claude). Everything was directed, reviewed and tested by the team, and the git history records each change.
 - **Texts:** mission story texts were drafted with AI help and checked against NSSDCA and NASA mission pages.
-- **Images / 3D:** the team starship was generated with AI: a concept image made with **Google Gemini**, turned into a 3D model with **MakerWorld MakerLab "Image to 3D"** (Bambu Lab), then optimized by the team. The planet and moon textures were gathered during the initial build in Google AI Studio. Any AI-generated image or video used in the demo carries a visible watermark.
+- **Images / 3D:** the team starship was generated with AI: a concept image made with **Google Gemini**, turned into a 3D model with **MakerWorld MakerLab "Image to 3D"** (Bambu Lab), then optimized by the team. The team badge ("Steps Ahead") was also generated with AI. The planet and moon textures were gathered during the initial build in Google AI Studio. Inside the app, AI use is declared in the welcome screen's "Credits and sources" and in this README, not with on-screen labels; any AI-generated image or video shown in the demo video carries a visible "AI-generated" watermark.
 - **Audio:** no AI-generated audio is used in the app (all sounds are synthesized in code).
 
 ## Run it locally
